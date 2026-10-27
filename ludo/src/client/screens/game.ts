@@ -15,7 +15,7 @@ import { setGameHandler, showError } from '../app.js';
 import { hop, sleep, slide } from '../board/animate.js';
 import { TokenLayer, boardSvg } from '../board/render.js';
 import { Dice, dieChip } from '../dice.js';
-import { canFullscreen, enterFullscreen, isFullscreen } from '../fullscreen.js';
+import { bindFullscreenButton, canFullscreen, enterFullscreen, isFullscreen } from '../fullscreen.js';
 import { vibrate } from '../haptics.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
@@ -50,6 +50,7 @@ export function gameScreen(root: HTMLElement): () => void {
       <button class="icon-btn" id="menu" aria-label="Menu">☰</button>
       <div class="turn-banner" id="banner"></div>
       <button class="icon-btn voice-btn" id="voice" aria-label="Voice chat"></button>
+      <button class="icon-btn" id="fullscreen" aria-label="Fullscreen" hidden></button>
       <button class="icon-btn" id="sound" aria-label="Sound"></button>
     </header>
     <div class="players">${TOP.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
@@ -100,6 +101,7 @@ export function gameScreen(root: HTMLElement): () => void {
   };
   $(root, '#menu').onclick = () => openMenu();
   $(root, '#voice').onclick = () => void onVoiceButton();
+  const offFs = bindFullscreenButton($<HTMLButtonElement>(root, '#fullscreen'));
   $(root, '#takeback').onclick = async () => {
     const r = await emit('game:takeback', { gameId: gs!.id });
     if (!r.ok) showError(r.error);
@@ -255,7 +257,7 @@ export function gameScreen(root: HTMLElement): () => void {
           break;
         case 'bonus':
           play('bonus');
-          callout('Bonus roll!', 'for the capture');
+          callout('Bonus roll!', 'roll again');
           await sleep(500);
           break;
         case 'turn':
@@ -515,6 +517,7 @@ export function gameScreen(root: HTMLElement): () => void {
     ro.disconnect();
     offVoice();
     offStore();
+    offFs();
     // Voice belongs to the board screen; leaving it (results, home) leaves the channel.
     void voice.leave();
   };

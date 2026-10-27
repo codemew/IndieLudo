@@ -171,6 +171,8 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number): 
       endTurn(state, events);
       return events;
     }
+    // Reaching home earns a bonus roll, like a capture (not for the last token: that player is done).
+    turn.bonus++;
   }
 
   evaluateForfeit(state, events);

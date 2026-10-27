@@ -74,6 +74,44 @@ describe('moving', () => {
     expect(legalMoves({ ...s, turn: { ...s.turn, phase: 'moving', queue: [1] } }).some((m) => m.tokenId === 0)).toBe(false);
   });
 
+  it('reaching home grants a bonus roll', () => {
+    const s = withQueue(game(), [3]);
+    s.tokens.red = [53, 10, BASE, BASE];
+    const events = applyMove(s, 0, 0);
+    expect(events.map((e) => e.type)).toEqual(['move', 'home', 'bonus']);
+    expect(currentColor(s)).toBe('red');
+    expect(s.turn).toMatchObject({ phase: 'rolling', queue: [], sixes: 0, bonus: 0 });
+  });
+
+  it('a home bonus waits until the queued dice are spent', () => {
+    const s = withQueue(game(), [3, 2]);
+    s.tokens.red = [53, 10, BASE, BASE];
+    expect(applyMove(s, 0, 0).map((e) => e.type)).toEqual(['move', 'home']);
+    expect(s.turn).toMatchObject({ phase: 'moving', queue: [2], bonus: 1 });
+    expect(applyMove(s, 0, 1).map((e) => e.type)).toEqual(['move', 'bonus']);
+    expect(currentColor(s)).toBe('red');
+  });
+
+  it('home and capture bonuses add up', () => {
+    const s = withQueue(game(), [3, 3]);
+    s.tokens.red = [53, 2, BASE, BASE];
+    s.tokens.yellow = [31, BASE, BASE, BASE]; // absolute 5 = red progress 5
+    applyMove(s, 0, 0); // home
+    applyMove(s, 0, 1); // capture
+    expect(s.turn.bonus).toBe(1); // one already used to start the next roll
+    expect(s.turn.phase).toBe('rolling');
+    applyRoll(s, 2); // red's tokens: home, 5 → 7 is legal
+    expect(currentColor(s)).toBe('red');
+  });
+
+  it('the last token reaching home gives no bonus: that player is done', () => {
+    const s = withQueue(game(['red', 'green', 'yellow']), [2]);
+    s.tokens.red = [HOME, HOME, HOME, 54];
+    const events = applyMove(s, 0, 3);
+    expect(events.map((e) => e.type)).not.toContain('bonus');
+    expect(currentColor(s)).toBe('green');
+  });
+
   it('rejects illegal moves', () => {
     const s = withQueue(game(), [3]);
     expect(() => applyMove(s, 0, 0)).toThrow(RuleError);

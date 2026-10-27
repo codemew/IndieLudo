@@ -70,7 +70,7 @@ npm run typecheck
 
 ## How players get in
 
-1. **Splash:** the player taps *Tap to play*. That one tap turns on fullscreen, locks portrait where the browser allows it, unlocks sound, and keeps the screen awake while the app is open. The home screen also has a fullscreen on/off button.
+1. **Splash:** the player taps *Tap to play*. That one tap turns on fullscreen, locks portrait where the browser allows it, unlocks sound, and keeps the screen awake while the app is open. The home screen and the game screen also have a fullscreen on/off button.
 2. **Access code:** a new phone enters the 6‑digit code from the terminal. **Each phone needs a code only once.** The phone gets a permanent device token, saved in `localStorage` and in an HttpOnly cookie. It stays verified when the code changes, when the server restarts, and when its account is deleted or its session revoked. The code is needed again only if an admin taps **Revoke device**, or if the browser's data is cleared.
 3. **Name:** the player picks a username. There is no password, and the phone remembers the session, so reopening the page goes straight into the app.
 4. **Lobby:**
@@ -89,6 +89,7 @@ npm run typecheck
 - **Finishing** takes the exact roll; a die that would overshoot cannot be used.
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
 - **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base, and earns a **bonus roll**.
+- **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
 - **Queued rolls and the three‑sixes penalty:**
   - A 6 means the player rolls again. Each roll is added to a queue, and **no token moves until the queue is closed** by a roll that is not a 6.
   - A **third 6 in a row cancels the whole turn**. The queue is thrown away and play passes to the next player. Nothing had moved yet, so nothing needs to be undone.

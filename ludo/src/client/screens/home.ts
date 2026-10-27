@@ -1,11 +1,11 @@
 import type { LobbySummary, PublicLobby } from '../../shared/types.js';
 import { logout, showError } from '../app.js';
-import { canFullscreen, enterFullscreen, exitFullscreen, isFullscreen, isStandalone, onFullscreenChange } from '../fullscreen.js';
+import { bindFullscreenButton } from '../fullscreen.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
 import { state, subscribe, update } from '../store.js';
-import { $, ICONS, el, esc, modal } from '../ui.js';
+import { $, el, esc, modal } from '../ui.js';
 import { adminLoginDialog } from './admin.js';
 
 export function homeScreen(root: HTMLElement): () => void {
@@ -43,17 +43,7 @@ export function homeScreen(root: HTMLElement): () => void {
   $(root, '#menu').onclick = () => openMenu();
   $(root, '#create').onclick = () => createLobbyDialog();
 
-  // An installed (home-screen) app is already fullscreen; otherwise offer a toggle.
-  const fsBtn = $<HTMLButtonElement>(root, '#fullscreen');
-  const paintFs = () => {
-    // Chrome reports display-mode: fullscreen while API fullscreen is on, so check that first.
-    fsBtn.hidden = !canFullscreen() || (isStandalone() && !isFullscreen());
-    fsBtn.innerHTML = isFullscreen() ? ICONS.collapse : ICONS.expand;
-    fsBtn.setAttribute('aria-label', isFullscreen() ? 'Exit fullscreen' : 'Fullscreen');
-  };
-  paintFs();
-  fsBtn.onclick = () => void (isFullscreen() ? exitFullscreen() : enterFullscreen());
-  const offFs = onFullscreenChange(paintFs);
+  const offFs = bindFullscreenButton($<HTMLButtonElement>(root, '#fullscreen'));
 
   const render = () => {
     const u = state.user;

@@ -28,7 +28,7 @@ export interface Turn {
   queue: number[];
   /** Sixes rolled in the current rolling sequence. */
   sixes: number;
-  /** Bonus rolls earned by captures, granted once the queue is spent. */
+  /** Bonus rolls earned by captures and by tokens reaching home, granted once the queue is spent. */
   bonus: number;
   /** Epoch ms when the server will act for this seat; 0 while the server is already playing it. */
   deadline: number;

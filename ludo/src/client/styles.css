@@ -984,8 +984,24 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 8px 12px 0;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+/* Five controls share the top bar on a 360–390px phone. */
+.game-top .icon-btn {
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+}
+.game-top .icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.game-top .turn-banner {
+  flex: 1 1 auto;
+  justify-content: center;
+  padding: 8px 10px;
+  font-size: 15px;
 }
 .turn-banner {
   --c: var(--muted);

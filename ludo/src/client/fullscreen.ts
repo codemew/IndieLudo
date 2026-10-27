@@ -1,3 +1,5 @@
+import { ICONS } from './ui.js';
+
 type FsDocument = Document & {
   webkitFullscreenEnabled?: boolean;
   webkitFullscreenElement?: Element;
@@ -58,4 +60,21 @@ export async function enterFullscreen(): Promise<void> {
   } catch {
     /* not supported (desktop, iOS) */
   }
+}
+
+/**
+ * Turns a button into a fullscreen on/off toggle that tracks the real state. Hidden when the
+ * browser can't go fullscreen, or when the app is installed and already fullscreen.
+ * Returns the cleanup function.
+ */
+export function bindFullscreenButton(btn: HTMLButtonElement): () => void {
+  const paint = () => {
+    // Chrome reports display-mode: fullscreen while API fullscreen is on, so check that first.
+    btn.hidden = !canFullscreen() || (isStandalone() && !isFullscreen());
+    btn.innerHTML = isFullscreen() ? ICONS.collapse : ICONS.expand;
+    btn.setAttribute('aria-label', isFullscreen() ? 'Exit fullscreen' : 'Fullscreen');
+  };
+  paint();
+  btn.onclick = () => void (isFullscreen() ? exitFullscreen() : enterFullscreen());
+  return onFullscreenChange(paint);
 }

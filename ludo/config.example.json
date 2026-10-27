@@ -1,0 +1,20 @@
+{
+  "port": 3000,
+  "dbPath": "./data/ludo.db",
+  "lobbyCreatePassword": "change-me",
+  "adminPassword": "change-me-too",
+  "turnTimeoutSec": 30,
+  "disconnectGraceSec": 60,
+  "maxLobbies": 50,
+  "lobbyIdleCloseSec": 600,
+  "https": {
+    "enabled": true,
+    "port": 3443,
+    "httpRedirectPort": 3000,
+    "certPath": "",
+    "keyPath": "",
+    "autoSelfSigned": true
+  },
+  "trustProxy": false,
+  "gate": { "maxFailsPerIp": 5, "globalFailRotateThreshold": 50 }
+}

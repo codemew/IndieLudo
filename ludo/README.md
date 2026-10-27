@@ -113,7 +113,7 @@ npm run typecheck
 - Bots wait until every phone has finished animating the previous roll or move, then pause a little longer to "think". This makes bot turns easy to follow.
 
 **Effects:**
-- The first six sets the dice on a soft violet flame, and the second on a taller fuchsia one. Each has its own sound, and the cube's glow takes the flame's colour. These colours are never player colours. Three sixes bring a sad face 😩 and a sad trombone.
+- **Six streak:** the first six lights a warm amber fire along the floor under the dice queue (left side, fading out before the dice), and the second makes it a taller, deeper orange one, like a classic fire. Each has its own sound. The fire sits behind the controls without blocking taps. The cube keeps glowing in the colour of the player whose roll it is. Three sixes bring a sad face 😩 and a sad trombone.
 - A token landing on a star square chimes and briefly turns into 😌 or 😎, then goes back to normal.
 - A token that captures another briefly turns into 😋 or 🤤, chewing happily with a little slurp, then fades back to the token.
 - On your move, the die your next tap will use is lifted, outlined in your colour and tagged **USE**, and dice that can't move anything are greyed out. The board marks where each glowing token would land.

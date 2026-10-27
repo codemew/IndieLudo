@@ -2092,110 +2092,140 @@ h3 {
 .dice-slot .dice {
   z-index: 1;
 }
-.dice-flame {
-  /* Six-streak flame (see flameParticles in game.ts). Its colours are not player colours. */
+/* Six-streak fire along the floor of the game screen (fireParticles in game.ts). Its colours
+   are never player colours, and it sits behind the controls without catching taps. Only
+   transforms and opacity animate, so it stays cheap on phones. */
+.screen-game {
   --core: transparent;
   --mid: transparent;
   --edge: transparent;
-  --rise: 70px;
+  --rise: 110px;
+}
+/* First six: warm amber, like a real fire. */
+.screen-game[data-flame='1'] {
+  --core: #fffbeb;
+  --mid: #fcd34d;
+  --edge: #f59e0b;
+}
+/* Second six: taller, deeper orange. */
+.screen-game[data-flame='2'] {
+  --core: #fff7ed;
+  --mid: #fdba74;
+  --edge: #ea580c;
+  --rise: 160px;
+}
+/* Burns under the queue on the left; it stops short of the dice on the right and fades out
+   toward it, so the cube stays clear. */
+.floor-fire {
   position: absolute;
-  left: 50%;
-  /* Starts at the cube's upper half, so the flame is seen licking up around and above it. */
-  bottom: 30%;
-  width: 120px;
-  height: 140px;
-  transform: translateX(-50%);
-  opacity: 0;
-  /* Enough blur that the particles merge into one flame body instead of bubbles. */
-  filter: blur(3.5px);
-  transition: opacity 0.45s ease;
+  left: 0;
+  right: 124px;
+  bottom: 0;
+  height: 220px;
+  -webkit-mask-image: linear-gradient(to right, #000 72%, transparent);
+  mask-image: linear-gradient(to right, #000 72%, transparent);
+  z-index: 0;
+  overflow: hidden;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.6s ease, visibility 0s linear 0.6s;
 }
-/* First six: violet. */
-.dice-slot[data-flame='1'] .dice-flame {
-  --core: #f5f3ff;
-  --mid: #c4b5fd;
-  --edge: #7c3aed;
-  opacity: 0.85;
+.screen-game[data-flame='1'] .floor-fire,
+.screen-game[data-flame='2'] .floor-fire {
+  visibility: visible;
+  transition: opacity 0.6s ease;
 }
-/* Second six: hotter fuchsia, a little taller and livelier. */
-.dice-slot[data-flame='2'] .dice-flame {
-  --core: #fdf4ff;
-  --mid: #f0abfc;
-  --edge: #c026d3;
-  --rise: 88px;
-  opacity: 0.95;
+.screen-game[data-flame='1'] .floor-fire {
+  opacity: 0.7;
 }
-/* While a streak burns, the cube's "your roll" glow takes the flame's colour, not the player's. */
-.dice-slot[data-flame='1'] .dice {
-  --dc: #8b5cf6;
+.screen-game[data-flame='2'] .floor-fire {
+  opacity: 0.8;
 }
-.dice-slot[data-flame='2'] .dice {
-  --dc: #d946ef;
+/* Everything else stays above the fire. */
+.screen-game > :not(.floor-fire) {
+  position: relative;
+  z-index: 1;
 }
-.dice-slot[data-flame='2'] .dice-flame i {
+.floor-fire i {
+  position: absolute;
+  bottom: -30px;
+  left: var(--x);
+  width: var(--s);
+  height: calc(var(--s) * 1.6);
+  margin-left: calc(var(--s) / -2);
+  border-radius: 50%;
+  /* Smooth colour fading from the centre: no bright core or saturated band, so no dots, rings
+     or bubbles. The white-hot core lives only in the glowing bed below. */
+  background: radial-gradient(closest-side, var(--tongue, var(--mid)) 0%, var(--edge) 40%, transparent 100%);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: fire-rise var(--t) cubic-bezier(0.3, 0.1, 0.6, 1) var(--d) infinite;
+}
+.screen-game[data-flame='2'] .floor-fire i {
   animation-duration: calc(var(--t) * 0.85);
 }
-.dice-flame i {
+/* The embers' bed: a soft glow hugging the bottom edge. */
+.floor-fire b {
   position: absolute;
-  bottom: 0;
-  left: calc(50% + var(--x));
-  width: var(--s);
-  height: var(--s);
-  margin-left: calc(var(--s) / -2);
-  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  background: radial-gradient(circle at 50% 62%, var(--core) 0%, var(--mid) 32%, var(--edge) 62%, transparent 74%);
-  opacity: 0;
-  animation: flame-rise var(--t) cubic-bezier(0.3, 0.1, 0.6, 1) var(--d) infinite;
-}
-/* Warm glow where the flame meets the dice. */
-.dice-flame b {
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: -6px;
-  height: 34px;
+  left: -10%;
+  right: -10%;
+  bottom: -40px;
+  height: 90px;
   border-radius: 50%;
-  background: radial-gradient(ellipse, var(--mid) 0%, var(--edge) 45%, transparent 72%);
-  opacity: 0.5;
-  animation: flame-glow 1.6s ease-in-out infinite alternate;
+  background: radial-gradient(closest-side, var(--core) 0%, var(--mid) 20%, var(--edge) 45%, transparent 100%);
+  animation: fire-bed 2.4s ease-in-out infinite alternate;
 }
-@keyframes flame-rise {
+@keyframes fire-rise {
   0% {
-    transform: translate(0, 4px) scale(1);
+    transform: translate(0, 0) scale(1);
     opacity: 0;
   }
-  12% {
-    opacity: 1;
+  15% {
+    opacity: 0.85;
   }
-  50% {
-    opacity: 0.75;
+  55% {
+    opacity: 0.55;
   }
   100% {
-    transform: translate(var(--dx), calc(var(--rise) * -1)) scale(0.25);
+    transform: translate(var(--dx), calc(var(--rise) * var(--r) * -1)) scale(0.3);
     opacity: 0;
   }
 }
-@keyframes flame-glow {
+@keyframes fire-bed {
   from {
-    opacity: 0.38;
-    transform: scaleX(0.94);
+    opacity: 0.4;
+    transform: scaleY(0.9);
   }
   to {
+    opacity: 0.6;
+    transform: scaleY(1.1);
+  }
+}
+/* On a light background a pale core reads as a ring, so the fire is all colour there:
+   amber, then deep orange. */
+@media (prefers-color-scheme: light) {
+  .screen-game[data-flame='1'],
+  .screen-game[data-flame='2'] {
+    --core: var(--edge);
+    --tongue: var(--edge);
+  }
+  .screen-game[data-flame='1'] .floor-fire {
+    opacity: 0.4;
+  }
+  .screen-game[data-flame='2'] .floor-fire {
     opacity: 0.55;
-    transform: scaleX(1.04);
   }
 }
 @media (prefers-color-scheme: dark), (prefers-color-scheme: no-preference) {
-  .dice-flame i,
-  .dice-flame b {
+  .floor-fire i,
+  .floor-fire b {
     mix-blend-mode: screen;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dice-flame i {
+  .floor-fire i {
     animation: none;
-    opacity: 0.6;
   }
 }
 

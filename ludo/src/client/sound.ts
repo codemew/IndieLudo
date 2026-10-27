@@ -88,6 +88,45 @@ function noise(start: number, dur: number, vol = 0.25, freq = 2500, type: Biquad
   src.start(t);
 }
 
+/** Wood's main resonances (Hz, sharpness, level) for a die clack; real clacks are struck noise, not tones. */
+const WOOD_MODES: [number, number, number][] = [
+  [560, 6, 1],
+  [1080, 9, 0.55],
+  [1720, 12, 0.22],
+];
+
+/**
+ * One die hitting the table: a few milliseconds of noise rung through the wood's resonances,
+ * plus a soft low thud for body. `pitch` varies it a little per hit (edge vs face).
+ */
+function clack(start: number, vol: number, pitch: number): void {
+  if (!ctx || !master) return;
+  const t = ctx.currentTime + start;
+  const len = Math.floor(ctx.sampleRate * 0.06);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  const decay = ctx.sampleRate * 0.004;
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / decay);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  for (const [freq, q, level] of WOOD_MODES) {
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq * pitch;
+    bp.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.value = vol * level;
+    src.connect(bp).connect(g).connect(master);
+  }
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 260;
+  const body = ctx.createGain();
+  body.gain.value = vol * 0.6;
+  src.connect(lp).connect(body).connect(master);
+  src.start(t);
+}
+
 export function play(name: Sfx): void {
   if (muted || !ctx) return;
   if (ctx.state !== 'running') {
@@ -95,18 +134,22 @@ export function play(name: Sfx): void {
     return;
   }
   switch (name) {
-    case 'dice':
-      // A wooden die tumbling on a felt table: soft, warm knocks that slow down and settle,
-      // with only a muffled hint of texture (no bright hiss). Pitched high enough for phone
-      // speakers, which barely play anything under ~400 Hz.
-      [0, 0.13, 0.24, 0.32, 0.38, 0.42].forEach((t, i) => {
-        const v = 0.2 * (1 - i * 0.13);
-        const f = 440 + Math.random() * 160;
-        tone(f, t, 0.09, 'sine', v, f * 0.75);
-        tone(f * 2.3, t, 0.04, 'triangle', v * 0.3);
-        noise(t, 0.035, v * 0.4, 900, 'lowpass');
-      });
+    case 'dice': {
+      // A wooden die bouncing on a table: clacks that come closer together and quieter as it
+      // settles, like real bounces, over a faint rolling rumble. All of it is shaped noise,
+      // so it sounds like wood rather than a synth, and it stays below the harsh treble.
+      noise(0, 0.55, 0.08, 380, 'lowpass');
+      let t = 0;
+      let gap = 0.15;
+      let v = 2.8;
+      for (let i = 0; i < 7; i++) {
+        clack(t, v, 0.9 + Math.random() * 0.25);
+        t += gap * (0.9 + Math.random() * 0.2);
+        gap *= 0.7;
+        v *= 0.72;
+      }
       break;
+    }
     case 'step':
       tone(720, 0, 0.06, 'triangle', 0.18, 900);
       break;

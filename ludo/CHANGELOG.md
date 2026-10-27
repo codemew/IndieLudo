@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.1
+
+### Changed
+- **Dice-roll sound:** now built from wooden clacks that land closer together and quieter as the die settles, over a faint rolling rumble. The 1.4.0 version used pure tones, which sounded robotic.
+  - The clacks are made from noise shaped by the resonances of wood, so they sound like a real die.
+  - They stay clear of the harsh treble: about 5% of the energy is above 2 kHz, against 82% in the original sound.
+- **Six-streak fire:**
+  - It now burns along the floor under the dice queue, on the left, and fades out before the dice, instead of burning around the dice: warm amber on the first six, taller deeper orange on the second, like a classic fire.
+  - It sits behind the dice and queue without catching taps, and only runs during a streak.
+  - It's drawn as soft rising tongues with no bright dots or rings, and has its own palette for light mode.
+- **The cube's glow is back to the colour of the player whose roll it is.** With the fire on the floor, the two can't be confused.
+
 ## 1.4.0
 
 ### Added

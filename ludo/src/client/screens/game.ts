@@ -46,6 +46,7 @@ export function gameScreen(root: HTMLElement): () => void {
   const pending: GameUpdate[] = [];
 
   root.innerHTML = `
+    <div class="floor-fire" id="floor-fire" aria-hidden="true"><b></b>${fireParticles()}</div>
     <header class="game-top">
       <button class="icon-btn" id="menu" aria-label="Menu">☰</button>
       <div class="turn-banner" id="banner"></div>
@@ -80,9 +81,8 @@ export function gameScreen(root: HTMLElement): () => void {
   diceSlot.appendChild(dice.el);
   /** The dice only shows while someone still has to roll; spent rolls live in the queue chips. */
   const showDice = (show: boolean) => diceSlot.classList.toggle('dice-hidden', !show);
-  // Flames behind the dice: blue after one six, red-yellow after two.
-  diceSlot.prepend(el(`<div class="dice-flame" aria-hidden="true"><b></b>${flameParticles()}</div>`));
-  const setFlame = (sixes: number) => (diceSlot.dataset.flame = String(Math.min(sixes, 2)));
+  // A six streak sets the floor of the screen alight: amber after one six, deep orange after two.
+  const setFlame = (sixes: number) => (root.dataset.flame = String(Math.min(sixes, 2)));
   const sadFace = el(`<div class="dice-emoji" aria-hidden="true">😩</div>`);
   diceSlot.appendChild(sadFace);
   const targets = $(root, '#targets');
@@ -384,19 +384,20 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   /**
-   * The six-streak flame: soft glowing particles that rise, drift toward the middle, shrink
-   * and fade, staggered so the fire flickers continuously, like a real flame.
+   * The six-streak fire along the floor of the screen, under the queue (left of the dice): soft
+   * glowing particles spread across it that rise, sway, shrink and fade, staggered so the fire
+   * flickers continuously.
    */
-  function flameParticles(count = 18): string {
+  function fireParticles(count = 24): string {
     let html = '';
     for (let i = 0; i < count; i++) {
-      // Bunched toward the middle but wide enough to lick up both sides of the cube.
-      const x = ((Math.random() + Math.random()) / 2 - 0.5) * 80;
-      const size = Math.round(46 - Math.abs(x) * 0.45);
-      const dx = Math.round((Math.random() - 0.5) * 12 - x * 0.45); // taper to a tip
-      const dur = 1 + Math.random() * 0.4;
-      const delay = -((i / count) * dur).toFixed(2);
-      html += `<i style="--x:${x.toFixed(1)}px;--s:${size}px;--dx:${dx}px;--t:${dur.toFixed(2)}s;--d:${delay}s"></i>`;
+      const x = (i + Math.random()) / count; // evenly spread, a little jittered
+      const size = Math.round(54 + Math.random() * 40);
+      const dx = Math.round((Math.random() - 0.5) * 24);
+      const dur = 1.5 + Math.random() * 0.9;
+      const delay = -(Math.random() * dur).toFixed(2);
+      const rise = (0.7 + Math.random() * 0.5).toFixed(2); // some tongues reach higher
+      html += `<i style="--x:${(x * 100).toFixed(1)}%;--s:${size}px;--dx:${dx}px;--t:${dur.toFixed(2)}s;--d:${delay}s;--r:${rise}"></i>`;
     }
     return html;
   }

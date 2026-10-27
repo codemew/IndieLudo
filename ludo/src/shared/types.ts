@@ -96,6 +96,10 @@ export const DEFAULT_VOICE_BITRATE = 32;
 /** Who is in a lobby's voice channel. Shared with every member of the lobby. */
 export interface VoiceState {
   lobbyId: string;
+  /** False while the host has turned voice chat off for the lobby. */
+  enabled: boolean;
+  /** Bumped when the host restarts the channel; every member then reconnects from scratch. */
+  epoch: number;
   bitrateKbps: number;
   participants: { userId: number; muted: boolean }[];
 }

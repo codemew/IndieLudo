@@ -26,6 +26,8 @@ export interface ClientToServer {
   'voice:leave': (p: { lobbyId: string }, ack: (r: Ack) => void) => void;
   'voice:mute': (p: { lobbyId: string; muted: boolean }, ack: (r: Ack) => void) => void;
   'voice:bitrate': (p: { lobbyId: string; kbps: number }, ack: (r: Ack) => void) => void;
+  'voice:enabled': (p: { lobbyId: string; enabled: boolean }, ack: (r: Ack) => void) => void;
+  'voice:reboot': (p: { lobbyId: string }, ack: (r: Ack) => void) => void;
   'voice:signal': (p: VoiceSignalOut, ack: (r: Ack) => void) => void;
 }
 
@@ -41,18 +43,27 @@ export interface RTCIceServerConfig {
   credential?: string;
 }
 
-/** WebRTC offer/answer relayed through the server. `sdp` carries the full description (ICE gathered). */
+/**
+ * WebRTC signalling relayed through the server. Of each pair of phones only the one with the
+ * lower user id sends offers; the other sends a `ring` (no SDP) to ask for one. `call` ties an
+ * answer to the offer it answers, so a late answer to an abandoned offer is ignored.
+ * `sdp` carries the full description (ICE gathered).
+ */
+export type VoiceSignalKind = 'offer' | 'answer' | 'ring';
+
 export interface VoiceSignalOut {
   lobbyId: string;
   to: number;
   kind: string;
+  call: number;
   sdp: string;
 }
 
 export interface VoiceSignalIn {
   lobbyId: string;
   from: number;
-  kind: 'offer' | 'answer';
+  kind: VoiceSignalKind;
+  call: number;
   sdp: string;
 }
 
@@ -133,10 +144,12 @@ export const SCHEMAS = {
   voiceRef: { lobbyId: { type: 'string', max: 64 } },
   voiceMute: { lobbyId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
   voiceBitrate: { lobbyId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 16, max: 64 } },
+  voiceEnabled: { lobbyId: { type: 'string', max: 64 }, enabled: { type: 'bool' } },
   voiceSignal: {
     lobbyId: { type: 'string', max: 64 },
     to: { type: 'int', min: 1 },
-    kind: { type: 'string', min: 5, max: 6 },
-    sdp: { type: 'string', min: 1, max: 12_000 },
+    kind: { type: 'string', min: 4, max: 6 },
+    call: { type: 'int' },
+    sdp: { type: 'string', max: 12_000 },
   },
 } satisfies Record<string, Schema>;

@@ -114,6 +114,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
 
   const voice: VoiceManager = new VoiceManager({
     isMember: (lobbyId, userId) => Boolean(lobbies.get(lobbyId)?.members.some((m) => m.userId === userId && !m.isBot)),
+    isHost: (lobbyId, userId) => lobbies.get(lobbyId)?.hostId === userId,
     onChange: (state) => io?.to(rooms.lobby(state.lobbyId)).emit('voice:state', state),
   });
 

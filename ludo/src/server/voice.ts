@@ -8,6 +8,8 @@ interface Member {
 }
 
 interface Channel {
+  enabled: boolean;
+  epoch: number;
   bitrateKbps: number;
   members: Map<number, Member>;
 }
@@ -15,13 +17,15 @@ interface Channel {
 export interface VoiceManagerOptions {
   /** True when the user is a human member of this lobby. Bots never are. */
   isMember: (lobbyId: string, userId: number) => boolean;
+  /** True when the user hosts this lobby: only the host can change settings or restart the channel. */
+  isHost: (lobbyId: string, userId: number) => boolean;
   onChange?: (state: VoiceState) => void;
 }
 
 /**
  * One voice channel per lobby, kept for the lobby's whole life: waiting room, matches and
  * results. Audio flows peer to peer (WebRTC); the server only tracks who is in each channel,
- * their self-reported mute state and the shared quality setting, and relays offers/answers.
+ * their self-reported mute state and the host's settings, and relays signalling.
  */
 export class VoiceManager {
   private channels = new Map<string, Channel>();
@@ -32,6 +36,8 @@ export class VoiceManager {
     const ch = this.channels.get(lobbyId);
     return {
       lobbyId,
+      enabled: ch?.enabled ?? true,
+      epoch: ch?.epoch ?? 0,
       bitrateKbps: ch?.bitrateKbps ?? DEFAULT_VOICE_BITRATE,
       participants: ch ? [...ch.members].map(([userId, m]) => ({ userId, muted: m.muted })) : [],
     };
@@ -46,7 +52,7 @@ export class VoiceManager {
   private channel(lobbyId: string): Channel {
     let ch = this.channels.get(lobbyId);
     if (!ch) {
-      ch = { bitrateKbps: DEFAULT_VOICE_BITRATE, members: new Map() };
+      ch = { enabled: true, epoch: 0, bitrateKbps: DEFAULT_VOICE_BITRATE, members: new Map() };
       this.channels.set(lobbyId, ch);
     }
     return ch;
@@ -56,9 +62,16 @@ export class VoiceManager {
     if (!this.opts.isMember(lobbyId, userId)) throw new AppError('NOT_IN_LOBBY', 403);
   }
 
+  private requireHost(lobbyId: string, userId: number): void {
+    this.requirePlayer(lobbyId, userId);
+    if (!this.opts.isHost(lobbyId, userId)) throw new AppError('NOT_HOST', 403);
+  }
+
+  /** While the host has voice turned off this only returns the state (enabled: false). */
   join(lobbyId: string, userId: number, socketId: string): VoiceState {
     this.requirePlayer(lobbyId, userId);
     const ch = this.channel(lobbyId);
+    if (!ch.enabled) return this.state(lobbyId);
     const existing = ch.members.get(userId);
     ch.members.set(userId, { muted: existing?.muted ?? false, socketId });
     return this.changed(lobbyId);
@@ -78,13 +91,36 @@ export class VoiceManager {
     this.changed(lobbyId);
   }
 
-  /** Any member of the lobby may change the quality. */
+  /** Only the host may change the quality. */
   setBitrate(lobbyId: string, userId: number, kbps: number): void {
-    this.requirePlayer(lobbyId, userId);
+    this.requireHost(lobbyId, userId);
     if (!(VOICE_BITRATES as readonly number[]).includes(kbps)) throw new AppError('INVALID_BITRATE');
     const ch = this.channel(lobbyId);
     if (ch.bitrateKbps === kbps) return;
     ch.bitrateKbps = kbps;
+    this.changed(lobbyId);
+  }
+
+  /** Host only: turning voice off empties the channel; turning it on lets everyone rejoin. */
+  setEnabled(lobbyId: string, userId: number, enabled: boolean): void {
+    this.requireHost(lobbyId, userId);
+    const ch = this.channel(lobbyId);
+    if (ch.enabled === enabled) return;
+    ch.enabled = enabled;
+    ch.members.clear();
+    this.changed(lobbyId);
+  }
+
+  /**
+   * Host only: empties the channel and bumps its epoch. Every member's phone sees the new
+   * epoch, drops all its connections and joins again from scratch.
+   */
+  reboot(lobbyId: string, userId: number): void {
+    this.requireHost(lobbyId, userId);
+    const ch = this.channel(lobbyId);
+    if (!ch.enabled) throw new AppError('VOICE_DISABLED', 409);
+    ch.epoch++;
+    ch.members.clear();
     this.changed(lobbyId);
   }
 
@@ -116,11 +152,9 @@ export class VoiceManager {
     if (ch.members.size) this.opts.onChange?.(this.state(lobbyId));
   }
 
+  /** Channels (and their settings) live until the lobby closes. */
   private changed(lobbyId: string): VoiceState {
-    const ch = this.channels.get(lobbyId);
     const state = this.state(lobbyId);
-    // Forget empty channels, but keep a non-default quality choice for the lobby.
-    if (ch && ch.members.size === 0 && ch.bitrateKbps === DEFAULT_VOICE_BITRATE) this.channels.delete(lobbyId);
     this.opts.onChange?.(state);
     return state;
   }

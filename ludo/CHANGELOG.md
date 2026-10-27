@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0
+
+### Fixed
+- **Voice after a lost connection:** after a dropped connection, some players could go silent for others. Two causes:
+  - A phone's microphone could stop, which iOS does when the phone is locked or another app is opened. That player still showed as unmuted but sent nothing.
+  - A connection that broke on one side was never redialled.
+
+  Each phone now runs a watchdog that redials broken or stuck links and gets a fresh microphone when needed. Only one phone of each pair dials (the lower user id; the other "rings"), so phones reconnecting together can't cross their calls.
+- **Blocked playback:** incoming voice that the browser refused to play starts on the next tap.
+
+### Added
+- **Rejoin voice** button for everyone, on the lobby screen and in the game menu, with a status line such as "Talking with all 3 players".
+- **Host voice controls:**
+  - **Restart for everyone** rebuilds every phone's voice connections.
+  - **Turn off / Turn on** switches voice chat off or on for the whole lobby.
+
+### Changed
+- **Voice quality:** only the lobby host can change it. Other players see it locked.
+
 ## 1.1.0
 
 ### Added

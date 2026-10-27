@@ -22,7 +22,7 @@ import { state, subscribe, update } from '../store.js';
 import { uuid } from '../storage.js';
 import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, toast } from '../ui.js';
 import { voice } from '../voice.js';
-import { bindMuteButton, qualityPicker, voiceBadge } from '../voiceUi.js';
+import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Corner order around the board, matching each colour's base. */
 const TOP: Color[] = ['red', 'green'];
@@ -363,18 +363,19 @@ export function gameScreen(root: HTMLElement): () => void {
     const section = el(`
       <div class="menu-section">
         <div class="menu-heading">Voice chat</div>
-        <p class="muted small">Everyone in the lobby is in the voice chat.</p>
         <div class="menu-row" id="vm-actions"></div>
       </div>`);
-    if (voice.joined && voice.micAvailable) {
+    if (voice.enabled && voice.joined && voice.micAvailable) {
       const b = el<HTMLButtonElement>(`<button class="btn btn-small btn-ghost">${voice.muted ? `${ICONS.mic} Unmute myself` : `${ICONS.micOff} Mute myself`}</button>`);
       b.onclick = () => {
         close();
         void voice.setMuted(!voice.muted);
       };
       $(section, '#vm-actions').appendChild(b);
+    } else {
+      $(section, '#vm-actions').remove();
     }
-    section.appendChild(qualityPicker().el);
+    section.appendChild(voicePanel().el);
     body.appendChild(section);
   }
 

@@ -116,12 +116,20 @@ npm run typecheck
 
 ## Voice chat
 
-Everyone in a lobby is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it only by leaving the lobby or being kicked, or when the lobby closes.
+Everyone in a lobby is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it by leaving the lobby or being kicked. It also ends when the lobby closes or the host turns it off.
 
 - **Mute yourself:** the mic button is on the lobby screen, the game screen, and the home screen while you're in a lobby. It's green when you're live and red when you're muted. The browser asks for the microphone the first time. If you block it, you still hear everyone and show as muted, the button turns amber, and tapping it asks again.
 - **Who is in:** a small mic badge next to each name, on the lobby seats and the game's player cards. It's green when that person is live and red when muted. It pulses while your phone is still connecting to theirs.
-- **Quality:** pick **16, 32, 48 or 64 kbps** on the lobby screen or in the game's ☰ options menu. Anyone in the lobby can change it, and the change applies to everyone at once, without reconnecting. The default is 32 kbps. Use 16 kbps on mobile data.
-- **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other (at most 3 others). The server never handles audio. It only checks lobby membership, keeps track of who is in and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP). A dropped connection rejoins automatically.
+- **Can't hear someone?** Tap **Rejoin voice**, on the lobby screen or in the game's ☰ menu. Your phone gets a fresh microphone and reconnects to everyone. The status line above it shows how many players you're connected to.
+- **Host controls:** these are on the lobby screen and in the game's ☰ menu. If the host leaves, the next host gets them.
+  - **Restart for everyone:** every phone drops its voice connections and joins again from scratch. Use it when several players can't hear each other.
+  - **Turn off / Turn on:** turns voice chat off or on for the whole lobby. While it's off, no phone uses its microphone.
+  - **Quality:** **16, 32, 48 or 64 kbps**. The change applies to everyone at once, without reconnecting. The default is 32 kbps. Use 16 kbps on mobile data. Other players can see the setting but not change it.
+- **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other (at most 3 others). The server never handles audio. It only checks lobby membership, keeps track of who is in and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP).
+- **Repairs itself:**
+  - **No crossed calls:** of each pair of phones, only the one whose user id is lower dials. The other asks it to call back with a "ring". So two phones that reconnect together never call each other at once.
+  - **Watchdog:** every 2 seconds each phone checks its links. It redials a link that broke, or hasn't connected within 12 seconds. If the phone took the microphone away (iOS does this when it's locked or another app is opened), it gets a fresh one. It also starts any incoming audio the browser refused to play.
+  - **Reconnects:** after a dropped connection, the phone rejoins on its own.
 - **Playing across networks:** on one Wi‑Fi network, voice works without any setup. When players are on different networks (mobile data, other houses), phones use the STUN server in `voice.iceServers` to find each other. Some mobile networks also need a TURN relay. Add one like this:
 
   ```json

@@ -2326,3 +2326,33 @@ h3 {
     opacity: 0;
   }
 }
+
+/* Voice panel: status line, rejoin / host controls. */
+.voice-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.voice-panel .voice-status {
+  margin: 0;
+  color: var(--muted);
+}
+.voice-panel .voice-status.warn {
+  color: #fbbf24;
+}
+.voice-actions[hidden],
+.voice-quality[hidden] {
+  display: none;
+}
+.btn.danger-text {
+  color: #fb7185;
+}
+.voice-quality.locked .segmented button {
+  cursor: default;
+}
+.voice-quality.locked .segmented button:not(.on) {
+  opacity: 0.55;
+}
+.voice-btn.vb-off {
+  opacity: 0.6;
+}

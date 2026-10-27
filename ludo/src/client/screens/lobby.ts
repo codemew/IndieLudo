@@ -6,7 +6,7 @@ import { play } from '../sound.js';
 import { state, subscribe } from '../store.js';
 import { $, COLOR_NAME, confirmDialog, el, esc } from '../ui.js';
 import { voice } from '../voice.js';
-import { bindMuteButton, qualityPicker, voiceBadge } from '../voiceUi.js';
+import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Seats laid out like the board: red top-left, green top-right, blue bottom-left, yellow bottom-right. */
 const SEAT_ORDER: Color[] = ['red', 'green', 'blue', 'yellow'];
@@ -25,7 +25,8 @@ export function lobbyScreen(root: HTMLElement): () => void {
       <p class="muted center" id="lobby-hint"></p>
       <div class="seat-grid" id="seats"></div>
       <div class="lobby-voice" id="lobby-voice">
-        <p class="muted small">🎙 Everyone in the lobby is in the voice chat, during matches too. Use the mic button to mute yourself.</p>
+        <div class="menu-heading">🎙 Voice chat</div>
+        <p class="muted small">Everyone in the lobby is in it, during matches too. Use the mic button to mute yourself. Can't hear someone? Tap Rejoin.</p>
       </div>
     </section>
     <footer class="bottom-bar" id="actions"></footer>`;
@@ -85,11 +86,10 @@ export function lobbyScreen(root: HTMLElement): () => void {
 
   render();
   const offMute = bindMuteButton($<HTMLButtonElement>(root, '#mute'));
-  const quality = qualityPicker();
-  $(root, '#lobby-voice').appendChild(quality.el);
+  const panel = voicePanel();
+  $(root, '#lobby-voice').appendChild(panel.el);
   const offStore = subscribe((changed) => {
     if (changed.includes('lobby') || changed.includes('voice')) render();
-    if (changed.includes('voice')) quality.refresh();
   });
   // Peer connection changes only affect the "connecting" pulse on the badges.
   const offVoice = voice.onChange(render);
@@ -97,6 +97,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
     offMute();
     offStore();
     offVoice();
+    panel.destroy();
   };
 }
 

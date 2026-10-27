@@ -1,5 +1,5 @@
 import type { Server, Socket } from 'socket.io';
-import { SCHEMAS, matchesSchema, type Ack, type ClientToServer, type Hello, type Schema, type ServerToClient } from '../shared/protocol.js';
+import { SCHEMAS, matchesSchema, type Ack, type ClientToServer, type Hello, type Schema, type ServerToClient, type VoiceSignalKind } from '../shared/protocol.js';
 import type { Color } from '../shared/types.js';
 import type { Ctx } from './context.js';
 import type { Lobby } from './lobbies.js';
@@ -199,10 +199,15 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('voice:leave', SCHEMAS.voiceRef, (p) => void ctx.voice.leave(p.lobbyId, userId));
     on('voice:mute', SCHEMAS.voiceMute, (p) => void ctx.voice.setMuted(p.lobbyId, userId, p.muted));
     on('voice:bitrate', SCHEMAS.voiceBitrate, (p) => void ctx.voice.setBitrate(p.lobbyId, userId, p.kbps));
+    on('voice:enabled', SCHEMAS.voiceEnabled, (p) => void ctx.voice.setEnabled(p.lobbyId, userId, p.enabled));
+    on('voice:reboot', SCHEMAS.voiceRef, (p) => void ctx.voice.reboot(p.lobbyId, userId));
     on('voice:signal', SCHEMAS.voiceSignal, (p) => {
-      if (p.kind !== 'offer' && p.kind !== 'answer') return { ok: false, error: 'BAD_PAYLOAD' };
+      const kind = p.kind as VoiceSignalKind;
+      if (kind !== 'offer' && kind !== 'answer' && kind !== 'ring') return { ok: false, error: 'BAD_PAYLOAD' };
+      // Offers and answers carry an SDP; a ring carries none.
+      if ((kind === 'ring') !== (p.sdp.length === 0)) return { ok: false, error: 'BAD_PAYLOAD' };
       const target = ctx.voice.relayTarget(p.lobbyId, userId, p.to);
-      io.to(target).emit('voice:signal', { lobbyId: p.lobbyId, from: userId, kind: p.kind, sdp: p.sdp });
+      io.to(target).emit('voice:signal', { lobbyId: p.lobbyId, from: userId, kind, call: p.call, sdp: p.sdp });
     });
 
     socket.on('disconnect', () => {

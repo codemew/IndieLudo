@@ -147,6 +147,9 @@ export async function resyncGame(): Promise<void> {
   if (r.ok && r.data) onGameUpdate({ state: r.data });
 }
 
+voice.onServerState = (v) => v.lobbyId === state.lobby?.id && update({ voice: v });
+voice.onNotice = (msg) => toast(msg);
+
 /**
  * Every lobby member is in the lobby's voice chat: join when we enter a lobby (and are
  * online), leave when we leave it. Matches and results don't interrupt it.

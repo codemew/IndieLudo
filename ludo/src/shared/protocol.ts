@@ -21,11 +21,11 @@ export interface ClientToServer {
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   'game:resume': (p: { gameId: string }, ack: (r: Ack<PublicGameState>) => void) => void;
   'game:takeback': (p: { gameId: string }, ack: (r: Ack) => void) => void;
-  'voice:get': (p: { gameId: string }, ack: (r: Ack<VoiceState>) => void) => void;
-  'voice:join': (p: { gameId: string }, ack: (r: Ack<VoiceJoined>) => void) => void;
-  'voice:leave': (p: { gameId: string }, ack: (r: Ack) => void) => void;
-  'voice:mute': (p: { gameId: string; muted: boolean }, ack: (r: Ack) => void) => void;
-  'voice:bitrate': (p: { gameId: string; kbps: number }, ack: (r: Ack) => void) => void;
+  'voice:get': (p: { lobbyId: string }, ack: (r: Ack<VoiceState>) => void) => void;
+  'voice:join': (p: { lobbyId: string }, ack: (r: Ack<VoiceJoined>) => void) => void;
+  'voice:leave': (p: { lobbyId: string }, ack: (r: Ack) => void) => void;
+  'voice:mute': (p: { lobbyId: string; muted: boolean }, ack: (r: Ack) => void) => void;
+  'voice:bitrate': (p: { lobbyId: string; kbps: number }, ack: (r: Ack) => void) => void;
   'voice:signal': (p: VoiceSignalOut, ack: (r: Ack) => void) => void;
 }
 
@@ -43,14 +43,14 @@ export interface RTCIceServerConfig {
 
 /** WebRTC offer/answer relayed through the server. `sdp` carries the full description (ICE gathered). */
 export interface VoiceSignalOut {
-  gameId: string;
+  lobbyId: string;
   to: number;
   kind: string;
   sdp: string;
 }
 
 export interface VoiceSignalIn {
-  gameId: string;
+  lobbyId: string;
   from: number;
   kind: 'offer' | 'answer';
   sdp: string;
@@ -130,10 +130,11 @@ export const SCHEMAS = {
     tokenId: { type: 'int', max: 3 },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
-  voiceMute: { gameId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
-  voiceBitrate: { gameId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 16, max: 64 } },
+  voiceRef: { lobbyId: { type: 'string', max: 64 } },
+  voiceMute: { lobbyId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
+  voiceBitrate: { lobbyId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 16, max: 64 } },
   voiceSignal: {
-    gameId: { type: 'string', max: 64 },
+    lobbyId: { type: 'string', max: 64 },
     to: { type: 'int', min: 1 },
     kind: { type: 'string', min: 5, max: 6 },
     sdp: { type: 'string', min: 1, max: 12_000 },

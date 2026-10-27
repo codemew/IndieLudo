@@ -4,22 +4,22 @@ import { HOME } from '../src/shared/board.js';
 import type { VoiceState } from '../src/shared/types.js';
 import { VoiceManager } from '../src/server/voice.js';
 import { scriptedDice } from './helpers.js';
-import { client, startTestServer, startTwoPlayerGame, wait, type TestClient, type TestServer } from './serverHelpers.js';
+import { client, createLobby, startTestServer, wait, type TestClient, type TestServer } from './serverHelpers.js';
 
 describe('VoiceManager', () => {
   const players = new Set([1, 2]);
   const make = () => {
     const onChange = vi.fn<(s: VoiceState) => void>();
-    const vm = new VoiceManager({ isPlayer: (g, u) => g === 'g1' && players.has(u), onChange });
+    const vm = new VoiceManager({ isMember: (g, u) => g === 'g1' && players.has(u), onChange });
     return { vm, onChange };
   };
 
-  it('only players of the game can join; bots and strangers cannot', () => {
+  it('only members of the lobby can join; bots and strangers cannot', () => {
     const { vm } = make();
     expect(vm.join('g1', 1, 's1').participants).toEqual([{ userId: 1, muted: false }]);
-    expect(() => vm.join('g1', 3, 's3')).toThrow('NOT_IN_GAME');
-    expect(() => vm.join('other', 1, 's1')).toThrow('NOT_IN_GAME');
-    expect(() => vm.stateFor('g1', 3)).toThrow('NOT_IN_GAME');
+    expect(() => vm.join('g1', 3, 's3')).toThrow('NOT_IN_LOBBY');
+    expect(() => vm.join('other', 1, 's1')).toThrow('NOT_IN_LOBBY');
+    expect(() => vm.stateFor('g1', 3)).toThrow('NOT_IN_LOBBY');
   });
 
   it('tracks mute state and broadcasts every change', () => {
@@ -37,13 +37,13 @@ describe('VoiceManager', () => {
     expect(() => vm.setMuted('g1', 9, true)).toThrow('NOT_IN_VOICE');
   });
 
-  it('quality: 16/32/48/64 kbps only, any player may change it, joined or not', () => {
+  it('quality: 16/32/48/64 kbps only, any lobby member may change it', () => {
     const { vm } = make();
     expect(vm.state('g1').bitrateKbps).toBe(32);
     vm.setBitrate('g1', 2, 64);
     expect(vm.state('g1').bitrateKbps).toBe(64);
     for (const bad of [8, 24, 40, 80, 0]) expect(() => vm.setBitrate('g1', 1, bad)).toThrow('INVALID_BITRATE');
-    expect(() => vm.setBitrate('g1', 3, 16)).toThrow('NOT_IN_GAME');
+    expect(() => vm.setBitrate('g1', 3, 16)).toThrow('NOT_IN_LOBBY');
     vm.join('g1', 1, 's1');
     vm.leave('g1', 1);
     expect(vm.state('g1').bitrateKbps).toBe(64);
@@ -70,11 +70,11 @@ describe('VoiceManager', () => {
     expect(vm.state('g1').participants).toEqual([]);
   });
 
-  it('closing a game empties its channel and tells everyone', () => {
+  it('closing a lobby empties its channel and tells everyone', () => {
     const { vm, onChange } = make();
     vm.join('g1', 1, 's1');
     vm.close('g1');
-    expect(onChange).toHaveBeenLastCalledWith({ gameId: 'g1', bitrateKbps: 32, participants: [] });
+    expect(onChange).toHaveBeenLastCalledWith({ lobbyId: 'g1', bitrateKbps: 32, participants: [] });
   });
 
   it('rejoining keeps your mute state', () => {
@@ -86,7 +86,7 @@ describe('VoiceManager', () => {
   });
 });
 
-describe('voice chat over sockets', () => {
+describe('lobby voice chat over sockets', () => {
   let t: TestServer;
   const clients: TestClient[] = [];
   afterEach(async () => {
@@ -94,13 +94,22 @@ describe('voice chat over sockets', () => {
     await t?.close();
   });
 
-  async function game(over = {}) {
+  /** Alice hosts a lobby, Bob joins it. No game yet. */
+  async function lobby(over = {}) {
     t = await startTestServer(over, { dice: scriptedDice(Array(50).fill(1)) });
     const host = await client(t, 'alice');
     const guest = await client(t, 'bob');
     clients.push(host, guest);
-    const gameId = await startTwoPlayerGame(host, guest);
-    return { host, guest, gameId };
+    const lobbyId = await createLobby(host);
+    await guest.emit('lobby:join', { lobbyId, password: 'pw' });
+    return { host, guest, lobbyId };
+  }
+
+  async function startGame(host: TestClient, guest: TestClient): Promise<string> {
+    await guest.emit('lobby:ready', { ready: true });
+    const first = host.nextState();
+    await host.emit('lobby:start', {});
+    return (await first).state.id;
   }
 
   const nextVoice = (c: TestClient, pred: (s: VoiceState) => boolean) =>
@@ -109,86 +118,116 @@ describe('voice chat over sockets', () => {
       c.socket.on('voice:state', fn);
     });
 
-  it('join, see each other, mute, change quality, relay offers and leave', async () => {
-    const { host, guest, gameId } = await game({ voice: { iceServers: [{ urls: 'stun:example.test:3478' }] } });
+  it('members join in the lobby, see each other, mute, change quality, relay offers and leave', async () => {
+    const { host, guest, lobbyId } = await lobby({ voice: { iceServers: [{ urls: 'stun:example.test:3478' }] } });
 
-    // Bob is not in voice but still sees who is.
     const bobSeesAlice = nextVoice(guest, (s) => s.participants.length === 1);
-    const joined = await host.emit<VoiceJoined>('voice:join', { gameId });
+    const joined = await host.emit<VoiceJoined>('voice:join', { lobbyId });
     expect(joined).toEqual({
       ok: true,
-      data: { state: { gameId, bitrateKbps: 32, participants: [{ userId: host.userId, muted: false }] }, iceServers: [{ urls: 'stun:example.test:3478' }] },
+      data: { state: { lobbyId, bitrateKbps: 32, participants: [{ userId: host.userId, muted: false }] }, iceServers: [{ urls: 'stun:example.test:3478' }] },
     });
     expect((await bobSeesAlice).participants).toEqual([{ userId: host.userId, muted: false }]);
-
-    expect((await guest.emit<VoiceJoined>('voice:join', { gameId })).ok).toBe(true);
+    expect((await guest.emit<VoiceJoined>('voice:join', { lobbyId })).ok).toBe(true);
 
     // Offer from Bob (the newcomer) reaches Alice's socket only, tagged with Bob's id.
     const aliceGetsOffer = new Promise<VoiceSignalIn>((res) => host.socket.once('voice:signal', res));
-    expect(await guest.emit('voice:signal', { gameId, to: host.userId, kind: 'offer', sdp: 'v=0 fake' })).toEqual({ ok: true });
-    expect(await aliceGetsOffer).toEqual({ gameId, from: guest.userId, kind: 'offer', sdp: 'v=0 fake' });
+    expect(await guest.emit('voice:signal', { lobbyId, to: host.userId, kind: 'offer', sdp: 'v=0 fake' })).toEqual({ ok: true });
+    expect(await aliceGetsOffer).toEqual({ lobbyId, from: guest.userId, kind: 'offer', sdp: 'v=0 fake' });
 
     const muted = nextVoice(host, (s) => s.participants.some((p) => p.userId === guest.userId && p.muted));
-    expect(await guest.emit('voice:mute', { gameId, muted: true })).toEqual({ ok: true });
+    expect(await guest.emit('voice:mute', { lobbyId, muted: true })).toEqual({ ok: true });
     await muted;
 
     const hq = nextVoice(guest, (s) => s.bitrateKbps === 64);
-    expect(await host.emit('voice:bitrate', { gameId, kbps: 64 })).toEqual({ ok: true });
+    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 64 })).toEqual({ ok: true });
     await hq;
-    expect(await host.emit('voice:bitrate', { gameId, kbps: 80 })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
-    expect(await host.emit('voice:bitrate', { gameId, kbps: 20 })).toEqual({ ok: false, error: 'INVALID_BITRATE' });
-    expect(await host.emit('voice:bitrate', { gameId, kbps: 48 })).toEqual({ ok: true });
-    expect(await host.emit('voice:bitrate', { gameId, kbps: 40 })).toEqual({ ok: false, error: 'INVALID_BITRATE' });
+    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 80 })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 20 })).toEqual({ ok: false, error: 'INVALID_BITRATE' });
 
     const left = nextVoice(host, (s) => s.participants.length === 1);
-    expect(await guest.emit('voice:leave', { gameId })).toEqual({ ok: true });
+    expect(await guest.emit('voice:leave', { lobbyId })).toEqual({ ok: true });
     expect((await left).participants).toEqual([{ userId: host.userId, muted: false }]);
-    expect(await guest.emit('voice:signal', { gameId, to: host.userId, kind: 'offer', sdp: 'x' })).toEqual({ ok: false, error: 'NOT_IN_VOICE' });
+    expect(await guest.emit('voice:signal', { lobbyId, to: host.userId, kind: 'offer', sdp: 'x' })).toEqual({ ok: false, error: 'NOT_IN_VOICE' });
   });
 
   it('strangers, bad signal kinds and oversized SDPs are rejected', async () => {
-    const { host, guest, gameId } = await game();
+    const { host, guest, lobbyId } = await lobby();
     const stranger = await client(t, 'mallory');
     clients.push(stranger);
-    expect(await stranger.emit('voice:join', { gameId })).toEqual({ ok: false, error: 'NOT_IN_GAME' });
-    expect(await stranger.emit('voice:get', { gameId })).toEqual({ ok: false, error: 'NOT_IN_GAME' });
-    expect(await stranger.emit('voice:bitrate', { gameId, kbps: 16 })).toEqual({ ok: false, error: 'NOT_IN_GAME' });
-    await host.emit('voice:join', { gameId });
-    await guest.emit('voice:join', { gameId });
-    expect(await stranger.emit('voice:signal', { gameId, to: host.userId, kind: 'offer', sdp: 'x' })).toEqual({ ok: false, error: 'NOT_IN_VOICE' });
-    expect(await guest.emit('voice:signal', { gameId, to: host.userId, kind: 'hijack', sdp: 'x' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
-    expect(await guest.emit('voice:signal', { gameId, to: host.userId, kind: 'offer', sdp: 'x'.repeat(12_001) })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
-    expect(await guest.emit('voice:mute', { gameId, muted: 'yes' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await stranger.emit('voice:join', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
+    expect(await stranger.emit('voice:get', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
+    expect(await stranger.emit('voice:bitrate', { lobbyId, kbps: 16 })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
+    await host.emit('voice:join', { lobbyId });
+    await guest.emit('voice:join', { lobbyId });
+    expect(await stranger.emit('voice:signal', { lobbyId, to: host.userId, kind: 'offer', sdp: 'x' })).toEqual({ ok: false, error: 'NOT_IN_VOICE' });
+    expect(await guest.emit('voice:signal', { lobbyId, to: host.userId, kind: 'hijack', sdp: 'x' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await guest.emit('voice:signal', { lobbyId, to: host.userId, kind: 'offer', sdp: 'x'.repeat(12_001) })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await guest.emit('voice:mute', { lobbyId, muted: 'yes' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
   });
 
-  it('a player who disconnects drops out of the channel', async () => {
-    const { host, guest, gameId } = await game();
-    await host.emit('voice:join', { gameId });
-    await guest.emit('voice:join', { gameId });
+  it('a member who disconnects drops out of the channel', async () => {
+    const { host, guest, lobbyId } = await lobby();
+    await host.emit('voice:join', { lobbyId });
+    await guest.emit('voice:join', { lobbyId });
     const gone = nextVoice(host, (s) => s.participants.length === 1);
     guest.close();
     expect((await gone).participants.map((p) => p.userId)).toEqual([host.userId]);
   });
 
-  it('leaving the game for good leaves voice; the game ending closes the channel', async () => {
-    const { host, guest, gameId } = await game();
-    await host.emit('voice:join', { gameId });
-    await guest.emit('voice:join', { gameId });
+  it('the channel carries on through a match and after it ends', async () => {
+    const { host, guest, lobbyId } = await lobby();
+    await host.emit('voice:join', { lobbyId });
+    await guest.emit('voice:join', { lobbyId });
+    await host.emit('voice:bitrate', { lobbyId, kbps: 48 });
+    const emptied: VoiceState[] = [];
+    host.socket.on('voice:state', (s: VoiceState) => s.participants.length < 2 && emptied.push(s));
+
+    const gameId = await startGame(host, guest);
+    expect(t.server.ctx.voice.state(lobbyId).participants).toHaveLength(2);
+
+    // Red finishes; with two players the game ends.
+    const s = t.server.ctx.games.get(gameId)!;
+    s.tokens.red = [HOME, HOME, HOME, 55];
+    await host.emit('game:roll', { gameId, version: s.version, actionId: crypto.randomUUID() });
+    await host.emit('game:move', { gameId, version: s.version, actionId: crypto.randomUUID(), dieIndex: 0, tokenId: 3 });
+    expect(t.server.ctx.games.get(gameId)!.finished).toBe(true);
+    await wait(50);
+
+    expect(t.server.ctx.lobbies.get(lobbyId)!.status).toBe('waiting');
+    expect(t.server.ctx.voice.state(lobbyId)).toEqual({
+      lobbyId,
+      bitrateKbps: 48,
+      participants: [
+        { userId: host.userId, muted: false },
+        { userId: guest.userId, muted: false },
+      ],
+    });
+    expect(emptied).toEqual([]);
+    // Signalling still works after the match.
+    expect(await guest.emit('voice:signal', { lobbyId, to: host.userId, kind: 'offer', sdp: 'v=0' })).toEqual({ ok: true });
+  });
+
+  it('leaving the lobby (also mid-game), or being kicked, leaves voice; a closed lobby empties it', async () => {
+    const { host, guest, lobbyId } = await lobby();
+    const carol = await client(t, 'carol');
+    clients.push(carol);
+    await carol.emit('lobby:join', { lobbyId, password: 'pw' });
+    for (const c of [host, guest, carol]) await c.emit('voice:join', { lobbyId });
+
+    const kicked = nextVoice(host, (s) => !s.participants.some((p) => p.userId === carol.userId));
+    await host.emit('lobby:kick', { userId: carol.userId });
+    await kicked;
+    expect(await carol.emit('voice:join', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
+
+    await startGame(host, guest);
     const bobLeft = nextVoice(host, (s) => s.participants.length === 1);
     await guest.emit('lobby:leave', {});
     await bobLeft;
-    // Bob's seat is a bot now: it can't rejoin.
-    expect(await guest.emit('voice:join', { gameId })).toEqual({ ok: false, error: 'NOT_IN_GAME' });
+    expect(await guest.emit('voice:join', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
 
-    const s = t.server.ctx.games.get(gameId)!;
-    s.tokens.red = [HOME, HOME, HOME, 55];
-    const closed = nextVoice(host, (v) => v.participants.length === 0);
-    await wait(20);
-    const st = t.server.ctx.games.get(gameId)!;
-    if (st.turn.seat !== 0) throw new Error('expected red to move');
-    await host.emit('game:roll', { gameId, version: st.version, actionId: crypto.randomUUID() });
-    await host.emit('game:move', { gameId, version: st.version, actionId: crypto.randomUUID(), dieIndex: 0, tokenId: 3 });
-    expect(t.server.ctx.games.get(gameId)!.finished).toBe(true);
-    await closed;
+    await host.emit('lobby:leave', {}); // last human: the lobby closes
+    expect(t.server.ctx.lobbies.get(lobbyId)).toBeUndefined();
+    expect(t.server.ctx.voice.state(lobbyId).participants).toEqual([]);
   });
 });

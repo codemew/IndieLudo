@@ -3,7 +3,7 @@ import type { PublicGameState, PublicLobby } from '../shared/types.js';
 import { ApiError, api } from './api.js';
 import { connect, disconnect, emit, isConnected } from './net.js';
 import { currentScreen, go } from './router.js';
-import { state, update } from './store.js';
+import { state, subscribe, update } from './store.js';
 import { KEYS, storage } from './storage.js';
 import { errorText, toast } from './ui.js';
 import { voice } from './voice.js';
@@ -76,7 +76,7 @@ function connectSocket(token: string): void {
       s.on('game:state', (u) => onGameUpdate(u));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
       s.on('voice:state', (v) => {
-        if (v.gameId === state.game?.id) update({ voice: v });
+        if (v.lobbyId === state.lobby?.id) update({ voice: v });
         voice.onState(v);
       });
       s.on('voice:signal', (sig) => void voice.onSignal(sig));
@@ -146,6 +146,24 @@ export async function resyncGame(): Promise<void> {
   const r = await emit<PublicGameState>('game:resume', { gameId: g.id });
   if (r.ok && r.data) onGameUpdate({ state: r.data });
 }
+
+/**
+ * Every lobby member is in the lobby's voice chat: join when we enter a lobby (and are
+ * online), leave when we leave it. Matches and results don't interrupt it.
+ */
+function syncVoice(): void {
+  const lobbyId = state.lobby?.id ?? null;
+  if (voice.lobbyId && voice.lobbyId !== lobbyId) void voice.leave();
+  if (!lobbyId) {
+    if (state.voice) update({ voice: null });
+    return;
+  }
+  if (state.voice && state.voice.lobbyId !== lobbyId) update({ voice: null });
+  if (state.user && state.online && !voice.lobbyId) void voice.join(lobbyId, state.user.id);
+}
+subscribe((changed) => {
+  if (changed.includes('lobby') || changed.includes('online')) syncVoice();
+});
 
 export function signOut(message?: string): void {
   void voice.leave(false);

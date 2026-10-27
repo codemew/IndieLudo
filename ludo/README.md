@@ -90,6 +90,7 @@ npm run typecheck
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
 - **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base, and earns a **bonus roll**.
 - **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
+- **A useless six ends the turn:** when every token a player has left is in the home lane, a 6 can never be used, because even the first lane square plus 6 overshoots home. The 6 then ends the turn at once instead of giving another roll.
 - **Queued rolls and the three‑sixes penalty:**
   - A 6 means the player rolls again. Each roll is added to a queue, and **no token moves until the queue is closed** by a roll that is not a 6.
   - A **third 6 in a row cancels the whole turn**. The queue is thrown away and play passes to the next player. Nothing had moved yet, so nothing needs to be undone.
@@ -104,17 +105,23 @@ npm run typecheck
 - When the only possible move is obvious, the server plays it after a short pause.
 - Bots wait until every phone has finished animating the previous roll or move, then pause a little longer to "think". This makes bot turns easy to follow.
 
+**Effects:**
+- The first six sets the dice on a blue flame and the second on a red‑yellow flame, each with its own sound. Three sixes bring a sad face 😩 and a sad trombone.
+- A token landing on a star square chimes and briefly turns into 😌 or 😎, then goes back to normal.
+- A token that captures another briefly turns into 😋 or 🤤, chewing happily with a little slurp, then fades back to the token.
+- On your move, the die your next tap will use is lifted, outlined in your colour and tagged **USE**, and dice that can't move anything are greyed out. The board marks where each glowing token would land.
+- The dice is a light cube with a glow in dark mode, and a dark cube with a shadow in light mode.
+
 **Screen:** the board stays square and edge to edge. The queued dice are on the left. The dice is on the right and only shows while someone still has to roll; once the rolls are done, their values stay in the queue chips.
 
 ## Voice chat
 
-Players in a game can talk to each other; joining is optional and bots never join.
+Everyone in a lobby is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it only by leaving the lobby or being kicked, or when the lobby closes.
 
-- **Join:** tap the headset button in the game's top bar. The browser asks for the microphone the first time. After joining, the same button **mutes and unmutes you**. You can also join, mute and leave from the ☰ options menu.
-- **Who is in:** a small mic badge next to each player's name shows who is in the voice chat. It is green when they're live and red when they're muted. It pulses while your phone is still connecting to theirs. Players who haven't joined have no badge.
-- **Quality:** in the ☰ options menu, pick **16, 32, 48 or 64 kbps**. Any player in the game can change it, and the change applies to everyone at once, without reconnecting. The default is 32 kbps. Use 16 kbps on mobile data.
-- **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other phone (at most 3 others). The server never handles audio. It only checks that each person is a player in that game, keeps track of who has joined and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP).
-- **When you leave:** leaving the board screen, for example for results or home, leaves the voice chat. A dropped connection rejoins it automatically.
+- **Mute yourself:** the mic button is on the lobby screen, the game screen, and the home screen while you're in a lobby. It's green when you're live and red when you're muted. The browser asks for the microphone the first time. If you block it, you still hear everyone and show as muted, the button turns amber, and tapping it asks again.
+- **Who is in:** a small mic badge next to each name, on the lobby seats and the game's player cards. It's green when that person is live and red when muted. It pulses while your phone is still connecting to theirs.
+- **Quality:** pick **16, 32, 48 or 64 kbps** on the lobby screen or in the game's ☰ options menu. Anyone in the lobby can change it, and the change applies to everyone at once, without reconnecting. The default is 32 kbps. Use 16 kbps on mobile data.
+- **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other (at most 3 others). The server never handles audio. It only checks lobby membership, keeps track of who is in and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP). A dropped connection rejoins automatically.
 - **Playing across networks:** on one Wi‑Fi network, voice works without any setup. When players are on different networks (mobile data, other houses), phones use the STUN server in `voice.iceServers` to find each other. Some mobile networks also need a TURN relay. Add one like this:
 
   ```json

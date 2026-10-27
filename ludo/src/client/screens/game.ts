@@ -1,15 +1,13 @@
-import { BASE, HOME, pathCells, tokenCell } from '../../shared/board.js';
+import { BASE, HOME, absoluteSquare, isSafeSquare, pathCells, tokenCell } from '../../shared/board.js';
 import type { GameUpdate } from '../../shared/protocol.js';
 import {
   MAX_MISSED_TURNS,
-  VOICE_BITRATES,
   type Color,
   type GameEvent,
   type GameState,
   type LegalMove,
   type PublicGameState,
   type Seat,
-  type VoiceState,
 } from '../../shared/types.js';
 import { setGameHandler, showError } from '../app.js';
 import { hop, sleep, slide } from '../board/animate.js';
@@ -24,6 +22,7 @@ import { state, subscribe, update } from '../store.js';
 import { uuid } from '../storage.js';
 import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, toast } from '../ui.js';
 import { voice } from '../voice.js';
+import { bindMuteButton, qualityPicker, voiceBadge } from '../voiceUi.js';
 
 /** Corner order around the board, matching each colour's base. */
 const TOP: Color[] = ['red', 'green'];
@@ -49,7 +48,7 @@ export function gameScreen(root: HTMLElement): () => void {
     <header class="game-top">
       <button class="icon-btn" id="menu" aria-label="Menu">☰</button>
       <div class="turn-banner" id="banner"></div>
-      <button class="icon-btn voice-btn" id="voice" aria-label="Voice chat"></button>
+      <button class="icon-btn" id="voice" aria-label="Mute myself"></button>
       <button class="icon-btn" id="fullscreen" aria-label="Fullscreen" hidden></button>
       <button class="icon-btn" id="sound" aria-label="Sound"></button>
     </header>
@@ -57,6 +56,7 @@ export function gameScreen(root: HTMLElement): () => void {
     <div class="board-wrap" id="board-wrap">
       <div class="board" id="board">
         ${boardSvg()}
+        <div class="target-layer" id="targets"></div>
         <div class="token-layer" id="tokens"></div>
         <div class="fx-layer" id="fx"></div>
       </div>
@@ -79,6 +79,12 @@ export function gameScreen(root: HTMLElement): () => void {
   diceSlot.appendChild(dice.el);
   /** The dice only shows while someone still has to roll; spent rolls live in the queue chips. */
   const showDice = (show: boolean) => diceSlot.classList.toggle('dice-hidden', !show);
+  // Flames behind the dice: blue after one six, red-yellow after two.
+  diceSlot.prepend(el(`<div class="dice-flame" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>`));
+  const setFlame = (sixes: number) => (diceSlot.dataset.flame = String(Math.min(sixes, 2)));
+  const sadFace = el(`<div class="dice-emoji" aria-hidden="true">😩</div>`);
+  diceSlot.appendChild(sadFace);
+  const targets = $(root, '#targets');
   const tokens = new TokenLayer($(root, '#tokens'), (color, id) => onTokenTap(color, id));
 
   // Size the board from its container's content box (never from vh, which jumps with the
@@ -100,7 +106,7 @@ export function gameScreen(root: HTMLElement): () => void {
     paintSound();
   };
   $(root, '#menu').onclick = () => openMenu();
-  $(root, '#voice').onclick = () => void onVoiceButton();
+  const offMute = bindMuteButton($<HTMLButtonElement>(root, '#voice'));
   const offFs = bindFullscreenButton($<HTMLButtonElement>(root, '#fullscreen'));
   $(root, '#takeback').onclick = async () => {
     const r = await emit('game:takeback', { gameId: gs!.id });
@@ -195,41 +201,69 @@ export function gameScreen(root: HTMLElement): () => void {
 
   async function playEvents(work: GameState, events: GameEvent[]): Promise<void> {
     const me = mySeat()?.color;
-    for (const e of events) {
+    let lastMover: HTMLElement | undefined;
+    for (const [i, e] of events.entries()) {
       if (destroyed) return;
       switch (e.type) {
-        case 'roll':
+        case 'roll': {
           setDiceColor(e.color);
           showDice(true);
+          renderTargets([]);
           play('dice');
           if (e.color === me) vibrate(12);
           work.turn.queue = e.queue;
           await dice.roll(e.value);
           renderQueue(work, false);
+          // A usable six sets the dice on fire (a useless one just ends the turn, a third is the penalty).
+          const sixes = e.queue.filter((v) => v === 6).length;
+          const next = events[i + 1]?.type;
+          if (e.value === 6 && sixes <= 2 && next !== 'noMoves' && next !== 'penalty') {
+            setFlame(sixes);
+            play(sixes === 1 ? 'six' : 'six2');
+            if (e.color === me) vibrate(sixes === 1 ? 30 : [30, 40, 30]);
+          }
           // Let the result sit for a moment before the dice steps aside (or resets for a re-roll).
           await sleep(450);
-          if (e.value !== 6) showDice(false);
+          if (e.value !== 6) {
+            setFlame(0);
+            showDice(false);
+          }
           break;
+        }
         case 'penalty':
+          setFlame(0);
+          sadFace.classList.remove('show');
+          void sadFace.offsetWidth;
+          sadFace.classList.add('show');
           dice.shake();
           play('penalty');
           vibrate([60, 40, 60]);
           callout('3 sixes!', 'Turn lost');
+          $(root, '#hint').textContent = 'Three sixes in a row: turn lost';
           work.turn.queue = [];
           renderQueue(work, false);
-          await sleep(1000);
+          await sleep(1700);
+          sadFace.classList.remove('show');
           break;
         case 'move': {
           const el = tokens.get(e.color, e.tokenId);
           if (!el) break;
+          lastMover = el;
           const start = tokenCell(e.color, e.from, e.tokenId);
           const path = pathCells(e.color, e.from, e.to, e.tokenId);
           const idx = work.turn.queue.indexOf(e.die);
           if (idx >= 0) work.turn.queue.splice(idx, 1);
           renderQueue(work, false);
+          renderTargets([]);
           await hop(el, start, path, e.from === BASE ? 260 : 150, () => play('step'));
           work.tokens[e.color][e.tokenId] = e.to;
           tokens.sync(work, new Set(), null);
+          const abs = absoluteSquare(e.color, e.to);
+          if (abs !== null && isSafeSquare(abs)) {
+            play('safe');
+            burst(tokenCell(e.color, e.to, e.tokenId), 'gold');
+            tokenEmoji(el, 'safe');
+          }
           break;
         }
         case 'capture': {
@@ -239,6 +273,9 @@ export function gameScreen(root: HTMLElement): () => void {
           play('capture');
           vibrate([30, 50, 30]);
           burst(from, e.color);
+          // The capturer savours its meal while the victim slides home.
+          if (lastMover) tokenEmoji(lastMover, 'yum');
+          setTimeout(() => play('slurp'), 260);
           await slide(el, from, tokenCell(e.victim, BASE, e.tokenId), 560);
           work.tokens[e.victim][e.tokenId] = BASE;
           tokens.sync(work, new Set(), null);
@@ -307,7 +344,7 @@ export function gameScreen(root: HTMLElement): () => void {
       chip.innerHTML = `
         <span class="pchip-dot">${seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
         <span class="pchip-text">
-          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat)}</span>
+          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}</span>
           <span class="pchip-sub">${chipStatus(seat, rank, homeCount)}</span>
         </span>
         <span class="pchip-timer"><i></i></span>`;
@@ -320,76 +357,24 @@ export function gameScreen(root: HTMLElement): () => void {
     }
   }
 
-  // ---------- voice chat ----------
-
-  /** Mic badge beside a player's name: in voice (on / muted), and still connecting to us. */
-  function voiceBadge(seat: Seat): string {
-    const p = seat.userId === null ? undefined : state.voice?.participants.find((x) => x.userId === seat.userId);
-    if (!p) return '';
-    const connecting = voice.joined && seat.userId !== myId && voice.peerStatus(seat.userId!) !== 'connected';
-    const label = `${p.muted ? 'muted' : 'in voice chat'}${connecting ? ', connecting' : ''}`;
-    return ` <span class="vc ${p.muted ? 'vc-muted' : 'vc-on'}${connecting ? ' vc-connecting' : ''}" title="${label}" aria-label="${label}">${p.muted ? ICONS.micOff : ICONS.mic}</span>`;
-  }
-
-  function paintVoiceButton(): void {
-    const b = $<HTMLButtonElement>(root, '#voice');
-    b.hidden = !mySeat() || gs!.finished;
-    b.classList.toggle('vb-on', voice.joined && !voice.muted);
-    b.classList.toggle('vb-muted', voice.joined && voice.muted);
-    b.disabled = voice.joining;
-    if (voice.joining) b.innerHTML = '<span class="spinner"></span>';
-    else b.innerHTML = !voice.joined ? ICONS.headset : voice.muted ? ICONS.micOff : ICONS.mic;
-    b.setAttribute('aria-label', !voice.joined ? 'Join voice chat' : voice.muted ? 'Unmute microphone' : 'Mute microphone');
-  }
-
-  /** Top-bar button: join the channel, then toggles your own mute. */
-  async function onVoiceButton(): Promise<void> {
-    if (!voice.joined) return joinVoice();
-    await voice.setMuted(!voice.muted);
-    play('tap');
-  }
-
-  async function joinVoice(): Promise<void> {
-    const err = await voice.join(gs!.id, myId!);
-    if (err) showError(err);
-    else toast(voice.muted ? 'Joined voice chat (muted)' : 'Joined voice chat', 'success');
-  }
+  // ---------- voice chat (lobby-wide; see voiceUi.ts) ----------
 
   function voiceMenu(body: HTMLElement, close: () => void): void {
-    const v: VoiceState | null = state.voice;
     const section = el(`
       <div class="menu-section">
         <div class="menu-heading">Voice chat</div>
+        <p class="muted small">Everyone in the lobby is in the voice chat.</p>
         <div class="menu-row" id="vm-actions"></div>
-        <div class="menu-heading small">Voice quality <span class="muted">· applies to everyone</span></div>
-        <div class="segmented" role="radiogroup" aria-label="Voice quality">
-          ${VOICE_BITRATES.map((k) => `<button role="radio" data-kbps="${k}" class="${k === (v?.bitrateKbps ?? voice.bitrateKbps) ? 'on' : ''}" aria-checked="${k === v?.bitrateKbps}">${k}<small>kbps</small></button>`).join('')}
-        </div>
-        <p class="muted small">Lower uses less mobile data; higher sounds clearer.</p>
       </div>`);
-    const actions = $(section, '#vm-actions');
-    const button = (label: string, kind: string, fn: () => void) => {
-      const b = el<HTMLButtonElement>(`<button class="btn btn-small ${kind}">${label}</button>`);
+    if (voice.joined && voice.micAvailable) {
+      const b = el<HTMLButtonElement>(`<button class="btn btn-small btn-ghost">${voice.muted ? `${ICONS.mic} Unmute myself` : `${ICONS.micOff} Mute myself`}</button>`);
       b.onclick = () => {
         close();
-        fn();
+        void voice.setMuted(!voice.muted);
       };
-      actions.appendChild(b);
-    };
-    if (!voice.joined) button(`${ICONS.headset} Join voice chat`, 'btn-primary', () => void joinVoice());
-    else {
-      button(voice.muted ? `${ICONS.mic} Unmute` : `${ICONS.micOff} Mute me`, 'btn-ghost', () => void voice.setMuted(!voice.muted));
-      button('Leave voice chat', 'btn-ghost', () => void voice.leave());
+      $(section, '#vm-actions').appendChild(b);
     }
-    for (const b of section.querySelectorAll<HTMLButtonElement>('.segmented button')) {
-      b.onclick = async () => {
-        const kbps = Number(b.dataset.kbps);
-        const err = await voice.setBitrate(gs!.id, kbps);
-        if (err) return showError(err);
-        section.querySelectorAll('.segmented button').forEach((x) => x.classList.toggle('on', x === b));
-        toast(`Voice quality: ${kbps} kbps`);
-      };
-    }
+    section.appendChild(qualityPicker().el);
     body.appendChild(section);
   }
 
@@ -400,15 +385,23 @@ export function gameScreen(root: HTMLElement): () => void {
     return `${homeCount}/4 home`;
   }
 
+  /**
+   * Queued dice, in the current player's colour. On your move the die the next token tap will
+   * use is lifted, outlined, glowing and tagged "USE"; dice that can't move anything are greyed.
+   */
   function renderQueue(s: GameState, interactive: boolean): void {
     const q = $(root, '#queue');
     q.innerHTML = '';
     const mine = interactive && canMove();
+    q.dataset.color = s.seats[s.turn.seat].color;
+    q.classList.toggle('mine', mine);
     const legal = mine ? gs!.legalMoves : [];
     const sel = mine ? validSelection(legal) : null;
     s.turn.queue.forEach((v, i) => {
       const usable = legal.some((m) => m.dieIndex === i);
-      const chip = el<HTMLButtonElement>(`<button class="qchip${sel === i ? ' selected' : ''}${mine && !usable ? ' dim' : ''}">${dieChip(v)}</button>`);
+      const chip = el<HTMLButtonElement>(
+        `<button class="qchip${sel === i ? ' selected' : ''}${mine && !usable ? ' dim' : ''}" aria-label="Die ${v}${sel === i ? ', selected' : ''}">${dieChip(v)}${sel === i ? '<span class="qtag">USE</span>' : ''}</button>`,
+      );
       chip.disabled = !mine || !usable;
       chip.onclick = () => {
         selectedDie = i;
@@ -435,10 +428,14 @@ export function gameScreen(root: HTMLElement): () => void {
       const values = new Set(gs.turn.queue);
       const moves = values.size > 1 ? gs.legalMoves.filter((m) => m.dieIndex === selectedDie) : gs.legalMoves;
       tappable = new Set(moves.map((m) => `${me!.color}:${m.tokenId}`));
+      if (!animating || force) renderTargets(moves);
+    } else if (!animating || force) {
+      renderTargets([]);
     }
     if (!animating || force) {
       tokens.sync(gs, tappable, seat.color);
       renderQueue(gs, true);
+      setFlame(gs.turn.phase === 'rolling' ? gs.turn.sixes : 0);
     }
 
     const banner = $(root, '#banner');
@@ -451,7 +448,7 @@ export function gameScreen(root: HTMLElement): () => void {
     else if (gs.turn.auto && isMyTurn()) hint = "Time's up — playing your turn for you. Tap to take over.";
     else if (gs.turn.auto) hint = `Time's up for ${esc(seat.username)} — auto-playing…`;
     else if (isMyTurn() && gs.turn.phase === 'rolling') hint = gs.turn.sixes > 0 ? `Rolled ${gs.turn.sixes === 1 ? 'a 6' : 'two 6s'}! Roll again` : 'Tap the dice to roll';
-    else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Pick a die, then tap a glowing token' : 'Tap a glowing token';
+    else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Moving with the highlighted die · tap another die to switch' : 'Tap a glowing token';
     else hint = seat.controller === 'human' ? `Waiting for ${esc(seat.username)}…` : `${esc(seat.username)} (bot) is playing…`;
     $(root, '#hint').innerHTML = hint;
 
@@ -464,7 +461,38 @@ export function gameScreen(root: HTMLElement): () => void {
     setTimeout(() => c.remove(), 1300);
   }
 
-  function burst(cell: readonly [number, number], color: Color): void {
+  /**
+   * The token briefly becomes an emoji, then fades back into itself:
+   * relieved on a star ('safe'), licking its lips after a capture ('yum').
+   */
+  function tokenEmoji(token: HTMLElement, kind: 'safe' | 'yum'): void {
+    const faces = kind === 'safe' ? ['😌', '😎'] : ['😋', '😋', '🤤'];
+    token.querySelector('.tok-emoji')?.remove();
+    const face = el(`<span class="tok-emoji ${kind}" aria-hidden="true">${faces[Math.floor(Math.random() * faces.length)]}</span>`);
+    token.appendChild(face);
+    token.classList.add('shows-emoji');
+    setTimeout(() => {
+      face.remove();
+      if (!token.querySelector('.tok-emoji')) token.classList.remove('shows-emoji');
+    }, 1700);
+  }
+
+  /** Where each glowing token would land with the selected die. */
+  function renderTargets(moves: LegalMove[]): void {
+    targets.innerHTML = '';
+    const color = mySeat()?.color;
+    if (!color) return;
+    const seen = new Set<string>();
+    for (const m of moves) {
+      const [x, y] = tokenCell(color, m.to, m.tokenId);
+      const key = m.to === HOME ? 'home' : `${x},${y}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.appendChild(el(`<div class="target t-${color}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%"></div>`));
+    }
+  }
+
+  function burst(cell: readonly [number, number], color: Color | 'gold'): void {
     const b = el(`<div class="burst t-${color}" style="left:${((cell[0] + 0.5) / 15) * 100}%;top:${((cell[1] + 0.5) / 15) * 100}%">${'<i></i>'.repeat(8)}</div>`);
     fx.appendChild(b);
     setTimeout(() => b.remove(), 900);
@@ -481,7 +509,7 @@ export function gameScreen(root: HTMLElement): () => void {
       };
       body.appendChild(b);
     };
-    if (mySeat() && !gs!.finished) voiceMenu(body, m.close);
+    if (state.lobby) voiceMenu(body, m.close);
     if (canFullscreen() && !isFullscreen()) item('⛶ Fullscreen', () => void enterFullscreen());
     item('🏠 Back to home (game keeps running)', () => go('home'));
     if (mySeat() && !gs!.finished) {
@@ -499,15 +527,10 @@ export function gameScreen(root: HTMLElement): () => void {
   renderAll();
   if (gs.finished) queueMicrotask(() => go('results'));
 
-  // Voice: load who is in the channel, and repaint badges/button when it or our peers change.
-  if (state.voice?.gameId !== gs.id) update({ voice: null });
-  void emit<VoiceState>('voice:get', { gameId: gs.id }).then((r) => r.ok && r.data && r.data.gameId === gs?.id && update({ voice: r.data }));
+  // Repaint the mic badges when the channel or our peer connections change.
   const repaintVoice = () => {
-    if (!gs || destroyed) return;
-    renderChips();
-    paintVoiceButton();
+    if (gs && !destroyed) renderChips();
   };
-  paintVoiceButton();
   const offVoice = voice.onChange(repaintVoice);
   const offStore = subscribe((changed) => changed.includes('voice') && repaintVoice());
 
@@ -518,7 +541,6 @@ export function gameScreen(root: HTMLElement): () => void {
     offVoice();
     offStore();
     offFs();
-    // Voice belongs to the board screen; leaving it (results, home) leaves the channel.
-    void voice.leave();
+    offMute();
   };
 }

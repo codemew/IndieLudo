@@ -90,7 +90,6 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     log,
     onUpdate: (state, events) => io?.to(rooms.game(state.id)).emit('game:state', { state, events }),
     onGameOver: (state) => {
-      voice.close(state.id);
       for (const seat of state.seats) {
         if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, state.ranks[0] === seat.color);
       }
@@ -104,24 +103,18 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     maxLobbies: config.maxLobbies,
     lobbyIdleCloseSec: config.lobbyIdleCloseSec,
     onChange: (lobbyId) => broadcastLobby(lobbyId),
-    onLeaveGame: (lobby, userId) => {
-      if (!lobby.gameId) return;
-      games.leave(lobby.gameId, userId);
-      voice.leave(lobby.gameId, userId);
-    },
+    onLeaveGame: (lobby, userId) => lobby.gameId && games.leave(lobby.gameId, userId),
+    // Voice belongs to the lobby: leaving it (or being kicked or dropped) leaves the channel.
+    onMemberLeft: (lobby, userId) => voice.leave(lobby.id, userId),
     onClosed: (lobby) => {
-      if (!lobby.gameId) return;
-      games.abort(lobby.gameId);
-      voice.close(lobby.gameId);
+      voice.close(lobby.id);
+      if (lobby.gameId) games.abort(lobby.gameId);
     },
   });
 
   const voice: VoiceManager = new VoiceManager({
-    isPlayer: (gameId, userId) => {
-      const s = games.get(gameId);
-      return Boolean(s && !s.finished && s.seats.some((seat) => seat.userId === userId && seat.controller !== 'bot'));
-    },
-    onChange: (state) => io?.to(rooms.game(state.gameId)).emit('voice:state', state),
+    isMember: (lobbyId, userId) => Boolean(lobbies.get(lobbyId)?.members.some((m) => m.userId === userId && !m.isBot)),
+    onChange: (state) => io?.to(rooms.lobby(state.lobbyId)).emit('voice:state', state),
   });
 
   const gate = new Gate({ ...config.gate, onRotate: opts.onGateRotate });

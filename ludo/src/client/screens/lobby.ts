@@ -5,6 +5,8 @@ import { go } from '../router.js';
 import { play } from '../sound.js';
 import { state, subscribe } from '../store.js';
 import { $, COLOR_NAME, confirmDialog, el, esc } from '../ui.js';
+import { voice } from '../voice.js';
+import { bindMuteButton, qualityPicker, voiceBadge } from '../voiceUi.js';
 
 /** Seats laid out like the board: red top-left, green top-right, blue bottom-left, yellow bottom-right. */
 const SEAT_ORDER: Color[] = ['red', 'green', 'blue', 'yellow'];
@@ -17,11 +19,14 @@ export function lobbyScreen(root: HTMLElement): () => void {
         <div class="eyebrow">Lobby</div>
         <div class="lobby-name" id="lobby-name"></div>
       </div>
-      <span class="icon-btn ghost"></span>
+      <button class="icon-btn" id="mute" aria-label="Mute myself"></button>
     </header>
     <section class="lobby-body">
       <p class="muted center" id="lobby-hint"></p>
       <div class="seat-grid" id="seats"></div>
+      <div class="lobby-voice" id="lobby-voice">
+        <p class="muted small">🎙 Everyone in the lobby is in the voice chat, during matches too. Use the mic button to mute yourself.</p>
+      </div>
     </section>
     <footer class="bottom-bar" id="actions"></footer>`;
 
@@ -79,7 +84,20 @@ export function lobbyScreen(root: HTMLElement): () => void {
   };
 
   render();
-  return subscribe((changed) => changed.includes('lobby') && render());
+  const offMute = bindMuteButton($<HTMLButtonElement>(root, '#mute'));
+  const quality = qualityPicker();
+  $(root, '#lobby-voice').appendChild(quality.el);
+  const offStore = subscribe((changed) => {
+    if (changed.includes('lobby') || changed.includes('voice')) render();
+    if (changed.includes('voice')) quality.refresh();
+  });
+  // Peer connection changes only affect the "connecting" pulse on the badges.
+  const offVoice = voice.onChange(render);
+  return () => {
+    offMute();
+    offStore();
+    offVoice();
+  };
 }
 
 function seatCard(
@@ -109,7 +127,7 @@ function seatCard(
   const card = el(`
     <div class="seat s-${color} ${isMe ? 'seat-me' : ''} ${m.connected ? '' : 'seat-offline'}">
       <div class="seat-token">${m.isBot ? '🤖' : esc(m.username[0]?.toUpperCase() ?? '')}</div>
-      <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}</div>
+      <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}${voiceBadge(m.userId)}</div>
       <div class="seat-tags">
         ${m.userId === ctx.hostId ? '<span class="tag">👑 host</span>' : ''}
         ${m.isBot ? '<span class="tag">bot</span>' : m.userId === ctx.hostId ? '' : m.ready ? '<span class="tag tag-ok">✓ ready</span>' : '<span class="tag">not ready</span>'}

@@ -189,20 +189,20 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
 
     on('game:takeback', SCHEMAS.gameRef, (p) => ctx.games.takeback(userId, p.gameId));
 
-    // ---- Voice chat: membership and relaying only; audio goes peer to peer. ----
+    // ---- Lobby voice chat: membership and relaying only; audio goes peer to peer. ----
 
-    on('voice:get', SCHEMAS.gameRef, (p) => ({ ok: true, data: ctx.voice.stateFor(p.gameId, userId) }));
-    on('voice:join', SCHEMAS.gameRef, (p) => ({
+    on('voice:get', SCHEMAS.voiceRef, (p) => ({ ok: true, data: ctx.voice.stateFor(p.lobbyId, userId) }));
+    on('voice:join', SCHEMAS.voiceRef, (p) => ({
       ok: true,
-      data: { state: ctx.voice.join(p.gameId, userId, socket.id), iceServers: ctx.config.voice.iceServers },
+      data: { state: ctx.voice.join(p.lobbyId, userId, socket.id), iceServers: ctx.config.voice.iceServers },
     }));
-    on('voice:leave', SCHEMAS.gameRef, (p) => void ctx.voice.leave(p.gameId, userId));
-    on('voice:mute', SCHEMAS.voiceMute, (p) => void ctx.voice.setMuted(p.gameId, userId, p.muted));
-    on('voice:bitrate', SCHEMAS.voiceBitrate, (p) => void ctx.voice.setBitrate(p.gameId, userId, p.kbps));
+    on('voice:leave', SCHEMAS.voiceRef, (p) => void ctx.voice.leave(p.lobbyId, userId));
+    on('voice:mute', SCHEMAS.voiceMute, (p) => void ctx.voice.setMuted(p.lobbyId, userId, p.muted));
+    on('voice:bitrate', SCHEMAS.voiceBitrate, (p) => void ctx.voice.setBitrate(p.lobbyId, userId, p.kbps));
     on('voice:signal', SCHEMAS.voiceSignal, (p) => {
       if (p.kind !== 'offer' && p.kind !== 'answer') return { ok: false, error: 'BAD_PAYLOAD' };
-      const target = ctx.voice.relayTarget(p.gameId, userId, p.to);
-      io.to(target).emit('voice:signal', { gameId: p.gameId, from: userId, kind: p.kind, sdp: p.sdp });
+      const target = ctx.voice.relayTarget(p.lobbyId, userId, p.to);
+      io.to(target).emit('voice:signal', { lobbyId: p.lobbyId, from: userId, kind: p.kind, sdp: p.sdp });
     });
 
     socket.on('disconnect', () => {

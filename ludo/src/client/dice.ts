@@ -37,7 +37,7 @@ export class Dice {
     this.el = document.createElement('button');
     this.el.className = 'dice';
     this.el.setAttribute('aria-label', 'Roll the dice');
-    this.el.innerHTML = `<div class="dice-shadow"></div><div class="cube">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div>`;
+    this.el.innerHTML = `<div class="cube"><div class="core"></div><div class="core core-x"></div><div class="core core-y"></div>${[1, 2, 3, 4, 5, 6].map(face).join('')}</div>`;
     this.cube = this.el.querySelector('.cube')!;
     this.idle();
   }

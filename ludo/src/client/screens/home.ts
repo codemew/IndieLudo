@@ -6,6 +6,7 @@ import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
 import { state, subscribe, update } from '../store.js';
 import { $, el, esc, modal } from '../ui.js';
+import { bindMuteButton } from '../voiceUi.js';
 import { adminLoginDialog } from './admin.js';
 
 export function homeScreen(root: HTMLElement): () => void {
@@ -19,6 +20,7 @@ export function homeScreen(root: HTMLElement): () => void {
         </div>
       </div>
       <div class="topbar-actions">
+        <button class="icon-btn" id="mute" aria-label="Mute myself" hidden></button>
         <button class="icon-btn" id="fullscreen" aria-label="Fullscreen" hidden></button>
         <button class="icon-btn" id="sound" aria-label="Sound"></button>
         <button class="icon-btn" id="menu" aria-label="Menu">⋯</button>
@@ -44,6 +46,8 @@ export function homeScreen(root: HTMLElement): () => void {
   $(root, '#create').onclick = () => createLobbyDialog();
 
   const offFs = bindFullscreenButton($<HTMLButtonElement>(root, '#fullscreen'));
+  // While in a lobby you are in its voice chat even here, so the mute control stays at hand.
+  const offMute = bindMuteButton($<HTMLButtonElement>(root, '#mute'));
 
   const render = () => {
     const u = state.user;
@@ -64,6 +68,7 @@ export function homeScreen(root: HTMLElement): () => void {
   return () => {
     offStore();
     offFs();
+    offMute();
   };
 }
 

@@ -59,14 +59,20 @@ interface Peer {
 }
 
 /**
- * Voice chat for one game: a full mesh of audio-only WebRTC connections (at most 3 peers).
- * The newcomer always sends the offers, so two phones never offer to each other at once.
+ * Voice chat for one lobby: a full mesh of audio-only WebRTC connections (at most 3 peers).
+ * Every lobby member is in it from joining the lobby until leaving it, through matches and
+ * results. The newcomer always sends the offers, so two phones never offer to each other at once.
  */
 class VoiceClient {
-  gameId: string | null = null;
+  /** The lobby whose channel we are in, or are joining. */
+  lobbyId: string | null = null;
   joined = false;
   joining = false;
   muted = false;
+  /** False when the microphone is blocked or missing: we still listen, and show as muted. */
+  micAvailable = true;
+  /** Last reason joining failed (server side), so the UI can offer a retry. */
+  error: string | null = null;
   bitrateKbps = DEFAULT_VOICE_BITRATE;
   private myId = 0;
   private stream: MediaStream | null = null;
@@ -84,39 +90,48 @@ class VoiceClient {
     for (const fn of this.listeners) fn();
   }
 
+  /** Muted by choice, or because there is no microphone to send. */
+  get silent(): boolean {
+    return this.muted || !this.micAvailable;
+  }
+
   peerStatus(userId: number): PeerStatus | null {
     return this.peers.get(userId)?.status ?? null;
   }
 
-  /** Returns an error code, or null on success. Must start from a tap (microphone prompt). */
-  async join(gameId: string, myId: number): Promise<string | null> {
-    if (this.joined || this.joining) return null;
-    if (!navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === 'undefined') return 'NO_MIC_SUPPORT';
+  /** Joins the lobby's channel. Without a microphone we still join, listen-only. */
+  async join(lobbyId: string, myId: number): Promise<string | null> {
+    if ((this.joined && this.lobbyId === lobbyId) || this.joining) return null;
+    if (this.joined) await this.leave();
+    if (typeof RTCPeerConnection === 'undefined') {
+      this.error = 'NO_MIC_SUPPORT';
+      this.notify();
+      return this.error;
+    }
+    this.lobbyId = lobbyId;
+    this.myId = myId;
     this.joining = true;
     this.notify();
     try {
-      if (!this.stream || this.stream.getAudioTracks().every((t) => t.readyState === 'ended')) {
-        try {
-          this.stream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-            video: false,
-          });
-        } catch {
-          return 'MIC_DENIED';
-        }
+      await this.acquireMic();
+      const r = await emit<VoiceJoined>('voice:join', { lobbyId });
+      if (this.lobbyId !== lobbyId) {
+        // Left the lobby while joining.
+        if (r.ok) void emit('voice:leave', { lobbyId });
+        return null;
       }
-      const r = await emit<VoiceJoined>('voice:join', { gameId });
       if (!r.ok) {
-        this.stopStream();
+        this.error = r.error;
         return r.error;
       }
-      this.gameId = gameId;
-      this.myId = myId;
+      this.error = null;
       this.joined = true;
       this.iceServers = r.data!.iceServers;
       this.bitrateKbps = r.data!.state.bitrateKbps;
       this.applyMute();
-      if (this.muted) void emit('voice:mute', { gameId, muted: true });
+      // The server remembers mute across rejoins; make it match what this phone is doing.
+      const me = r.data!.state.participants.find((p) => p.userId === myId);
+      if (me && me.muted !== this.silent) void emit('voice:mute', { lobbyId, muted: this.silent });
       for (const p of r.data!.state.participants) if (p.userId !== myId) void this.call(p.userId);
       return null;
     } finally {
@@ -125,31 +140,62 @@ class VoiceClient {
     }
   }
 
+  private async acquireMic(): Promise<void> {
+    if (this.stream?.getAudioTracks().some((t) => t.readyState === 'live')) return;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.micAvailable = false;
+      return;
+    }
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+        video: false,
+      });
+      this.micAvailable = true;
+    } catch {
+      this.stream = null;
+      this.micAvailable = false;
+    }
+  }
+
+  /** From a tap after the microphone was blocked: ask again, then redial everyone with audio. */
+  async retryMic(): Promise<boolean> {
+    await this.acquireMic();
+    this.notify();
+    if (!this.micAvailable) return false;
+    this.muted = false;
+    if (this.lobbyId) await this.restart();
+    return true;
+  }
+
   async leave(tellServer = true): Promise<void> {
-    if (!this.joined) return;
-    const gameId = this.gameId;
+    const lobbyId = this.lobbyId;
+    const wasJoined = this.joined;
+    this.lobbyId = null;
     this.joined = false;
+    this.error = null;
     for (const id of [...this.peers.keys()]) this.closePeer(id);
     this.stopStream();
     this.notify();
-    if (tellServer && gameId) await emit('voice:leave', { gameId });
+    if (tellServer && wasJoined && lobbyId) await emit('voice:leave', { lobbyId });
   }
 
   async setMuted(muted: boolean): Promise<void> {
+    if (!this.micAvailable) return;
     this.muted = muted;
     this.applyMute();
     this.notify();
-    if (this.joined && this.gameId) await emit('voice:mute', { gameId: this.gameId, muted });
+    if (this.joined && this.lobbyId) await emit('voice:mute', { lobbyId: this.lobbyId, muted });
   }
 
-  async setBitrate(gameId: string, kbps: number): Promise<string | null> {
-    const r = await emit('voice:bitrate', { gameId, kbps });
+  async setBitrate(lobbyId: string, kbps: number): Promise<string | null> {
+    const r = await emit('voice:bitrate', { lobbyId, kbps });
     return r.ok ? null : r.error;
   }
 
   /** Server's view of the channel: drop peers that left, apply a new quality setting. */
   onState(state: VoiceState): void {
-    if (state.gameId !== this.gameId) return;
+    if (state.lobbyId !== this.lobbyId) return;
     if (state.bitrateKbps !== this.bitrateKbps) {
       this.bitrateKbps = state.bitrateKbps;
       for (const p of this.peers.values()) void this.applyBitrate(p.pc);
@@ -160,7 +206,7 @@ class VoiceClient {
   }
 
   async onSignal(sig: VoiceSignalIn): Promise<void> {
-    if (!this.joined || sig.gameId !== this.gameId) return;
+    if (!this.joined || sig.lobbyId !== this.lobbyId) return;
     if (sig.kind === 'offer') {
       // A (re)offer always starts a fresh connection with that player.
       this.closePeer(sig.from);
@@ -178,19 +224,20 @@ class VoiceClient {
 
   /** After a socket reconnect the server has dropped us from the channel: rejoin and re-call. */
   async onReconnect(): Promise<void> {
-    if (!this.joined || !this.gameId) return;
-    const gameId = this.gameId;
+    if (this.lobbyId) await this.restart();
+  }
+
+  private async restart(): Promise<void> {
+    const lobbyId = this.lobbyId!;
     this.joined = false;
     for (const id of [...this.peers.keys()]) this.closePeer(id);
-    const err = await this.join(gameId, this.myId);
-    if (err) {
-      this.stopStream();
-      this.notify();
-    }
+    await this.join(lobbyId, this.myId);
   }
 
   private async call(userId: number): Promise<void> {
     const peer = this.createPeer(userId);
+    // Listen-only (no microphone): still ask to receive their audio.
+    if (!this.stream) peer.pc.addTransceiver('audio', { direction: 'recvonly' });
     const offer = await peer.pc.createOffer();
     await peer.pc.setLocalDescription({ type: 'offer', sdp: setOpusBitrate(offer.sdp ?? '', MAX_KBPS) });
     await iceGathered(peer.pc);
@@ -198,7 +245,7 @@ class VoiceClient {
   }
 
   private signal(to: number, kind: 'offer' | 'answer', sdp: string): void {
-    if (this.gameId) void emit('voice:signal', { gameId: this.gameId, to, kind, sdp });
+    if (this.lobbyId) void emit('voice:signal', { lobbyId: this.lobbyId, to, kind, sdp });
   }
 
   private createPeer(userId: number): Peer {

@@ -9,7 +9,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let muted = storage.get(KEYS.muted) === '1';
 
-export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus';
+export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp';
 
 export function unlock(): void {
   try {
@@ -109,8 +109,31 @@ export function play(name: Sfx): void {
       [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.08, 0.18, 'triangle', 0.22));
       break;
     case 'penalty':
-      tone(130, 0, 0.18, 'square', 0.15);
-      tone(98, 0.2, 0.3, 'square', 0.15);
+      // Sad trombone: three falling notes and a long wobbling one.
+      [392, 370, 349].forEach((f, i) => tone(f, i * 0.28, 0.26, 'sawtooth', 0.12, f * 0.97));
+      tone(330, 0.84, 0.75, 'sawtooth', 0.12, 247);
+      break;
+    case 'slurp':
+      // A quick rising slurp and a little "mm".
+      noise(0, 0.22, 0.14, 700);
+      tone(260, 0, 0.22, 'sine', 0.14, 620);
+      tone(196, 0.26, 0.2, 'triangle', 0.1, 185);
+      break;
+    case 'safe':
+      // Landing on a star: a bright twinkle.
+      [1568, 2093, 2637].forEach((f, i) => tone(f, i * 0.06, 0.22, 'sine', 0.12));
+      break;
+    case 'six':
+      // First six: a rising whoosh into a chord.
+      noise(0, 0.25, 0.12, 3000);
+      tone(330, 0, 0.3, 'triangle', 0.18, 990);
+      [523, 659, 784].forEach((f) => tone(f, 0.28, 0.3, 'triangle', 0.12));
+      break;
+    case 'six2':
+      // Second six: bigger, higher, with a crackle.
+      noise(0, 0.35, 0.18, 1800);
+      tone(440, 0, 0.32, 'sawtooth', 0.12, 1320);
+      [659, 831, 988, 1319].forEach((f, i) => tone(f, 0.28 + i * 0.05, 0.36, 'triangle', 0.13));
       break;
     case 'turn':
       tone(880, 0, 0.12, 'sine', 0.22);

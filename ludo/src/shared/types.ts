@@ -89,13 +89,13 @@ export interface LobbyMember {
 
 export type LobbyStatus = 'waiting' | 'playing';
 
-/** Voice quality steps (kbps) for the per-game setting. */
+/** Voice quality steps (kbps) for the per-lobby setting. */
 export const VOICE_BITRATES = [16, 32, 48, 64] as const;
 export const DEFAULT_VOICE_BITRATE = 32;
 
-/** Who is in a game's voice channel. Shared with every player in the game, joined or not. */
+/** Who is in a lobby's voice channel. Shared with every member of the lobby. */
 export interface VoiceState {
-  gameId: string;
+  lobbyId: string;
   bitrateKbps: number;
   participants: { userId: number; muted: boolean }[];
 }

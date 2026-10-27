@@ -1435,10 +1435,12 @@ h3 {
   gap: 6px;
 }
 .queue {
+  --qc: var(--accent);
   display: flex;
   gap: 8px;
   justify-content: flex-start;
   min-height: 46px;
+  padding-bottom: 14px; /* room for the USE tag */
 }
 .dice-slot {
   flex: none;
@@ -1454,24 +1456,89 @@ h3 {
   transform: scale(0.4) rotate(-25deg);
   pointer-events: none;
 }
+.queue[data-color='red'] {
+  --qc: var(--red);
+}
+.queue[data-color='green'] {
+  --qc: var(--green);
+}
+.queue[data-color='yellow'] {
+  --qc: var(--yellow);
+}
+.queue[data-color='blue'] {
+  --qc: var(--blue);
+}
 .qchip {
+  position: relative;
   padding: 3px;
-  border-radius: 10px;
-  border: 2px solid transparent;
+  border-radius: 12px;
+  border: 3px solid transparent;
   background: none;
   animation: pop 0.25s ease;
-  transition: opacity 0.2s, border-color 0.2s, transform 0.15s;
+  transition: opacity 0.2s, border-color 0.2s, transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.4), box-shadow 0.2s;
 }
-.qchip.selected {
-  border-color: var(--accent);
-  transform: translateY(-3px);
+.queue.mine .qchip:not(:disabled) {
+  border-color: color-mix(in srgb, var(--qc) 35%, transparent);
+}
+/* The die your next token tap will use. */
+.qchip.selected,
+.queue.mine .qchip.selected {
+  border-color: var(--qc);
+  transform: translateY(-4px) scale(1.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--qc) 30%, transparent), 0 0 18px var(--qc);
+  z-index: 1;
+}
+.qtag {
+  position: absolute;
+  left: 50%;
+  bottom: -17px;
+  transform: translateX(-50%);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--qc);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  animation: pulse-soft 1.2s ease infinite;
+}
+.queue[data-color='yellow'] .qtag {
+  color: #1f1300;
 }
 .qchip.dim {
-  opacity: 0.35;
+  opacity: 0.3;
+  filter: grayscale(1);
 }
 .qchip:disabled {
   cursor: default;
 }
+/*
+ * Dice theme: in dark mode a light cube with a soft glow, in light mode a dark cube with a
+ * drop shadow. The queue chips use the same colours. Glows/shadows are filters on .dice, so
+ * they follow the cube's real 3D silhouette instead of a square box.
+ */
+:root {
+  --die-face: #ffffff;
+  --die-face-2: #e6e9f2;
+  --die-core: #dfe3ee;
+  --die-pip: #111827;
+  --die-edge: rgba(0, 0, 0, 0.06);
+  --die-fx: drop-shadow(0 0 6px rgba(255, 255, 255, 0.45)) drop-shadow(0 0 16px rgba(170, 190, 255, 0.35));
+  --chip-fx: 0 0 10px rgba(255, 255, 255, 0.25);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --die-face: #374151;
+    --die-face-2: #1f2937;
+    --die-core: #1f2937;
+    --die-pip: #f8fafc;
+    --die-edge: rgba(255, 255, 255, 0.08);
+    --die-fx: drop-shadow(0 10px 8px rgba(15, 23, 42, 0.35)) drop-shadow(0 3px 3px rgba(15, 23, 42, 0.35));
+    --chip-fx: 0 3px 8px rgba(15, 23, 42, 0.35);
+  }
+}
+
 .mini-die {
   width: 38px;
   height: 38px;
@@ -1479,12 +1546,12 @@ h3 {
   grid-template: repeat(3, 1fr) / repeat(3, 1fr);
   padding: 4px;
   border-radius: 8px;
-  background: #fff;
-  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.3);
+  background: linear-gradient(145deg, var(--die-face), var(--die-face-2));
+  box-shadow: inset 0 0 0 1px var(--die-edge), var(--chip-fx);
 }
 .mini-die i.pip,
 .face i.pip {
-  background: #111827;
+  background: var(--die-pip);
   border-radius: 50%;
 }
 .mini-die i.pip {
@@ -1502,7 +1569,7 @@ h3 {
   border: 0;
   background: none;
   perspective: 700px;
-  border-radius: 16px;
+  filter: var(--die-fx);
 }
 .dice[data-color='red'] {
   --dc: var(--red);
@@ -1519,35 +1586,39 @@ h3 {
 .dice:disabled {
   cursor: default;
 }
-.dice-shadow {
-  position: absolute;
-  left: 12%;
-  right: 12%;
-  bottom: -10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.35);
-  filter: blur(4px);
-}
 .cube {
   position: absolute;
   inset: 0;
   transform-style: preserve-3d;
 }
-.face {
+.face,
+.core {
   position: absolute;
   inset: 0;
-  border-radius: 16px;
-  background: linear-gradient(145deg, #ffffff, #eef0f6);
+}
+.face {
+  border-radius: 12px;
+  background: linear-gradient(145deg, var(--die-face), var(--die-face-2));
   display: grid;
   grid-template: repeat(3, 1fr) / repeat(3, 1fr);
   padding: 13%;
-  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.05), inset 0 -5px 10px rgba(0, 0, 0, 0.07);
+  box-shadow: inset 0 0 0 1.5px var(--die-edge), inset 0 -5px 10px rgba(0, 0, 0, 0.08);
   backface-visibility: hidden;
+}
+/* Solid inner planes: the rounded face corners would otherwise show the background at the edges. */
+.core {
+  background: var(--die-core);
+  border-radius: 6px;
+}
+.core-x {
+  transform: rotateY(90deg);
+}
+.core-y {
+  transform: rotateX(90deg);
 }
 .face i.pip {
   margin: 17%;
-  box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.5);
+  box-shadow: inset 0 2px 2px rgba(0, 0, 0, 0.45);
 }
 .f1 {
   transform: translateZ(var(--half));
@@ -1567,23 +1638,19 @@ h3 {
 .f4 {
   transform: rotateX(-90deg) translateZ(var(--half));
 }
-.dice.can-roll::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-  border-radius: 22px;
-  border: 3px solid var(--dc);
-  box-shadow: 0 0 22px var(--dc);
-  animation: dice-glow 1.1s ease-in-out infinite;
-  pointer-events: none;
-}
+/* Your roll: the cube itself glows in your colour (follows its shape) and nudges now and then. */
 .dice.can-roll {
-  animation: dice-nudge 2.2s ease-in-out infinite;
+  animation:
+    dice-glow 1.1s ease-in-out infinite,
+    dice-nudge 2.2s ease-in-out infinite;
 }
 @keyframes dice-glow {
+  0%,
+  100% {
+    filter: var(--die-fx) drop-shadow(0 0 4px var(--dc)) drop-shadow(0 0 10px var(--dc));
+  }
   50% {
-    opacity: 0.35;
-    transform: scale(1.06);
+    filter: var(--die-fx) drop-shadow(0 0 8px var(--dc)) drop-shadow(0 0 20px var(--dc));
   }
 }
 @keyframes dice-nudge {
@@ -1908,4 +1975,342 @@ h3 {
 .segmented button.on {
   background: var(--accent);
   color: #fff;
+}
+
+/* Home top bar: room for mute + fullscreen + sound + menu next to the name. */
+.topbar-actions {
+  gap: 6px;
+}
+.topbar-actions .icon-btn {
+  width: 40px;
+  height: 40px;
+}
+.topbar-actions .icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.me > div {
+  min-width: 0;
+}
+.me-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-btn.vb-blocked {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #fbbf24;
+}
+.lobby-voice {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lobby-voice p,
+.voice-quality p {
+  margin: 0;
+}
+.voice-quality {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- move targets, dice flames, triple-six face, star sparkle ---------- */
+
+.target-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* Where a glowing token would land with the selected die. */
+.target {
+  --c: var(--accent);
+  position: absolute;
+  width: calc(100% / 15 * 0.8);
+  height: calc(100% / 15 * 0.8);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  /* White ring + coloured glow: readable on white squares and on the player's own coloured ones. */
+  border: 2.5px dashed #fff;
+  box-shadow: 0 0 0 2px var(--c), 0 0 12px 2px var(--c);
+  background: color-mix(in srgb, var(--c) 30%, transparent);
+  animation: target-pulse 1.1s ease-in-out infinite;
+}
+.target.t-red {
+  --c: var(--red);
+}
+.target.t-green {
+  --c: var(--green);
+}
+.target.t-yellow {
+  --c: var(--yellow);
+}
+.target.t-blue {
+  --c: var(--blue);
+}
+@keyframes target-pulse {
+  50% {
+    transform: translate(-50%, -50%) scale(1.18);
+    background: color-mix(in srgb, var(--c) 40%, transparent);
+  }
+}
+
+.dice-slot {
+  position: relative;
+}
+.dice-slot .dice {
+  z-index: 1;
+}
+.dice-flame {
+  --f1: transparent;
+  --f2: transparent;
+  --f3: transparent;
+  --f4: transparent;
+  position: absolute;
+  left: 50%;
+  bottom: 30%;
+  width: 92px;
+  height: 104px;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.dice-slot[data-flame='1'] .dice-flame {
+  --f1: #1e3a8a;
+  --f2: #2563eb;
+  --f3: #60a5fa;
+  --f4: #e0f2fe;
+  opacity: 1;
+}
+.dice-slot[data-flame='2'] .dice-flame {
+  --f1: #991b1b;
+  --f2: #ef4444;
+  --f3: #f97316;
+  --f4: #fde047;
+  opacity: 1;
+}
+.dice-flame i {
+  position: absolute;
+  bottom: 0;
+  border-radius: 50% 50% 45% 45% / 65% 65% 35% 35%;
+  background: radial-gradient(ellipse at 50% 85%, var(--f4) 0%, var(--f3) 28%, var(--f2) 55%, var(--f1) 72%, transparent 78%);
+  filter: blur(1.5px);
+  transform-origin: 50% 100%;
+  animation: flicker 0.6s ease-in-out infinite alternate;
+}
+.dice-flame i:nth-child(1) {
+  left: 18%;
+  width: 64%;
+  height: 100%;
+}
+.dice-flame i:nth-child(2) {
+  left: 4%;
+  width: 46%;
+  height: 72%;
+  animation-duration: 0.45s;
+  animation-delay: -0.2s;
+}
+.dice-flame i:nth-child(3) {
+  left: 50%;
+  width: 46%;
+  height: 78%;
+  animation-duration: 0.5s;
+  animation-delay: -0.1s;
+}
+.dice-flame i:nth-child(4) {
+  left: 30%;
+  width: 40%;
+  height: 60%;
+  animation-duration: 0.35s;
+}
+.dice-flame i:nth-child(5) {
+  left: 38%;
+  width: 24%;
+  height: 40%;
+  bottom: 52%;
+  border-radius: 50%;
+  animation: ember 0.9s ease-out infinite;
+}
+@keyframes flicker {
+  from {
+    transform: scaleY(0.88) scaleX(1.04) rotate(-2deg);
+    opacity: 0.85;
+  }
+  to {
+    transform: scaleY(1.08) scaleX(0.94) rotate(2deg);
+    opacity: 1;
+  }
+}
+@keyframes ember {
+  from {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-34px) scale(0.3);
+    opacity: 0;
+  }
+}
+@media (prefers-color-scheme: dark), (prefers-color-scheme: no-preference) {
+  .dice-flame {
+    mix-blend-mode: screen;
+  }
+}
+
+.dice-emoji {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  font-size: 46px;
+  line-height: 1;
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  pointer-events: none;
+}
+.dice-emoji.show {
+  animation: sad-pop 1.7s cubic-bezier(0.2, 0.9, 0.3, 1.3) forwards;
+}
+@keyframes sad-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0) rotate(-20deg);
+    opacity: 0;
+  }
+  15% {
+    transform: translate(-50%, -60%) scale(1.25) rotate(8deg);
+    opacity: 1;
+  }
+  30%,
+  80% {
+    transform: translate(-50%, -60%) scale(1) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -20%) scale(0.8);
+    opacity: 0;
+  }
+}
+
+/* Landing on a star: golden star sparks. */
+.burst.t-gold {
+  --c: #facc15;
+}
+.burst.t-gold i {
+  width: 12px;
+  height: 12px;
+  left: -6px;
+  top: -6px;
+  border-radius: 0;
+  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+/* Emoji moments: the token turns into a face for a moment (star = relieved, capture = yummy), then back. */
+.token {
+  container-type: size;
+}
+.tok-emoji {
+  position: absolute;
+  inset: -12%;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-size: 100cqw;
+  line-height: 1;
+  pointer-events: none;
+}
+.tok-emoji.safe {
+  animation: feels-safe 1.6s ease-in-out forwards;
+}
+.tok-emoji.yum {
+  animation: yummy 1.7s ease-in-out forwards;
+}
+.token.shows-emoji .tok-body {
+  animation: safe-body 1.6s ease-in-out forwards;
+}
+@keyframes feels-safe {
+  0% {
+    transform: scale(0) rotate(-30deg);
+    opacity: 0;
+  }
+  14% {
+    transform: scale(1.25) rotate(8deg);
+    opacity: 1;
+  }
+  26% {
+    transform: scale(1) rotate(-8deg);
+  }
+  38% {
+    transform: scale(1.05) rotate(6deg) translateY(-6%);
+  }
+  50% {
+    transform: scale(1) rotate(-4deg);
+  }
+  62% {
+    transform: scale(1.04) rotate(0) translateY(-4%);
+  }
+  82% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+@keyframes safe-body {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  12%,
+  84% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Capture: pop in, a few happy chews (squash and stretch), a lick-of-the-lips wiggle, then fade. */
+@keyframes yummy {
+  0% {
+    transform: scale(0) rotate(20deg);
+    opacity: 0;
+  }
+  12% {
+    transform: scale(1.35) rotate(-6deg);
+    opacity: 1;
+  }
+  22% {
+    transform: scale(1.1, 0.85);
+  }
+  32% {
+    transform: scale(0.95, 1.12) translateY(-6%);
+  }
+  42% {
+    transform: scale(1.1, 0.86);
+  }
+  52% {
+    transform: scale(0.96, 1.1) translateY(-5%);
+  }
+  62% {
+    transform: scale(1.05) rotate(-10deg);
+  }
+  72% {
+    transform: scale(1.05) rotate(8deg);
+  }
+  84% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
 }

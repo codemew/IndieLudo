@@ -31,6 +31,8 @@ export interface LobbyManagerOptions {
   onChange?: (lobbyId: string, lobby: Lobby | null) => void;
   /** A member left (or was removed) while the lobby's game is running. */
   onLeaveGame?: (lobby: Lobby, userId: number) => void;
+  /** A human member left, was kicked, or was dropped after a game. */
+  onMemberLeft?: (lobby: Lobby, userId: number) => void;
   onClosed?: (lobby: Lobby) => void;
 }
 
@@ -158,6 +160,7 @@ export class LobbyManager {
     lobby.members = lobby.members.filter((m) => m.userId !== userId);
     this.byUser.delete(userId);
     if (lobby.status === 'playing') this.opts.onLeaveGame?.(lobby, userId);
+    this.opts.onMemberLeft?.(lobby, userId);
     const humans = lobby.members.filter((m) => !m.isBot);
     if (humans.length === 0) {
       this.close(lobby);
@@ -237,7 +240,10 @@ export class LobbyManager {
     const lobby = this.lobbies.get(lobbyId);
     if (!lobby) return;
     for (const m of lobby.members) {
-      if (!m.isBot && !m.connected && m.userId !== null) this.byUser.delete(m.userId);
+      if (!m.isBot && !m.connected && m.userId !== null) {
+        this.byUser.delete(m.userId);
+        this.opts.onMemberLeft?.(lobby, m.userId);
+      }
     }
     lobby.members = lobby.members.filter((m) => !m.isBot && m.connected);
     for (const m of lobby.members) m.ready = false;

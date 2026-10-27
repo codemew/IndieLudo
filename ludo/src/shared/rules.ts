@@ -115,6 +115,14 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   turn.queue.push(value);
   events.push({ type: 'roll', color, value, queue: [...turn.queue] });
   if (value === SIX) {
+    // A six nobody can use (every token left is already in the home lane, where even the
+    // first square + 6 overshoots) earns no extra roll: the turn is simply over.
+    if (!state.tokens[color].some((p) => targetProgress(p, SIX) !== null)) {
+      events.push({ type: 'noMoves', color, discarded: [...turn.queue] });
+      turn.queue = [];
+      endTurn(state, events);
+      return events;
+    }
     turn.sixes++;
     if (turn.sixes >= MAX_SIXES) {
       // Nothing has moved during the rolling phase, so nullifying the turn is just dropping the queue.

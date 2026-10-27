@@ -268,6 +268,42 @@ describe('dice queue and the three-sixes penalty', () => {
     expect(currentColor(s)).toBe('red');
   });
 
+  it('a six no token can use ends the turn at once: no extra roll', () => {
+    // Only tokens in the home lane are left: 51 + 6 already overshoots home.
+    for (const tokens of [
+      [HOME, HOME, HOME, 51],
+      [HOME, 52, HOME, 55],
+      [53, 54, 55, 51],
+    ]) {
+      const s = game();
+      s.tokens.red = [...tokens];
+      const events = applyRoll(s, 6);
+      expect(events.map((e) => e.type)).toEqual(['roll', 'noMoves', 'turn']);
+      expect(currentColor(s)).toBe('yellow');
+      expect(s.turn).toMatchObject({ phase: 'rolling', queue: [], sixes: 0 });
+    }
+  });
+
+  it('a six still rolls again while any token can use it', () => {
+    for (const tokens of [
+      [HOME, HOME, 52, BASE], // a token in base can come out
+      [HOME, HOME, 52, 50], // a token on the track can move 6
+    ]) {
+      const s = game();
+      s.tokens.red = [...tokens];
+      applyRoll(s, 6);
+      expect(s.turn).toMatchObject({ phase: 'rolling', queue: [6], sixes: 1 });
+      expect(currentColor(s)).toBe('red');
+    }
+  });
+
+  it('home-lane tokens still move with smaller rolls', () => {
+    const s = game();
+    s.tokens.red = [HOME, HOME, HOME, 52];
+    applyRoll(s, 4);
+    expect(legalMoves(s)).toEqual([expect.objectContaining({ tokenId: 3, from: 52, to: 56 })]);
+  });
+
   it('only accepts dice values 1-6 in the rolling phase', () => {
     const s = game();
     expect(() => applyRoll(s, 0)).toThrow('BAD_DIE');

@@ -105,6 +105,26 @@ npm run typecheck
 
 **Screen:** the board stays square and edge to edge. The queued dice are on the left. The dice is on the right and only shows while someone still has to roll; once the rolls are done, their values stay in the queue chips.
 
+## Voice chat
+
+Players in a game can talk to each other; joining is optional and bots never join.
+
+- **Join:** tap the headset button in the game's top bar. The browser asks for the microphone the first time. After joining, the same button **mutes and unmutes you**. You can also join, mute and leave from the ☰ options menu.
+- **Who is in:** a small mic badge next to each player's name shows who is in the voice chat. It is green when they're live and red when they're muted. It pulses while your phone is still connecting to theirs. Players who haven't joined have no badge.
+- **Quality:** in the ☰ options menu, pick **16, 32, 48 or 64 kbps**. Any player in the game can change it, and the change applies to everyone at once, without reconnecting. The default is 32 kbps. Use 16 kbps on mobile data.
+- **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other phone (at most 3 others). The server never handles audio. It only checks that each person is a player in that game, keeps track of who has joined and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP).
+- **When you leave:** leaving the board screen, for example for results or home, leaves the voice chat. A dropped connection rejoins it automatically.
+- **Playing across networks:** on one Wi‑Fi network, voice works without any setup. When players are on different networks (mobile data, other houses), phones use the STUN server in `voice.iceServers` to find each other. Some mobile networks also need a TURN relay. Add one like this:
+
+  ```json
+  "voice": { "iceServers": [
+    { "urls": "stun:stun.l.google.com:19302" },
+    { "urls": "turn:turn.example.com:3478", "username": "ludo", "credential": "secret" }
+  ] }
+  ```
+
+  For a LAN-only setup, `"iceServers": []` avoids contacting Google's STUN server at all.
+
 ## Reconnecting
 
 - If the connection drops, the app shows a *Reconnecting…* banner and keeps retrying.
@@ -156,6 +176,7 @@ Plain HTTP on `httpRedirectPort` redirects to HTTPS.
 | `port` | 3000 | HTTP port when HTTPS is disabled |
 | `trustProxy` | `false` | Trust `X-Forwarded-*` headers |
 | `gate.maxFailsPerIp` / `globalFailRotateThreshold` | 5 / 50 | Limits on access‑code guessing |
+| `voice.iceServers` | Google STUN | STUN/TURN servers for voice chat; see [Voice chat](#voice-chat) |
 
 Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH` and `LUDO_TRUST_PROXY`.
 
@@ -164,7 +185,8 @@ Environment variables override the file. The available ones are `LUDO_CONFIG`, `
 ```
 src/shared/   board geometry, pure rules engine, socket protocol and schemas (used by server and client)
 src/server/   express + socket.io, config, sqlite, access gate, sessions, lobbies, game manager, bots, TLS
-src/client/   vanilla TS screens, SVG board, WAAPI token animations, 3D CSS dice, WebAudio sounds
+src/client/   vanilla TS screens, SVG board, WAAPI token animations, 3D CSS dice, WebAudio sounds,
+              WebRTC voice chat (voice.ts)
 tests/        Vitest: rules, dice, users and sessions, lobbies, game manager (fake timers), bot,
-              access gate (HTTP), socket integration, anti‑cheat, TLS, board geometry
+              access gate (HTTP), socket integration, anti‑cheat, TLS, voice chat, board geometry
 ```

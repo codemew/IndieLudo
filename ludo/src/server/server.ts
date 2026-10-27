@@ -18,6 +18,7 @@ import { DeviceService, SessionService } from './sessions.js';
 import { attachSocketHandlers, lobbyBroadcaster, rooms, type LudoServerIO } from './socket.js';
 import { loadTls, type TlsMaterial } from './tls.js';
 import { UserService } from './users.js';
+import { VoiceManager } from './voice.js';
 
 export interface StartOptions {
   db?: DB;
@@ -89,6 +90,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     log,
     onUpdate: (state, events) => io?.to(rooms.game(state.id)).emit('game:state', { state, events }),
     onGameOver: (state) => {
+      voice.close(state.id);
       for (const seat of state.seats) {
         if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, state.ranks[0] === seat.color);
       }
@@ -102,8 +104,24 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     maxLobbies: config.maxLobbies,
     lobbyIdleCloseSec: config.lobbyIdleCloseSec,
     onChange: (lobbyId) => broadcastLobby(lobbyId),
-    onLeaveGame: (lobby, userId) => lobby.gameId && games.leave(lobby.gameId, userId),
-    onClosed: (lobby) => lobby.gameId && games.abort(lobby.gameId),
+    onLeaveGame: (lobby, userId) => {
+      if (!lobby.gameId) return;
+      games.leave(lobby.gameId, userId);
+      voice.leave(lobby.gameId, userId);
+    },
+    onClosed: (lobby) => {
+      if (!lobby.gameId) return;
+      games.abort(lobby.gameId);
+      voice.close(lobby.gameId);
+    },
+  });
+
+  const voice: VoiceManager = new VoiceManager({
+    isPlayer: (gameId, userId) => {
+      const s = games.get(gameId);
+      return Boolean(s && !s.finished && s.seats.some((seat) => seat.userId === userId && seat.controller !== 'bot'));
+    },
+    onChange: (state) => io?.to(rooms.game(state.gameId)).emit('voice:state', state),
   });
 
   const gate = new Gate({ ...config.gate, onRotate: opts.onGateRotate });
@@ -125,6 +143,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     gate,
     lobbies,
     games,
+    voice,
     kickSessions: (ids) => {
       if (!io || ids.length === 0) return;
       const r = ids.map(rooms.session);

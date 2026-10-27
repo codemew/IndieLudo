@@ -6,6 +6,7 @@ import { currentScreen, go } from './router.js';
 import { state, update } from './store.js';
 import { KEYS, storage } from './storage.js';
 import { errorText, toast } from './ui.js';
+import { voice } from './voice.js';
 
 /** The game screen registers itself here while mounted so it can animate updates. */
 let gameHandler: ((u: GameUpdate) => void) | null = null;
@@ -74,8 +75,14 @@ function connectSocket(token: string): void {
       s.on('lobby:state', (l) => onLobbyState(l));
       s.on('game:state', (u) => onGameUpdate(u));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
+      s.on('voice:state', (v) => {
+        if (v.gameId === state.game?.id) update({ voice: v });
+        voice.onState(v);
+      });
+      s.on('voice:signal', (sig) => void voice.onSignal(sig));
     },
-    onConnect: () => {},
+    // The server dropped us from voice when the old socket went away; rejoin if we were in.
+    onConnect: (reconnected) => reconnected && void voice.onReconnect(),
     onUnauthorized: () => signOut('Please sign in again.'),
   });
 }
@@ -141,10 +148,11 @@ export async function resyncGame(): Promise<void> {
 }
 
 export function signOut(message?: string): void {
+  void voice.leave(false);
   disconnect();
   storage.remove(KEYS.session);
   storage.remove(KEYS.lastGame);
-  update({ user: null, isAdmin: false, lobby: null, game: null, lobbies: [] });
+  update({ user: null, isAdmin: false, lobby: null, game: null, voice: null, lobbies: [] });
   go('signup');
   if (message) toast(message, 'error', 3500);
 }

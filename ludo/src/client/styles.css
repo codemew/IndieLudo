@@ -997,11 +997,18 @@ h3 {
   font-weight: 750;
   background: color-mix(in srgb, var(--c) 22%, transparent);
   border: 1px solid color-mix(in srgb, var(--c) 50%, transparent);
-  max-width: 60%;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   transition: background 0.3s, border-color 0.3s;
+}
+.tb-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .turn-banner .dot {
   width: 10px;
@@ -1784,4 +1791,105 @@ h3 {
     max-width: 520px;
     margin: 0 auto;
   }
+}
+
+/* ---------- voice chat ---------- */
+
+.voice-btn svg {
+  width: 22px;
+  height: 22px;
+}
+.voice-btn.vb-on {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.6);
+  color: #4ade80;
+}
+.voice-btn.vb-muted {
+  background: rgba(244, 63, 94, 0.18);
+  border-color: rgba(244, 63, 94, 0.55);
+  color: #fb7185;
+}
+.voice-btn[hidden] {
+  display: none;
+}
+.vc {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  border-radius: 50%;
+  vertical-align: -3px;
+}
+.vc svg {
+  width: 12px;
+  height: 12px;
+}
+.vc-on {
+  background: rgba(34, 197, 94, 0.25);
+  color: #4ade80;
+}
+.vc-muted {
+  background: rgba(244, 63, 94, 0.22);
+  color: #fb7185;
+}
+.vc-connecting {
+  animation: pulse-soft 1s ease infinite;
+}
+.btn svg {
+  width: 18px;
+  height: 18px;
+  vertical-align: -4px;
+}
+.menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.menu-section p {
+  margin: 0;
+}
+.menu-heading {
+  font-weight: 750;
+}
+.menu-heading.small {
+  font-size: 14px;
+}
+.menu-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.segmented button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--muted);
+  transition: background 0.2s, color 0.2s;
+}
+.segmented button small {
+  font-size: 11px;
+  font-weight: 600;
+}
+.segmented button.on {
+  background: var(--accent);
+  color: #fff;
 }

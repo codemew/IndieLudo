@@ -1,4 +1,4 @@
-import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby } from './types.js';
+import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, VoiceState } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
 export type Ack<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
@@ -21,6 +21,39 @@ export interface ClientToServer {
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   'game:resume': (p: { gameId: string }, ack: (r: Ack<PublicGameState>) => void) => void;
   'game:takeback': (p: { gameId: string }, ack: (r: Ack) => void) => void;
+  'voice:get': (p: { gameId: string }, ack: (r: Ack<VoiceState>) => void) => void;
+  'voice:join': (p: { gameId: string }, ack: (r: Ack<VoiceJoined>) => void) => void;
+  'voice:leave': (p: { gameId: string }, ack: (r: Ack) => void) => void;
+  'voice:mute': (p: { gameId: string; muted: boolean }, ack: (r: Ack) => void) => void;
+  'voice:bitrate': (p: { gameId: string; kbps: number }, ack: (r: Ack) => void) => void;
+  'voice:signal': (p: VoiceSignalOut, ack: (r: Ack) => void) => void;
+}
+
+export interface VoiceJoined {
+  state: VoiceState;
+  iceServers: RTCIceServerConfig[];
+}
+
+/** Same shape as the browser's RTCIceServer, declared here so the server needs no DOM types. */
+export interface RTCIceServerConfig {
+  urls: string | string[];
+  username?: string;
+  credential?: string;
+}
+
+/** WebRTC offer/answer relayed through the server. `sdp` carries the full description (ICE gathered). */
+export interface VoiceSignalOut {
+  gameId: string;
+  to: number;
+  kind: string;
+  sdp: string;
+}
+
+export interface VoiceSignalIn {
+  gameId: string;
+  from: number;
+  kind: 'offer' | 'answer';
+  sdp: string;
 }
 
 export interface Hello {
@@ -41,6 +74,8 @@ export interface ServerToClient {
   'lobby:state': (l: PublicLobby | null) => void;
   'game:state': (u: GameUpdate) => void;
   'session:revoked': () => void;
+  'voice:state': (s: VoiceState) => void;
+  'voice:signal': (s: VoiceSignalIn) => void;
 }
 
 type FieldType = 'string' | 'int' | 'bool' | 'color';
@@ -95,4 +130,12 @@ export const SCHEMAS = {
     tokenId: { type: 'int', max: 3 },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
+  voiceMute: { gameId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
+  voiceBitrate: { gameId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 16, max: 64 } },
+  voiceSignal: {
+    gameId: { type: 'string', max: 64 },
+    to: { type: 'int', min: 1 },
+    kind: { type: 'string', min: 5, max: 6 },
+    sdp: { type: 'string', min: 1, max: 12_000 },
+  },
 } satisfies Record<string, Schema>;

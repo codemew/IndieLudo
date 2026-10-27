@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { RTCIceServerConfig } from '../shared/protocol.js';
 
 export interface Config {
   port: number;
@@ -20,6 +21,8 @@ export interface Config {
   };
   trustProxy: boolean;
   gate: { maxFailsPerIp: number; globalFailRotateThreshold: number };
+  /** STUN/TURN servers handed to browsers for voice chat. LAN-only play needs none. */
+  voice: { iceServers: RTCIceServerConfig[] };
   /** Not in config.json: directory for generated certificates. */
   certDir: string;
 }
@@ -38,12 +41,14 @@ export const DEFAULTS: Config = {
   https: { enabled: true, port: 3443, httpRedirectPort: 3000, certPath: '', keyPath: '', autoSelfSigned: true },
   trustProxy: false,
   gate: { maxFailsPerIp: 5, globalFailRotateThreshold: 50 },
+  voice: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
   certDir: './data/certs',
 };
 
-export type ConfigOverrides = Partial<Omit<Config, 'https' | 'gate'>> & {
+export type ConfigOverrides = Partial<Omit<Config, 'https' | 'gate' | 'voice'>> & {
   https?: Partial<Config['https']>;
   gate?: Partial<Config['gate']>;
+  voice?: Partial<Config['voice']>;
 };
 
 export function mergeConfig(base: Config, over: ConfigOverrides): Config {
@@ -52,6 +57,7 @@ export function mergeConfig(base: Config, over: ConfigOverrides): Config {
     ...over,
     https: { ...base.https, ...over.https },
     gate: { ...base.gate, ...over.gate },
+    voice: { ...base.voice, ...over.voice },
   };
 }
 
@@ -85,6 +91,11 @@ export function validateConfig(c: Config): string[] {
     if (!Number.isFinite(v) || v < 0) errors.push(`${k} must be a non-negative number`);
   }
   if (Boolean(c.https.certPath) !== Boolean(c.https.keyPath)) errors.push('https.certPath and https.keyPath must be set together');
+  const ice = c.voice.iceServers;
+  const validUrls = (u: unknown) => typeof u === 'string' || (Array.isArray(u) && u.every((x) => typeof x === 'string'));
+  if (!Array.isArray(ice) || !ice.every((s) => s && typeof s === 'object' && validUrls(s.urls))) {
+    errors.push('voice.iceServers must be a list of { "urls": "stun:…" } objects');
+  }
   return errors;
 }
 

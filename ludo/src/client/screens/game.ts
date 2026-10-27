@@ -1,6 +1,16 @@
 import { BASE, HOME, pathCells, tokenCell } from '../../shared/board.js';
 import type { GameUpdate } from '../../shared/protocol.js';
-import { MAX_MISSED_TURNS, type Color, type GameEvent, type GameState, type LegalMove, type PublicGameState, type Seat } from '../../shared/types.js';
+import {
+  MAX_MISSED_TURNS,
+  VOICE_BITRATES,
+  type Color,
+  type GameEvent,
+  type GameState,
+  type LegalMove,
+  type PublicGameState,
+  type Seat,
+  type VoiceState,
+} from '../../shared/types.js';
 import { setGameHandler, showError } from '../app.js';
 import { hop, sleep, slide } from '../board/animate.js';
 import { TokenLayer, boardSvg } from '../board/render.js';
@@ -10,9 +20,10 @@ import { vibrate } from '../haptics.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
-import { state, update } from '../store.js';
+import { state, subscribe, update } from '../store.js';
 import { uuid } from '../storage.js';
-import { $, COLOR_NAME, confirmDialog, el, esc, modal, toast } from '../ui.js';
+import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, toast } from '../ui.js';
+import { voice } from '../voice.js';
 
 /** Corner order around the board, matching each colour's base. */
 const TOP: Color[] = ['red', 'green'];
@@ -38,6 +49,7 @@ export function gameScreen(root: HTMLElement): () => void {
     <header class="game-top">
       <button class="icon-btn" id="menu" aria-label="Menu">☰</button>
       <div class="turn-banner" id="banner"></div>
+      <button class="icon-btn voice-btn" id="voice" aria-label="Voice chat"></button>
       <button class="icon-btn" id="sound" aria-label="Sound"></button>
     </header>
     <div class="players">${TOP.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
@@ -87,6 +99,7 @@ export function gameScreen(root: HTMLElement): () => void {
     paintSound();
   };
   $(root, '#menu').onclick = () => openMenu();
+  $(root, '#voice').onclick = () => void onVoiceButton();
   $(root, '#takeback').onclick = async () => {
     const r = await emit('game:takeback', { gameId: gs!.id });
     if (!r.ok) showError(r.error);
@@ -292,7 +305,7 @@ export function gameScreen(root: HTMLElement): () => void {
       chip.innerHTML = `
         <span class="pchip-dot">${seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
         <span class="pchip-text">
-          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}</span>
+          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat)}</span>
           <span class="pchip-sub">${chipStatus(seat, rank, homeCount)}</span>
         </span>
         <span class="pchip-timer"><i></i></span>`;
@@ -303,6 +316,79 @@ export function gameScreen(root: HTMLElement): () => void {
         bar.animate([{ transform: `scaleX(${Math.min(1, remaining / total)})` }, { transform: 'scaleX(0)' }], { duration: remaining, fill: 'forwards' });
       }
     }
+  }
+
+  // ---------- voice chat ----------
+
+  /** Mic badge beside a player's name: in voice (on / muted), and still connecting to us. */
+  function voiceBadge(seat: Seat): string {
+    const p = seat.userId === null ? undefined : state.voice?.participants.find((x) => x.userId === seat.userId);
+    if (!p) return '';
+    const connecting = voice.joined && seat.userId !== myId && voice.peerStatus(seat.userId!) !== 'connected';
+    const label = `${p.muted ? 'muted' : 'in voice chat'}${connecting ? ', connecting' : ''}`;
+    return ` <span class="vc ${p.muted ? 'vc-muted' : 'vc-on'}${connecting ? ' vc-connecting' : ''}" title="${label}" aria-label="${label}">${p.muted ? ICONS.micOff : ICONS.mic}</span>`;
+  }
+
+  function paintVoiceButton(): void {
+    const b = $<HTMLButtonElement>(root, '#voice');
+    b.hidden = !mySeat() || gs!.finished;
+    b.classList.toggle('vb-on', voice.joined && !voice.muted);
+    b.classList.toggle('vb-muted', voice.joined && voice.muted);
+    b.disabled = voice.joining;
+    if (voice.joining) b.innerHTML = '<span class="spinner"></span>';
+    else b.innerHTML = !voice.joined ? ICONS.headset : voice.muted ? ICONS.micOff : ICONS.mic;
+    b.setAttribute('aria-label', !voice.joined ? 'Join voice chat' : voice.muted ? 'Unmute microphone' : 'Mute microphone');
+  }
+
+  /** Top-bar button: join the channel, then toggles your own mute. */
+  async function onVoiceButton(): Promise<void> {
+    if (!voice.joined) return joinVoice();
+    await voice.setMuted(!voice.muted);
+    play('tap');
+  }
+
+  async function joinVoice(): Promise<void> {
+    const err = await voice.join(gs!.id, myId!);
+    if (err) showError(err);
+    else toast(voice.muted ? 'Joined voice chat (muted)' : 'Joined voice chat', 'success');
+  }
+
+  function voiceMenu(body: HTMLElement, close: () => void): void {
+    const v: VoiceState | null = state.voice;
+    const section = el(`
+      <div class="menu-section">
+        <div class="menu-heading">Voice chat</div>
+        <div class="menu-row" id="vm-actions"></div>
+        <div class="menu-heading small">Voice quality <span class="muted">· applies to everyone</span></div>
+        <div class="segmented" role="radiogroup" aria-label="Voice quality">
+          ${VOICE_BITRATES.map((k) => `<button role="radio" data-kbps="${k}" class="${k === (v?.bitrateKbps ?? voice.bitrateKbps) ? 'on' : ''}" aria-checked="${k === v?.bitrateKbps}">${k}<small>kbps</small></button>`).join('')}
+        </div>
+        <p class="muted small">Lower uses less mobile data; higher sounds clearer.</p>
+      </div>`);
+    const actions = $(section, '#vm-actions');
+    const button = (label: string, kind: string, fn: () => void) => {
+      const b = el<HTMLButtonElement>(`<button class="btn btn-small ${kind}">${label}</button>`);
+      b.onclick = () => {
+        close();
+        fn();
+      };
+      actions.appendChild(b);
+    };
+    if (!voice.joined) button(`${ICONS.headset} Join voice chat`, 'btn-primary', () => void joinVoice());
+    else {
+      button(voice.muted ? `${ICONS.mic} Unmute` : `${ICONS.micOff} Mute me`, 'btn-ghost', () => void voice.setMuted(!voice.muted));
+      button('Leave voice chat', 'btn-ghost', () => void voice.leave());
+    }
+    for (const b of section.querySelectorAll<HTMLButtonElement>('.segmented button')) {
+      b.onclick = async () => {
+        const kbps = Number(b.dataset.kbps);
+        const err = await voice.setBitrate(gs!.id, kbps);
+        if (err) return showError(err);
+        section.querySelectorAll('.segmented button').forEach((x) => x.classList.toggle('on', x === b));
+        toast(`Voice quality: ${kbps} kbps`);
+      };
+    }
+    body.appendChild(section);
   }
 
   function chipStatus(seat: Seat, rank: number, homeCount: number): string {
@@ -355,7 +441,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
     const banner = $(root, '#banner');
     banner.className = `turn-banner b-${seat.color}`;
-    banner.innerHTML = gs.finished ? 'Game over' : `<span class="dot"></span>${isMyTurn() ? 'Your turn' : `${esc(seat.username)}'s turn`}`;
+    banner.innerHTML = gs.finished ? 'Game over' : `<span class="dot"></span><span class="tb-text">${isMyTurn() ? 'Your turn' : `${esc(seat.username)}'s turn`}</span>`;
 
     let hint = '';
     if (gs.finished) hint = 'Game over';
@@ -393,6 +479,7 @@ export function gameScreen(root: HTMLElement): () => void {
       };
       body.appendChild(b);
     };
+    if (mySeat() && !gs!.finished) voiceMenu(body, m.close);
     if (canFullscreen() && !isFullscreen()) item('⛶ Fullscreen', () => void enterFullscreen());
     item('🏠 Back to home (game keeps running)', () => go('home'));
     if (mySeat() && !gs!.finished) {
@@ -410,9 +497,25 @@ export function gameScreen(root: HTMLElement): () => void {
   renderAll();
   if (gs.finished) queueMicrotask(() => go('results'));
 
+  // Voice: load who is in the channel, and repaint badges/button when it or our peers change.
+  if (state.voice?.gameId !== gs.id) update({ voice: null });
+  void emit<VoiceState>('voice:get', { gameId: gs.id }).then((r) => r.ok && r.data && r.data.gameId === gs?.id && update({ voice: r.data }));
+  const repaintVoice = () => {
+    if (!gs || destroyed) return;
+    renderChips();
+    paintVoiceButton();
+  };
+  paintVoiceButton();
+  const offVoice = voice.onChange(repaintVoice);
+  const offStore = subscribe((changed) => changed.includes('voice') && repaintVoice());
+
   return () => {
     destroyed = true;
     setGameHandler(null);
     ro.disconnect();
+    offVoice();
+    offStore();
+    // Voice belongs to the board screen; leaving it (results, home) leaves the channel.
+    void voice.leave();
   };
 }

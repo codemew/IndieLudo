@@ -1,4 +1,4 @@
-import type { LobbySummary, PublicGameState, PublicLobby } from '../shared/types.js';
+import type { LobbySummary, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
 
 export interface AppState {
   user: { id: number; username: string; gamesPlayed?: number; wins?: number } | null;
@@ -6,6 +6,8 @@ export interface AppState {
   lobbies: LobbySummary[];
   lobby: PublicLobby | null;
   game: PublicGameState | null;
+  /** Voice channel of the current game (who is in it, muted, quality). */
+  voice: VoiceState | null;
   online: boolean;
 }
 
@@ -15,6 +17,7 @@ export const state: AppState = {
   lobbies: [],
   lobby: null,
   game: null,
+  voice: null,
   online: false,
 };
 

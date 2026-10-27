@@ -83,6 +83,8 @@ export interface ServerToClient {
   hello: (h: Hello) => void;
   'lobby:list': (l: LobbySummary[]) => void;
   'lobby:state': (l: PublicLobby | null) => void;
+  /** The lobby you are in was closed by an admin; a `lobby:state` null follows. */
+  'lobby:closed': (info: { byAdmin: boolean }) => void;
   'game:state': (u: GameUpdate) => void;
   'session:revoked': () => void;
   'voice:state': (s: VoiceState) => void;

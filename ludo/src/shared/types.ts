@@ -120,3 +120,9 @@ export interface LobbySummary {
   status: LobbyStatus;
   players: number;
 }
+
+/** What the admin panel shows per lobby. */
+export interface AdminLobby extends LobbySummary {
+  createdAt: number;
+  members: { username: string; isBot: boolean; connected: boolean }[];
+}

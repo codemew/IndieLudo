@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { COLORS, type Color, type LobbyMember, type LobbyStatus, type LobbySummary, type PublicLobby } from '../shared/types.js';
+import { COLORS, type AdminLobby, type Color, type LobbyMember, type LobbyStatus, type LobbySummary, type PublicLobby } from '../shared/types.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 
@@ -33,7 +33,8 @@ export interface LobbyManagerOptions {
   onLeaveGame?: (lobby: Lobby, userId: number) => void;
   /** A human member left, was kicked, or was dropped after a game. */
   onMemberLeft?: (lobby: Lobby, userId: number) => void;
-  onClosed?: (lobby: Lobby) => void;
+  /** `admin` when an admin closed it; otherwise it emptied out or sat idle. */
+  onClosed?: (lobby: Lobby, byAdmin: boolean) => void;
 }
 
 export const MAX_MEMBERS = 4;
@@ -101,6 +102,17 @@ export class LobbyManager {
         hostName: l.members.find((m) => m.userId === l.hostId)?.username ?? '?',
         status: l.status,
         players: l.members.length,
+      }));
+  }
+
+  adminList(): AdminLobby[] {
+    const byId = new Map(this.summaries().map((s) => [s.id, s]));
+    return this.all()
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((l) => ({
+        ...byId.get(l.id)!,
+        createdAt: l.createdAt,
+        members: l.members.map((m) => ({ username: m.username, isBot: m.isBot, connected: m.connected })),
       }));
   }
 
@@ -289,11 +301,18 @@ export class LobbyManager {
     return closed;
   }
 
-  private close(lobby: Lobby): void {
+  /** Admin: closes a lobby whatever its state. A running game in it is stopped. */
+  closeByAdmin(lobbyId: string): void {
+    const lobby = this.lobbies.get(lobbyId);
+    if (!lobby) throw new AppError('LOBBY_NOT_FOUND', 404);
+    this.close(lobby, true);
+  }
+
+  private close(lobby: Lobby, byAdmin = false): void {
     this.lobbies.delete(lobby.id);
     for (const m of lobby.members) if (m.userId !== null && this.byUser.get(m.userId) === lobby.id) this.byUser.delete(m.userId);
     this.opts.db.prepare('DELETE FROM lobbies WHERE id = ?').run(lobby.id);
-    this.opts.onClosed?.(lobby);
+    this.opts.onClosed?.(lobby, byAdmin);
     this.opts.onChange?.(lobby.id, null);
   }
 

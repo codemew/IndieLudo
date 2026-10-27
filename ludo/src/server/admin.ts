@@ -57,6 +57,17 @@ export function adminRouter(ctx: Ctx): express.Router {
     res.json({ ok: true });
   });
 
+  r.get('/lobbies', (_req, res) => {
+    res.json(ctx.lobbies.adminList());
+  });
+
+  r.delete('/lobbies/:id', (req, res) => {
+    const id = req.params.id;
+    if (typeof id !== 'string' || id.length > 64) throw new AppError('LOBBY_NOT_FOUND', 404);
+    ctx.lobbies.closeByAdmin(id);
+    res.json({ ok: true });
+  });
+
   r.get('/code', (_req, res) => {
     res.json({ code: ctx.gate.current });
   });

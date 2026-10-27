@@ -93,6 +93,22 @@ h3 {
   inset: 0;
   overflow: hidden;
 }
+/* Keyboard up (see keyboard.ts): the app and its dialogs fit the area above it. */
+.kb-open #app,
+.kb-open .modal-backdrop {
+  top: var(--vv-top, 0px);
+  bottom: auto;
+  height: var(--vv-height, 100%);
+}
+.kb-open .center-stack {
+  justify-content: flex-start;
+}
+.kb-open .center-stack .big-emoji {
+  display: none;
+}
+.kb-open .modal {
+  max-height: 100%;
+}
 
 .screen {
   position: absolute;
@@ -499,6 +515,7 @@ h3 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-content: safe center;
   gap: 12px;
   padding: 24px;
   text-align: center;
@@ -2355,4 +2372,26 @@ h3 {
 }
 .voice-btn.vb-off {
   opacity: 0.6;
+}
+
+/* Home: your name tag is a button that opens "Change your name". */
+button.me {
+  border: 0;
+  background: none;
+  padding: 4px;
+  margin: -4px;
+  border-radius: 16px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button.me:active {
+  background: var(--surface);
+}
+.me-edit {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
 }

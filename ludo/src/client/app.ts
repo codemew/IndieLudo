@@ -73,6 +73,7 @@ function connectSocket(token: string): void {
       s.on('hello', (h) => void onHello(h));
       s.on('lobby:list', (l) => update({ lobbies: l }));
       s.on('lobby:state', (l) => onLobbyState(l));
+      s.on('lobby:closed', (info) => (closedByAdmin = info.byAdmin));
       s.on('game:state', (u) => onGameUpdate(u));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
       s.on('voice:state', (v) => {
@@ -112,13 +113,23 @@ async function onHello(h: Hello): Promise<void> {
   if (wasFirst || currentScreen() === 'game') go(h.lobby ? 'lobby' : 'home');
 }
 
+/** Set by `lobby:closed` just before the lobby state goes null. */
+let closedByAdmin = false;
+
 function onLobbyState(l: PublicLobby | null): void {
   update({ lobby: l });
-  // Leaving on purpose navigates home first, so still being on the lobby screen means we were removed.
-  if (!l && currentScreen() === 'lobby') {
-    go('home');
-    toast('You were removed from the lobby.');
+  const byAdmin = closedByAdmin;
+  closedByAdmin = false;
+  // Leaving on purpose navigates home first, so still being on the lobby (or a running game's)
+  // screen means we were removed, or an admin closed the lobby.
+  const screen = currentScreen();
+  if (l || (screen !== 'lobby' && !(screen === 'game' && byAdmin))) return;
+  if (screen === 'game') {
+    storage.remove(KEYS.lastGame);
+    update({ game: null });
   }
+  go('home');
+  toast(byAdmin ? 'An admin closed the lobby.' : 'You were removed from the lobby.', byAdmin ? 'error' : 'info', 3000);
 }
 
 function onGameUpdate(u: GameUpdate): void {

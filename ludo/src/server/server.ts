@@ -106,7 +106,9 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     onLeaveGame: (lobby, userId) => lobby.gameId && games.leave(lobby.gameId, userId),
     // Voice belongs to the lobby: leaving it (or being kicked or dropped) leaves the channel.
     onMemberLeft: (lobby, userId) => voice.leave(lobby.id, userId),
-    onClosed: (lobby) => {
+    onClosed: (lobby, byAdmin) => {
+      // Sent while the members are still in the lobby room, just before it empties.
+      if (byAdmin) io?.to(rooms.lobby(lobby.id)).emit('lobby:closed', { byAdmin: true });
       voice.close(lobby.id);
       if (lobby.gameId) games.abort(lobby.gameId);
     },

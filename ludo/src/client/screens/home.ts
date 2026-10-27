@@ -1,24 +1,26 @@
 import type { LobbySummary, PublicLobby } from '../../shared/types.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
+import { canInstall, promptInstall } from '../install.js';
+import { ApiError, api } from '../api.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
 import { state, subscribe, update } from '../store.js';
-import { $, el, esc, modal } from '../ui.js';
+import { $, el, errorText, esc, modal, toast } from '../ui.js';
 import { bindMuteButton } from '../voiceUi.js';
 import { adminLoginDialog } from './admin.js';
 
 export function homeScreen(root: HTMLElement): () => void {
   root.innerHTML = `
     <header class="topbar">
-      <div class="me">
+      <button class="me" id="me" aria-label="Change your name">
         <div class="avatar" id="avatar"></div>
         <div>
-          <div class="me-name" id="me-name"></div>
+          <div class="me-name"><span id="me-name"></span> <span class="me-edit" aria-hidden="true">✎</span></div>
           <div class="me-stats" id="me-stats"></div>
         </div>
-      </div>
+      </button>
       <div class="topbar-actions">
         <button class="icon-btn" id="mute" aria-label="Mute myself" hidden></button>
         <button class="icon-btn" id="fullscreen" aria-label="Fullscreen" hidden></button>
@@ -43,6 +45,7 @@ export function homeScreen(root: HTMLElement): () => void {
     play('tap');
   };
   $(root, '#menu').onclick = () => openMenu();
+  $(root, '#me').onclick = () => renameDialog();
   $(root, '#create').onclick = () => createLobbyDialog();
 
   const offFs = bindFullscreenButton($<HTMLButtonElement>(root, '#fullscreen'));
@@ -180,6 +183,43 @@ function openMenu(): void {
     };
     body.appendChild(b);
   };
+  item('✎ Change my name', () => renameDialog());
+  if (canInstall()) item('📲 Install app (fullscreen, no browser bars)', () => void promptInstall());
   item(state.isAdmin ? '🛡️ Admin panel' : '🛡️ Admin login', () => (state.isAdmin ? go('admin') : adminLoginDialog()));
   item('↩ Sign out on this phone', () => void logout());
+}
+
+/** Tap your name or avatar: pick a new name. Lobbies and games you're in update for everyone. */
+function renameDialog(): void {
+  const user = state.user;
+  if (!user) return;
+  const body = el(`
+    <form class="form" autocomplete="off">
+      <label class="field">
+        <span>New name</span>
+        <input class="input" name="username" value="${esc(user.username)}" maxlength="16" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
+      </label>
+      <p class="muted small">3–16 letters, numbers or _</p>
+      <p class="form-error"></p>
+    </form>`);
+  const input = $<HTMLInputElement>(body, 'input');
+  const save = async () => {
+    const username = input.value.trim();
+    if (username === user.username) return true;
+    try {
+      const r = await api<{ user: NonNullable<typeof state.user> }>('PATCH', '/me', { username });
+      update({ user: { ...user, ...r.user } });
+      toast(`You're now ${r.user.username}`, 'success');
+      return true;
+    } catch (e) {
+      $(body, '.form-error').textContent = errorText((e as ApiError).code);
+      return false;
+    }
+  };
+  const m = modal({ title: 'Change your name', body, actions: [{ label: 'Cancel' }, { label: 'Save', kind: 'primary', onClick: save }] });
+  body.addEventListener('submit', (e) => {
+    e.preventDefault();
+    void save().then((ok) => ok && m.close());
+  });
+  setTimeout(() => input.select(), 50);
 }

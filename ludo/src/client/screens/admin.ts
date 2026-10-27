@@ -1,3 +1,4 @@
+import type { AdminLobby } from '../../shared/types.js';
 import { enterApp, signOut } from '../app.js';
 import { ApiError, api } from '../api.js';
 import { go } from '../router.js';
@@ -65,7 +66,7 @@ export function adminLoginDialog(): void {
   });
 }
 
-type Tab = 'users' | 'devices' | 'sessions' | 'code';
+type Tab = 'users' | 'lobbies' | 'devices' | 'sessions' | 'code';
 
 export function adminScreen(root: HTMLElement): void {
   let tab: Tab = 'users';
@@ -77,6 +78,7 @@ export function adminScreen(root: HTMLElement): void {
     </header>
     <nav class="tabs">
       <button data-tab="users" class="active">Users</button>
+      <button data-tab="lobbies">Lobbies</button>
       <button data-tab="devices">Devices</button>
       <button data-tab="sessions">Sessions</button>
       <button data-tab="code">Code</button>
@@ -123,6 +125,7 @@ export function adminScreen(root: HTMLElement): void {
   async function load(): Promise<void> {
     panel.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
     if (tab === 'users') return renderUsers('');
+    if (tab === 'lobbies') return renderLobbies();
     if (tab === 'devices') return renderDevices();
     if (tab === 'sessions') return renderSessions();
     return renderCode();
@@ -180,6 +183,37 @@ export function adminScreen(root: HTMLElement): void {
             },
           ],
         });
+      };
+    });
+  }
+
+  async function renderLobbies(): Promise<void> {
+    const lobbies = await guard(() => api<AdminLobby[]>('GET', '/admin/lobbies'));
+    if (!lobbies) return;
+    panel.innerHTML = `
+      <p class="muted small">Open lobbies. Closing one sends everyone in it home; a game in progress is stopped and not counted.</p>
+      ${lobbies.length ? '' : '<p class="muted center">No lobbies right now.</p>'}
+      <ul class="admin-list">${lobbies
+        .map(
+          (l) => `
+        <li data-id="${esc(l.id)}">
+          <div class="row-main">
+            <b>${esc(l.name)} ${l.status === 'playing' ? '<span class="tag tag-ok">playing</span>' : '<span class="tag">waiting</span>'}</b>
+            <span class="muted small">host ${esc(l.hostName)} · ${l.players}/4 · opened ${timeAgo(l.createdAt)}</span>
+            <span class="muted small">${l.members.map((m) => `${m.isBot ? '🤖 ' : ''}${esc(m.username)}${!m.isBot && !m.connected ? ' (offline)' : ''}`).join(', ')}</span>
+          </div>
+          <div class="row-actions"><button class="chip chip-danger">Close lobby</button></div>
+        </li>`,
+        )
+        .join('')}</ul>`;
+    panel.querySelectorAll<HTMLButtonElement>('.chip-danger').forEach((b) => {
+      const id = b.closest('li')!.dataset.id!;
+      const lobby = lobbies.find((l) => l.id === id)!;
+      b.onclick = async () => {
+        const playing = lobby.status === 'playing';
+        if (!(await confirmDialog(`Close "${lobby.name}"?`, `Everyone in it goes back home${playing ? ' and the game in progress ends without a result' : ''}.`, 'Close lobby', true))) return;
+        if (await guard(() => api('DELETE', `/admin/lobbies/${encodeURIComponent(id)}`))) toast('Lobby closed', 'success');
+        void renderLobbies();
       };
     });
   }

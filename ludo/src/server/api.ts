@@ -56,6 +56,7 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
   const gateDelayMs = opts.gateDelayMs ?? 300;
   const signupLimiter = new RateLimiter(10, 60_000);
   const adminLoginLimiter = new RateLimiter(5, 60_000);
+  const renameLimiter = new RateLimiter(5, 60_000);
 
   // Device token from header (localStorage copy) or cookie. Each copy restores the other.
   api.use((req, res, next) => {
@@ -141,6 +142,17 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
   api.get('/me', (_req, res) => {
     const { user, isAdmin } = locals(res).auth!;
     res.json({ user: user && { id: user.id, username: user.username, gamesPlayed: user.games_played, wins: user.wins }, isAdmin });
+  });
+
+  // Players rename themselves; lobbies and games in progress show the new name right away.
+  api.patch('/me', (req, res) => {
+    const { user } = locals(res).auth!;
+    if (!user) throw new AppError('NOT_FOUND', 404);
+    if (!renameLimiter.hit(String(user.id))) throw new AppError('RATE_LIMITED', 429);
+    const renamed = ctx.users.rename(user.id, req.body?.username);
+    ctx.lobbies.renameUser(user.id, renamed.username);
+    ctx.games.renameUser(user.id, renamed.username);
+    res.json({ user: { id: renamed.id, username: renamed.username, gamesPlayed: renamed.games_played, wins: renamed.wins } });
   });
 
   api.post('/logout', (_req, res) => {

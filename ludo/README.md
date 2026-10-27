@@ -71,13 +71,20 @@ npm run typecheck
 ## How players get in
 
 1. **Splash:** the player taps *Tap to play*. That one tap turns on fullscreen, locks portrait where the browser allows it, unlocks sound, and keeps the screen awake while the app is open. The home screen and the game screen also have a fullscreen on/off button.
+   - **The browser's fullscreen bubble:** each time a page goes fullscreen, the browser briefly shows "*site* is now full screen, swipe down to exit". No web page can hide that bubble. To get rid of it, install the app:
+     - **Android Chrome:** tap **📲 Install app**, on the splash screen or in the home screen's ⋯ menu.
+     - **iPhone:** use Share → **Add to Home Screen**.
+   - **After installing:** open the game from its home‑screen icon. It then opens fullscreen with no bubble and no browser bars.
+   - **Certificate:** Chrome only offers to install over a trusted certificate (mkcert or a real one; see [HTTPS](#https)), not the self‑signed one.
 2. **Access code:** a new phone enters the 6‑digit code from the terminal. **Each phone needs a code only once.** The phone gets a permanent device token, saved in `localStorage` and in an HttpOnly cookie. It stays verified when the code changes, when the server restarts, and when its account is deleted or its session revoked. The code is needed again only if an admin taps **Revoke device**, or if the browser's data is cleared.
 3. **Name:** the player picks a username. There is no password, and the phone remembers the session, so reopening the page goes straight into the app.
+   - **Changing it later:** tap your name or avatar at the top of the home screen. Your seat in the lobby, and in a game in progress, shows the new name to everyone at once.
 4. **Lobby:**
    - Creating a lobby needs the `lobbyCreatePassword` from `config.json` and a lobby password of the creator's choosing. Friends join with that lobby password.
    - Players pick colours and tap ready. The host can add bots to empty seats and then start the game.
 5. **Admin:** tap *Admin login* and enter `adminPassword`. The admin panel can:
    - list, search, rename and delete users
+   - list open lobbies and **close** any of them, even mid‑game. Everyone in it goes back home with a notice, and a game in progress ends without a result.
    - revoke sessions and devices
    - show the access code or make a new one
 

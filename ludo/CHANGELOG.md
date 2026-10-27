@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+- **Admins can close lobbies:** the admin panel has a new **Lobbies** tab that lists open lobbies and their players. **Close lobby** works even mid‑game. Everyone in it goes home with "An admin closed the lobby", and a game in progress ends without counting.
+- **Change your own name:** tap your name or avatar on the home screen. Lobbies and games in progress show the new name right away.
+- **Install app:** a button on the splash screen and in the home screen's ⋯ menu, when the browser offers it. The installed app opens fullscreen without the browser's "swipe to exit full screen" bubble, which a web page can't hide. It needs a trusted certificate.
+
+### Fixed
+- **The keyboard no longer covers text fields:** this covers the access code, sign‑up, create lobby, join lobby, rename and admin forms.
+  - **Android:** the page shrinks above the keyboard.
+  - **iPhone and other browsers:** the app and its dialogs are fitted to the area above the keyboard.
+
+  In both cases the field you're typing in scrolls into view.
+
 ## 1.2.0
 
 ### Fixed

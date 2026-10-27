@@ -12,6 +12,9 @@
   - It's drawn as soft rising tongues with no bright dots or rings, and has its own palette for light mode.
 - **The cube's glow is back to the colour of the player whose roll it is.** With the fire on the floor, the two can't be confused.
 
+### Fixed
+- **Lobby flicker:** since 1.4.0 the lobby rebuilt every seat card on each ping update (every 3 seconds) and each voice change. That replayed the cards' entrance animation and could swallow a tap on Ready, Sit here or Kick. Ping, signal bars and mic badges now update in place, and the cards animate in only once. The voice panel's buttons are rebuilt only when they actually change.
+
 ## 1.4.0
 
 ### Added

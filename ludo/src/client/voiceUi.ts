@@ -121,6 +121,18 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
     }
     status.classList.toggle('warn', voice.enabled && voice.joined && voice.linked.connected < voice.linked.total);
 
+    // Rebuild the buttons only when they change, so a button isn't swapped out mid-tap.
+    const key = `${voice.enabled}|${host}|${lobbyId}`;
+    if (key !== shownKey) {
+      shownKey = key;
+      buildActions(host, lobbyId);
+    }
+    quality.el.hidden = !voice.enabled;
+    quality.refresh();
+  };
+
+  let shownKey = '';
+  const buildActions = (host: boolean, lobbyId: string | undefined) => {
     actions.innerHTML = '';
     if (voice.enabled) {
       button(`${ICONS.rejoin} Rejoin voice`, 'btn-ghost', async () => {
@@ -143,8 +155,6 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
       });
     }
     actions.hidden = actions.childElementCount === 0;
-    quality.el.hidden = !voice.enabled;
-    quality.refresh();
   };
   // Keeps itself up to date while on screen; unhooks once its screen or menu is gone.
   let shown = false;

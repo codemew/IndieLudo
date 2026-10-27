@@ -66,6 +66,9 @@ export function lobbyScreen(root: HTMLElement): () => void {
       const m = lobby.members.find((x) => x.color === color);
       seats.appendChild(seatCard(color, m, { me, isHost, hostId: lobby.hostId, act }));
     }
+    paintLive();
+    // Cards animate in on the first paint only, not every time the lobby changes.
+    requestAnimationFrame(() => root.classList.add('settled'));
 
     const actions = $(root, '#actions');
     actions.innerHTML = '';
@@ -85,15 +88,33 @@ export function lobbyScreen(root: HTMLElement): () => void {
     }
   };
 
+  /**
+   * Ping, signal bars and mic badges change every few seconds. Update just those spans in place:
+   * rebuilding the cards would replay their entrance animation (a visible flicker) and could
+   * swallow a tap on a button that gets replaced mid-press.
+   */
+  const paintLive = () => {
+    root.querySelectorAll<HTMLElement>('.seat[data-user]').forEach((card) => {
+      const userId = Number(card.dataset.user);
+      const vc = card.querySelector('.seat-vc');
+      const net = card.querySelector('.seat-net');
+      const vcHtml = voiceBadge(userId);
+      const netHtml = `${signalBars(userId)}${pingText(userId)}`;
+      if (vc && vc.innerHTML !== vcHtml) vc.innerHTML = vcHtml;
+      if (net && net.innerHTML !== netHtml) net.innerHTML = netHtml;
+    });
+  };
+
   render();
   const offMute = bindMuteButton($<HTMLButtonElement>(root, '#mute'));
   const panel = voicePanel();
   $(root, '#lobby-voice').appendChild(panel.el);
   const offStore = subscribe((changed) => {
-    if (changed.includes('lobby') || changed.includes('voice') || changed.includes('net')) render();
+    if (changed.includes('lobby')) render();
+    else if (changed.includes('voice') || changed.includes('net')) paintLive();
   });
   // Peer connection changes only affect the "connecting" pulse on the badges.
-  const offVoice = voice.onChange(render);
+  const offVoice = voice.onChange(paintLive);
   return () => {
     offMute();
     offStore();
@@ -127,10 +148,10 @@ function seatCard(
   }
   const isMe = m.userId === ctx.me;
   const card = el(`
-    <div class="seat s-${color} ${isMe ? 'seat-me' : ''} ${m.connected ? '' : 'seat-offline'}">
+    <div class="seat s-${color} ${isMe ? 'seat-me' : ''} ${m.connected ? '' : 'seat-offline'}"${m.isBot || m.userId === null ? '' : ` data-user="${m.userId}"`}>
       <div class="seat-token">${m.isBot ? '🤖' : esc(m.username[0]?.toUpperCase() ?? '')}</div>
-      <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}${voiceBadge(m.userId)}</div>
-      ${m.isBot ? '' : `<div class="seat-net">${signalBars(m.userId)}${pingText(m.userId)}</div>`}
+      <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}<span class="seat-vc"></span></div>
+      ${m.isBot ? '' : `<div class="seat-net"></div>`}
       <div class="seat-tags">
         ${m.userId === ctx.hostId ? '<span class="tag">👑 host</span>' : ''}
         ${m.isBot ? '<span class="tag">bot</span>' : m.userId === ctx.hostId ? '' : m.ready ? '<span class="tag tag-ok">✓ ready</span>' : '<span class="tag">not ready</span>'}

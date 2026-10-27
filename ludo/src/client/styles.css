@@ -855,7 +855,8 @@ h3 {
   transition: transform 0.12s;
 }
 .settled .lobby-card,
-.settled .my-lobby-card {
+.settled .my-lobby-card,
+.settled .seat {
   animation: none;
 }
 .lobby-card:active:not(:disabled),

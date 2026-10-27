@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import { Server } from 'socket.io';
+import { NET_PING_INTERVAL_MS, NET_PING_TIMEOUT_MS } from '../shared/net.js';
 import { apiRouter } from './api.js';
 import type { Config } from './config.js';
 import type { Ctx } from './context.js';
@@ -14,6 +15,7 @@ import { cryptoDice, type DiceFn } from './dice.js';
 import { GameManager } from './gameManager.js';
 import { Gate } from './gate.js';
 import { LobbyManager } from './lobbies.js';
+import { NetStatsTracker } from './netStats.js';
 import { DeviceService, SessionService } from './sessions.js';
 import { attachSocketHandlers, lobbyBroadcaster, rooms, type LudoServerIO } from './socket.js';
 import { loadTls, type TlsMaterial } from './tls.js';
@@ -29,6 +31,8 @@ export interface StartOptions {
   botDelayMs?: number;
   autoMoveDelayMs?: number;
   animScale?: number;
+  /** How often players' pings are measured (ms); tests shorten it. */
+  netIntervalMs?: number;
   /** Built client to serve; null disables static serving. Defaults to ./dist/client when present. */
   staticDir?: string | null;
   onGateRotate?: (code: string, reason: 'manual' | 'brute-force') => void;
@@ -120,6 +124,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     onChange: (state) => io?.to(rooms.lobby(state.lobbyId)).emit('voice:state', state),
   });
 
+  const net = new NetStatsTracker();
   const gate = new Gate({ ...config.gate, onRotate: opts.onGateRotate });
 
   lobbies.load();
@@ -140,6 +145,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     lobbies,
     games,
     voice,
+    net,
     kickSessions: (ids) => {
       if (!io || ids.length === 0) return;
       const r = ids.map(rooms.session);
@@ -211,6 +217,26 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   const sweeper = setInterval(() => lobbies.sweep(), 30_000);
   sweeper.unref();
 
+  // Players' pings: one tiny ping per phone in a lobby, then one update per lobby, every 3 s.
+  const netInterval = opts.netIntervalMs ?? NET_PING_INTERVAL_MS;
+  const pingTimeout = Math.min(NET_PING_TIMEOUT_MS, Math.round(netInterval * 0.8));
+  const pinger = setInterval(() => {
+    for (const [socketId, userId] of net.sockets()) {
+      if (!lobbies.forUser(userId)) continue;
+      const socket = io!.sockets.sockets.get(socketId);
+      if (!socket) continue;
+      const t0 = performance.now();
+      socket.timeout(pingTimeout).emit('net:ping', (err: Error | null) => net.record(socketId, err ? null : performance.now() - t0));
+    }
+    setTimeout(() => {
+      for (const lobby of lobbies.all()) {
+        const players = lobby.members.filter((m) => !m.isBot && m.userId !== null).map((m) => net.forUser(m.userId!));
+        if (players.length) io!.to(rooms.lobby(lobby.id)).emit('net:stats', { lobbyId: lobby.id, players });
+      }
+    }, pingTimeout + 20).unref();
+  }, netInterval);
+  pinger.unref();
+
   const port = await listen(main, tls ? config.https.port : config.port);
   let redirect: http.Server | null = null;
   let redirectPort: number | null = null;
@@ -232,6 +258,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       if (closed) return;
       closed = true;
       clearInterval(sweeper);
+      clearInterval(pinger);
       games.shutdown();
       await new Promise<void>((r) => io!.close(() => r()));
       if (redirect) await new Promise<void>((r) => redirect!.close(() => r()));

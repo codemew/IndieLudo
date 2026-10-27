@@ -1,3 +1,4 @@
+import type { NetStats } from '../shared/net.js';
 import type { LobbySummary, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
 
 export interface AppState {
@@ -8,6 +9,8 @@ export interface AppState {
   game: PublicGameState | null;
   /** Voice channel of the current game (who is in it, muted, quality). */
   voice: VoiceState | null;
+  /** Ping and signal bars of the current lobby's players, refreshed every few seconds. */
+  net: NetStats | null;
   online: boolean;
 }
 
@@ -18,6 +21,7 @@ export const state: AppState = {
   lobby: null,
   game: null,
   voice: null,
+  net: null,
   online: false,
 };
 

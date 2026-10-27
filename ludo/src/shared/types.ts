@@ -89,9 +89,12 @@ export interface LobbyMember {
 
 export type LobbyStatus = 'waiting' | 'playing';
 
-/** Voice quality steps (kbps) for the per-lobby setting. */
-export const VOICE_BITRATES = [16, 32, 48, 64] as const;
-export const DEFAULT_VOICE_BITRATE = 32;
+/**
+ * Voice quality steps (kbps) for the per-lobby setting, each double the last. 6 is the floor:
+ * browsers refuse an Opus cap below 6 kbps.
+ */
+export const VOICE_BITRATES = [6, 12, 24, 48] as const;
+export const DEFAULT_VOICE_BITRATE = 24;
 
 /** Who is in a lobby's voice channel. Shared with every member of the lobby. */
 export interface VoiceState {

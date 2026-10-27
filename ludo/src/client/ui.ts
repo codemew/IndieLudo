@@ -64,7 +64,7 @@ const ERRORS: Record<string, string> = {
   NO_MIC_SUPPORT: "This browser can't do voice chat.",
   NOT_IN_VOICE: 'Join the voice chat first.',
   NOT_IN_GAME: 'Only players in this game can use its voice chat.',
-  INVALID_BITRATE: 'Pick 16, 32, 48 or 64 kbps.',
+  INVALID_BITRATE: 'Pick 6, 12, 24 or 48 kbps.',
   VOICE_DISABLED: 'The host turned voice chat off.',
 };
 

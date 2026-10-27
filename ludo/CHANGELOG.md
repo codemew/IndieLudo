@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+- **Signal bars and ping for every player:** shown on the lobby seats and the game's player cards. The server pings each phone in a lobby every 3 seconds, times the reply itself, smooths the result, and sends each lobby one update.
+
+### Changed
+- **Voice quality steps are now 6, 12, 24 and 48 kbps** (default 24). Browsers refuse to encode voice below 6 kbps, so 6 is the lowest possible. Before, the steps were 16, 32, 48 and 64.
+- **Softer dice-roll sound:** warm wooden knocks that slow down as the die settles, replacing the bright noise bursts. Measured, the sound's brightness centre dropped from about 3.7 kHz to about 0.5 kHz.
+- **Six-streak flames:**
+  - They are now violet for the first six and fuchsia for the second, so they can't be mistaken for a player's colour. While a streak burns, the cube's "your roll" glow takes the flame's colour too.
+  - The flame is drawn as soft particles that rise, drift inward and fade, so it flickers like a real flame. It's kept subtle.
+
 ## 1.3.0
 
 ### Added

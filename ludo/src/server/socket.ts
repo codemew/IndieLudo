@@ -72,6 +72,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     inc(perIp, ip, 1);
     const userSockets = inc(perUser, userId, 1);
     socket.join([rooms.user(userId), rooms.session(sessionId)]);
+    ctx.net.add(socket.id, userId);
 
     if (userSockets === 1) {
       ctx.lobbies.setConnected(userId, true);
@@ -212,6 +213,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
 
     socket.on('disconnect', () => {
       ctx.voice.dropSocket(socket.id);
+      ctx.net.remove(socket.id);
       inc(perIp, ip, -1);
       if (inc(perUser, userId, -1) === 0) {
         ctx.lobbies.setConnected(userId, false);

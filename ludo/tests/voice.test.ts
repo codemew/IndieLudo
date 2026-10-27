@@ -37,17 +37,17 @@ describe('VoiceManager', () => {
     expect(() => vm.setMuted('g1', 9, true)).toThrow('NOT_IN_VOICE');
   });
 
-  it('quality: 16/32/48/64 kbps only, and only the host may change it', () => {
+  it('quality: 6/12/24/48 kbps only, and only the host may change it', () => {
     const { vm } = make();
-    expect(vm.state('g1').bitrateKbps).toBe(32);
-    expect(() => vm.setBitrate('g1', 2, 64)).toThrow('NOT_HOST');
-    vm.setBitrate('g1', 1, 64);
-    expect(vm.state('g1').bitrateKbps).toBe(64);
-    for (const bad of [8, 24, 40, 80, 0]) expect(() => vm.setBitrate('g1', 1, bad)).toThrow('INVALID_BITRATE');
+    expect(vm.state('g1').bitrateKbps).toBe(24);
+    expect(() => vm.setBitrate('g1', 2, 48)).toThrow('NOT_HOST');
+    vm.setBitrate('g1', 1, 6);
+    expect(vm.state('g1').bitrateKbps).toBe(6);
+    for (const bad of [4, 8, 16, 32, 64, 0]) expect(() => vm.setBitrate('g1', 1, bad)).toThrow('INVALID_BITRATE');
     expect(() => vm.setBitrate('g1', 3, 16)).toThrow('NOT_IN_LOBBY');
     vm.join('g1', 1, 's1');
     vm.leave('g1', 1);
-    expect(vm.state('g1').bitrateKbps).toBe(64);
+    expect(vm.state('g1').bitrateKbps).toBe(6);
   });
 
   it('relays only between members of the same channel', () => {
@@ -75,7 +75,7 @@ describe('VoiceManager', () => {
     const { vm, onChange } = make();
     vm.join('g1', 1, 's1');
     vm.close('g1');
-    expect(onChange).toHaveBeenLastCalledWith({ lobbyId: 'g1', enabled: true, epoch: 0, bitrateKbps: 32, participants: [] });
+    expect(onChange).toHaveBeenLastCalledWith({ lobbyId: 'g1', enabled: true, epoch: 0, bitrateKbps: 24, participants: [] });
   });
 
   it('the host can turn voice off (everyone is dropped, nobody can join) and back on', () => {
@@ -153,7 +153,7 @@ describe('lobby voice chat over sockets', () => {
     expect(joined).toEqual({
       ok: true,
       data: {
-        state: { lobbyId, enabled: true, epoch: 0, bitrateKbps: 32, participants: [{ userId: host.userId, muted: false }] },
+        state: { lobbyId, enabled: true, epoch: 0, bitrateKbps: 24, participants: [{ userId: host.userId, muted: false }] },
         iceServers: [{ urls: 'stun:example.test:3478' }],
       },
     });
@@ -175,12 +175,12 @@ describe('lobby voice chat over sockets', () => {
     expect(await guest.emit('voice:mute', { lobbyId, muted: true })).toEqual({ ok: true });
     await muted;
 
-    const hq = nextVoice(guest, (s) => s.bitrateKbps === 64);
-    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 64 })).toEqual({ ok: true });
+    const hq = nextVoice(guest, (s) => s.bitrateKbps === 6);
+    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 6 })).toEqual({ ok: true });
     await hq;
-    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 80 })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 64 })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
     expect(await host.emit('voice:bitrate', { lobbyId, kbps: 20 })).toEqual({ ok: false, error: 'INVALID_BITRATE' });
-    expect(await guest.emit('voice:bitrate', { lobbyId, kbps: 16 })).toEqual({ ok: false, error: 'NOT_HOST' });
+    expect(await guest.emit('voice:bitrate', { lobbyId, kbps: 12 })).toEqual({ ok: false, error: 'NOT_HOST' });
 
     const left = nextVoice(host, (s) => s.participants.length === 1);
     expect(await guest.emit('voice:leave', { lobbyId })).toEqual({ ok: true });
@@ -217,7 +217,7 @@ describe('lobby voice chat over sockets', () => {
     clients.push(stranger);
     expect(await stranger.emit('voice:join', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
     expect(await stranger.emit('voice:get', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
-    expect(await stranger.emit('voice:bitrate', { lobbyId, kbps: 16 })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
+    expect(await stranger.emit('voice:bitrate', { lobbyId, kbps: 12 })).toEqual({ ok: false, error: 'NOT_IN_LOBBY' });
     await host.emit('voice:join', { lobbyId });
     await guest.emit('voice:join', { lobbyId });
     expect(await stranger.emit('voice:signal', { lobbyId, to: host.userId, kind: 'offer', call: 1, sdp: 'x' })).toEqual({ ok: false, error: 'NOT_IN_VOICE' });

@@ -2093,99 +2093,109 @@ h3 {
   z-index: 1;
 }
 .dice-flame {
-  --f1: transparent;
-  --f2: transparent;
-  --f3: transparent;
-  --f4: transparent;
+  /* Six-streak flame (see flameParticles in game.ts). Its colours are not player colours. */
+  --core: transparent;
+  --mid: transparent;
+  --edge: transparent;
+  --rise: 70px;
   position: absolute;
   left: 50%;
+  /* Starts at the cube's upper half, so the flame is seen licking up around and above it. */
   bottom: 30%;
-  width: 92px;
-  height: 104px;
+  width: 120px;
+  height: 140px;
   transform: translateX(-50%);
   opacity: 0;
-  transition: opacity 0.3s ease;
+  /* Enough blur that the particles merge into one flame body instead of bubbles. */
+  filter: blur(3.5px);
+  transition: opacity 0.45s ease;
   pointer-events: none;
 }
+/* First six: violet. */
 .dice-slot[data-flame='1'] .dice-flame {
-  --f1: #1e3a8a;
-  --f2: #2563eb;
-  --f3: #60a5fa;
-  --f4: #e0f2fe;
-  opacity: 1;
+  --core: #f5f3ff;
+  --mid: #c4b5fd;
+  --edge: #7c3aed;
+  opacity: 0.85;
 }
+/* Second six: hotter fuchsia, a little taller and livelier. */
 .dice-slot[data-flame='2'] .dice-flame {
-  --f1: #991b1b;
-  --f2: #ef4444;
-  --f3: #f97316;
-  --f4: #fde047;
-  opacity: 1;
+  --core: #fdf4ff;
+  --mid: #f0abfc;
+  --edge: #c026d3;
+  --rise: 88px;
+  opacity: 0.95;
+}
+/* While a streak burns, the cube's "your roll" glow takes the flame's colour, not the player's. */
+.dice-slot[data-flame='1'] .dice {
+  --dc: #8b5cf6;
+}
+.dice-slot[data-flame='2'] .dice {
+  --dc: #d946ef;
+}
+.dice-slot[data-flame='2'] .dice-flame i {
+  animation-duration: calc(var(--t) * 0.85);
 }
 .dice-flame i {
   position: absolute;
   bottom: 0;
-  border-radius: 50% 50% 45% 45% / 65% 65% 35% 35%;
-  background: radial-gradient(ellipse at 50% 85%, var(--f4) 0%, var(--f3) 28%, var(--f2) 55%, var(--f1) 72%, transparent 78%);
-  filter: blur(1.5px);
-  transform-origin: 50% 100%;
-  animation: flicker 0.6s ease-in-out infinite alternate;
+  left: calc(50% + var(--x));
+  width: var(--s);
+  height: var(--s);
+  margin-left: calc(var(--s) / -2);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: radial-gradient(circle at 50% 62%, var(--core) 0%, var(--mid) 32%, var(--edge) 62%, transparent 74%);
+  opacity: 0;
+  animation: flame-rise var(--t) cubic-bezier(0.3, 0.1, 0.6, 1) var(--d) infinite;
 }
-.dice-flame i:nth-child(1) {
-  left: 18%;
-  width: 64%;
-  height: 100%;
-}
-.dice-flame i:nth-child(2) {
-  left: 4%;
-  width: 46%;
-  height: 72%;
-  animation-duration: 0.45s;
-  animation-delay: -0.2s;
-}
-.dice-flame i:nth-child(3) {
-  left: 50%;
-  width: 46%;
-  height: 78%;
-  animation-duration: 0.5s;
-  animation-delay: -0.1s;
-}
-.dice-flame i:nth-child(4) {
-  left: 30%;
-  width: 40%;
-  height: 60%;
-  animation-duration: 0.35s;
-}
-.dice-flame i:nth-child(5) {
-  left: 38%;
-  width: 24%;
-  height: 40%;
-  bottom: 52%;
+/* Warm glow where the flame meets the dice. */
+.dice-flame b {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -6px;
+  height: 34px;
   border-radius: 50%;
-  animation: ember 0.9s ease-out infinite;
+  background: radial-gradient(ellipse, var(--mid) 0%, var(--edge) 45%, transparent 72%);
+  opacity: 0.5;
+  animation: flame-glow 1.6s ease-in-out infinite alternate;
 }
-@keyframes flicker {
-  from {
-    transform: scaleY(0.88) scaleX(1.04) rotate(-2deg);
-    opacity: 0.85;
+@keyframes flame-rise {
+  0% {
+    transform: translate(0, 4px) scale(1);
+    opacity: 0;
   }
-  to {
-    transform: scaleY(1.08) scaleX(0.94) rotate(2deg);
+  12% {
     opacity: 1;
   }
-}
-@keyframes ember {
-  from {
-    transform: translateY(0) scale(1);
-    opacity: 1;
+  50% {
+    opacity: 0.75;
   }
-  to {
-    transform: translateY(-34px) scale(0.3);
+  100% {
+    transform: translate(var(--dx), calc(var(--rise) * -1)) scale(0.25);
     opacity: 0;
   }
 }
+@keyframes flame-glow {
+  from {
+    opacity: 0.38;
+    transform: scaleX(0.94);
+  }
+  to {
+    opacity: 0.55;
+    transform: scaleX(1.04);
+  }
+}
 @media (prefers-color-scheme: dark), (prefers-color-scheme: no-preference) {
-  .dice-flame {
+  .dice-flame i,
+  .dice-flame b {
     mix-blend-mode: screen;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dice-flame i {
+    animation: none;
+    opacity: 0.6;
   }
 }
 
@@ -2393,4 +2403,79 @@ button.me:active {
   font-size: 13px;
   color: var(--muted);
   font-weight: 600;
+}
+
+/* ---------- signal bars and ping (netUi.ts) ---------- */
+
+.sig {
+  --sig: #22c55e;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 11px;
+  margin-left: 4px;
+  vertical-align: -1px;
+}
+.sig i {
+  width: 3px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--muted) 35%, transparent);
+}
+.sig i:nth-child(1) {
+  height: 30%;
+}
+.sig i:nth-child(2) {
+  height: 55%;
+}
+.sig i:nth-child(3) {
+  height: 80%;
+}
+.sig i:nth-child(4) {
+  height: 100%;
+}
+.sig-3 {
+  --sig: #84cc16;
+}
+.sig-2 {
+  --sig: #f59e0b;
+}
+.sig-1,
+.sig-0 {
+  --sig: #ef4444;
+}
+.sig-4 i,
+.sig-3 i:nth-child(-n + 3),
+.sig-2 i:nth-child(-n + 2),
+.sig-1 i:nth-child(1) {
+  background: var(--sig);
+}
+.ping {
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ping.sig-2,
+.ping.sig-1,
+.ping.sig-0 {
+  color: var(--sig);
+}
+.pchip-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.seat-net {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 12px;
+}
+.seat-net .sig {
+  margin-left: 0;
 }

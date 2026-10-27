@@ -113,7 +113,7 @@ npm run typecheck
 - Bots wait until every phone has finished animating the previous roll or move, then pause a little longer to "think". This makes bot turns easy to follow.
 
 **Effects:**
-- The first six sets the dice on a blue flame and the second on a red‑yellow flame, each with its own sound. Three sixes bring a sad face 😩 and a sad trombone.
+- The first six sets the dice on a soft violet flame, and the second on a taller fuchsia one. Each has its own sound, and the cube's glow takes the flame's colour. These colours are never player colours. Three sixes bring a sad face 😩 and a sad trombone.
 - A token landing on a star square chimes and briefly turns into 😌 or 😎, then goes back to normal.
 - A token that captures another briefly turns into 😋 or 🤤, chewing happily with a little slurp, then fades back to the token.
 - On your move, the die your next tap will use is lifted, outlined in your colour and tagged **USE**, and dice that can't move anything are greyed out. The board marks where each glowing token would land.
@@ -131,7 +131,7 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
 - **Host controls:** these are on the lobby screen and in the game's ☰ menu. If the host leaves, the next host gets them.
   - **Restart for everyone:** every phone drops its voice connections and joins again from scratch. Use it when several players can't hear each other.
   - **Turn off / Turn on:** turns voice chat off or on for the whole lobby. While it's off, no phone uses its microphone.
-  - **Quality:** **16, 32, 48 or 64 kbps**. The change applies to everyone at once, without reconnecting. The default is 32 kbps. Use 16 kbps on mobile data. Other players can see the setting but not change it.
+  - **Quality:** **6, 12, 24 or 48 kbps**. The change applies to everyone at once, without reconnecting. The default is 24 kbps. 6 kbps saves the most mobile data and still keeps speech clear. Browsers won't encode voice below 6 kbps. Other players can see the setting but not change it.
 - **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other (at most 3 others). The server never handles audio. It only checks lobby membership, keeps track of who is in and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP).
 - **Repairs itself:**
   - **No crossed calls:** of each pair of phones, only the one whose user id is lower dials. The other asks it to call back with a "ring". So two phones that reconnect together never call each other at once.
@@ -148,6 +148,26 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
   ```
 
   For a LAN-only setup, `"iceServers": []` avoids contacting Google's STUN server at all.
+
+## Signal and ping
+
+- **What you see:** every player in the lobby or a game shows **signal bars** next to their name and their **ping in ms** beside their icon. The server measures these itself, so a phone can't fake its own numbers or anyone else's.
+- **How it's measured:**
+  - Every 3 seconds the server sends a tiny ping to each phone that's in a lobby, and times the reply.
+  - It then sends each lobby one update with everyone's results. That's about one small message per phone every 3 seconds.
+  - The ms figure is smoothed, so one slow reply doesn't make it jump.
+- **Bars:**
+
+  | Ping | Bars |
+  |---|---|
+  | up to 80 ms | 4 |
+  | up to 150 ms | 3 |
+  | up to 300 ms | 2 |
+  | slower | 1 |
+  | no reply yet, or 2 lost pings in a row | 0 |
+
+  Each ping lost among the last 5 costs one bar, but a phone that still replies never drops below 1.
+- **Colours:** green, lime, amber, red.
 
 ## Reconnecting
 

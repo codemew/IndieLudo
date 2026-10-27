@@ -69,7 +69,7 @@ function tone(freq: number, start: number, dur: number, type: OscillatorType = '
   osc.stop(t + dur + 0.02);
 }
 
-function noise(start: number, dur: number, vol = 0.25, freq = 2500): void {
+function noise(start: number, dur: number, vol = 0.25, freq = 2500, type: BiquadFilterType = 'bandpass'): void {
   if (!ctx || !master) return;
   const t = ctx.currentTime + start;
   const len = Math.max(1, Math.floor(ctx.sampleRate * dur));
@@ -79,7 +79,7 @@ function noise(start: number, dur: number, vol = 0.25, freq = 2500): void {
   const src = ctx.createBufferSource();
   src.buffer = buf;
   const filter = ctx.createBiquadFilter();
-  filter.type = 'bandpass';
+  filter.type = type;
   filter.frequency.value = freq;
   filter.Q.value = 1.2;
   const g = ctx.createGain();
@@ -96,7 +96,16 @@ export function play(name: Sfx): void {
   }
   switch (name) {
     case 'dice':
-      for (let i = 0; i < 6; i++) noise(i * 0.075 + Math.random() * 0.02, 0.05, 0.35 - i * 0.04, 1800 + Math.random() * 1500);
+      // A wooden die tumbling on a felt table: soft, warm knocks that slow down and settle,
+      // with only a muffled hint of texture (no bright hiss). Pitched high enough for phone
+      // speakers, which barely play anything under ~400 Hz.
+      [0, 0.13, 0.24, 0.32, 0.38, 0.42].forEach((t, i) => {
+        const v = 0.2 * (1 - i * 0.13);
+        const f = 440 + Math.random() * 160;
+        tone(f, t, 0.09, 'sine', v, f * 0.75);
+        tone(f * 2.3, t, 0.04, 'triangle', v * 0.3);
+        noise(t, 0.035, v * 0.4, 900, 'lowpass');
+      });
       break;
     case 'step':
       tone(720, 0, 0.06, 'triangle', 0.18, 900);

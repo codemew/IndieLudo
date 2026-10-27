@@ -6,6 +6,7 @@ import { play } from '../sound.js';
 import { state, subscribe } from '../store.js';
 import { $, COLOR_NAME, confirmDialog, el, esc } from '../ui.js';
 import { voice } from '../voice.js';
+import { pingText, signalBars } from '../netUi.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Seats laid out like the board: red top-left, green top-right, blue bottom-left, yellow bottom-right. */
@@ -89,7 +90,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
   const panel = voicePanel();
   $(root, '#lobby-voice').appendChild(panel.el);
   const offStore = subscribe((changed) => {
-    if (changed.includes('lobby') || changed.includes('voice')) render();
+    if (changed.includes('lobby') || changed.includes('voice') || changed.includes('net')) render();
   });
   // Peer connection changes only affect the "connecting" pulse on the badges.
   const offVoice = voice.onChange(render);
@@ -129,6 +130,7 @@ function seatCard(
     <div class="seat s-${color} ${isMe ? 'seat-me' : ''} ${m.connected ? '' : 'seat-offline'}">
       <div class="seat-token">${m.isBot ? '🤖' : esc(m.username[0]?.toUpperCase() ?? '')}</div>
       <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}${voiceBadge(m.userId)}</div>
+      ${m.isBot ? '' : `<div class="seat-net">${signalBars(m.userId)}${pingText(m.userId)}</div>`}
       <div class="seat-tags">
         ${m.userId === ctx.hostId ? '<span class="tag">👑 host</span>' : ''}
         ${m.isBot ? '<span class="tag">bot</span>' : m.userId === ctx.hostId ? '' : m.ready ? '<span class="tag tag-ok">✓ ready</span>' : '<span class="tag">not ready</span>'}

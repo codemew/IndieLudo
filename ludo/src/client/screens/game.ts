@@ -22,6 +22,7 @@ import { state, subscribe, update } from '../store.js';
 import { uuid } from '../storage.js';
 import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, toast } from '../ui.js';
 import { voice } from '../voice.js';
+import { pingText, signalBars } from '../netUi.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Corner order around the board, matching each colour's base. */
@@ -80,7 +81,7 @@ export function gameScreen(root: HTMLElement): () => void {
   /** The dice only shows while someone still has to roll; spent rolls live in the queue chips. */
   const showDice = (show: boolean) => diceSlot.classList.toggle('dice-hidden', !show);
   // Flames behind the dice: blue after one six, red-yellow after two.
-  diceSlot.prepend(el(`<div class="dice-flame" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>`));
+  diceSlot.prepend(el(`<div class="dice-flame" aria-hidden="true"><b></b>${flameParticles()}</div>`));
   const setFlame = (sixes: number) => (diceSlot.dataset.flame = String(Math.min(sixes, 2)));
   const sadFace = el(`<div class="dice-emoji" aria-hidden="true">😩</div>`);
   diceSlot.appendChild(sadFace);
@@ -342,9 +343,12 @@ export function gameScreen(root: HTMLElement): () => void {
       const timed = active && gs!.turn.deadline > 0;
       chip.className = `pchip p-${color}${active ? ' active' : ''}${timed ? ' timed' : ''}${seat.connected ? '' : ' offline'}`;
       chip.innerHTML = `
-        <span class="pchip-dot">${seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
+        <span class="pchip-icon">
+          <span class="pchip-dot">${seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
+          ${pingText(seat.userId)}
+        </span>
         <span class="pchip-text">
-          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}</span>
+          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}${signalBars(seat.userId)}</span>
           <span class="pchip-sub">${chipStatus(seat, rank, homeCount)}</span>
         </span>
         <span class="pchip-timer"><i></i></span>`;
@@ -377,6 +381,24 @@ export function gameScreen(root: HTMLElement): () => void {
     }
     section.appendChild(voicePanel().el);
     body.appendChild(section);
+  }
+
+  /**
+   * The six-streak flame: soft glowing particles that rise, drift toward the middle, shrink
+   * and fade, staggered so the fire flickers continuously, like a real flame.
+   */
+  function flameParticles(count = 18): string {
+    let html = '';
+    for (let i = 0; i < count; i++) {
+      // Bunched toward the middle but wide enough to lick up both sides of the cube.
+      const x = ((Math.random() + Math.random()) / 2 - 0.5) * 80;
+      const size = Math.round(46 - Math.abs(x) * 0.45);
+      const dx = Math.round((Math.random() - 0.5) * 12 - x * 0.45); // taper to a tip
+      const dur = 1 + Math.random() * 0.4;
+      const delay = -((i / count) * dur).toFixed(2);
+      html += `<i style="--x:${x.toFixed(1)}px;--s:${size}px;--dx:${dx}px;--t:${dur.toFixed(2)}s;--d:${delay}s"></i>`;
+    }
+    return html;
   }
 
   function chipStatus(seat: Seat, rank: number, homeCount: number): string {
@@ -528,12 +550,12 @@ export function gameScreen(root: HTMLElement): () => void {
   renderAll();
   if (gs.finished) queueMicrotask(() => go('results'));
 
-  // Repaint the mic badges when the channel or our peer connections change.
+  // Repaint the mic badges and signal bars when the channel, our peer connections or pings change.
   const repaintVoice = () => {
     if (gs && !destroyed) renderChips();
   };
   const offVoice = voice.onChange(repaintVoice);
-  const offStore = subscribe((changed) => changed.includes('voice') && repaintVoice());
+  const offStore = subscribe((changed) => (changed.includes('voice') || changed.includes('net')) && repaintVoice());
 
   return () => {
     destroyed = true;

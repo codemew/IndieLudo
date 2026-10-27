@@ -81,6 +81,8 @@ function connectSocket(token: string): void {
         voice.onState(v);
       });
       s.on('voice:signal', (sig) => void voice.onSignal(sig));
+      s.on('net:ping', (ack) => ack());
+      s.on('net:stats', (n) => n.lobbyId === state.lobby?.id && update({ net: n }));
     },
     // The server dropped us from voice when the old socket went away; rejoin if we were in.
     onConnect: (reconnected) => reconnected && void voice.onReconnect(),
@@ -168,6 +170,7 @@ voice.onNotice = (msg) => toast(msg);
 function syncVoice(): void {
   const lobbyId = state.lobby?.id ?? null;
   if (voice.lobbyId && voice.lobbyId !== lobbyId) void voice.leave();
+  if (state.net && state.net.lobbyId !== lobbyId) update({ net: null });
   if (!lobbyId) {
     if (state.voice) update({ voice: null });
     return;
@@ -184,7 +187,7 @@ export function signOut(message?: string): void {
   disconnect();
   storage.remove(KEYS.session);
   storage.remove(KEYS.lastGame);
-  update({ user: null, isAdmin: false, lobby: null, game: null, voice: null, lobbies: [] });
+  update({ user: null, isAdmin: false, lobby: null, game: null, voice: null, net: null, lobbies: [] });
   go('signup');
   if (message) toast(message, 'error', 3500);
 }

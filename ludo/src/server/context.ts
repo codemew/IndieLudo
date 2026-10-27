@@ -3,6 +3,7 @@ import type { DB } from './db.js';
 import type { GameManager } from './gameManager.js';
 import type { Gate } from './gate.js';
 import type { LobbyManager } from './lobbies.js';
+import type { NetStatsTracker } from './netStats.js';
 import type { DeviceService, SessionService } from './sessions.js';
 import type { UserService } from './users.js';
 import type { VoiceManager } from './voice.js';
@@ -18,6 +19,7 @@ export interface Ctx {
   lobbies: LobbyManager;
   games: GameManager;
   voice: VoiceManager;
+  net: NetStatsTracker;
   /** Disconnects the sockets of revoked sessions (wired up by the socket layer). */
   kickSessions: (sessionIds: number[]) => void;
   kickUser: (userId: number) => void;

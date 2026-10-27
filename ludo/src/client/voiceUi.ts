@@ -163,7 +163,7 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
   return { el: root, destroy };
 }
 
-/** The lobby-wide voice quality picker (16–64 kbps); only the host can change it. */
+/** The lobby-wide voice quality picker (6–48 kbps); only the host can change it. */
 export function qualityPicker(): { el: HTMLElement; refresh: () => void } {
   const root = el(`
     <div class="voice-quality">

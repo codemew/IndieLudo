@@ -1,3 +1,4 @@
+import type { NetStats } from './net.js';
 import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, VoiceState } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
@@ -88,6 +89,10 @@ export interface ServerToClient {
   'game:state': (u: GameUpdate) => void;
   'session:revoked': () => void;
   'voice:state': (s: VoiceState) => void;
+  /** Server-timed ping; the client just acknowledges. */
+  'net:ping': (ack: () => void) => void;
+  /** Every few seconds: each lobby member's ping and signal bars. */
+  'net:stats': (s: NetStats) => void;
   'voice:signal': (s: VoiceSignalIn) => void;
 }
 
@@ -145,7 +150,7 @@ export const SCHEMAS = {
   gameRef: { gameId: { type: 'string', max: 64 } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },
   voiceMute: { lobbyId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
-  voiceBitrate: { lobbyId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 16, max: 64 } },
+  voiceBitrate: { lobbyId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 6, max: 48 } },
   voiceEnabled: { lobbyId: { type: 'string', max: 64 }, enabled: { type: 'bool' } },
   voiceSignal: {
     lobbyId: { type: 'string', max: 64 },

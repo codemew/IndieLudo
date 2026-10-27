@@ -13,6 +13,7 @@
   - **iPhone and other browsers:** the app and its dialogs are fitted to the area above the keyboard.
 
   In both cases the field you're typing in scrolls into view.
+- **No false "Turn your phone upright":** typing on an upright phone, for example the lobby password, no longer brings up the overlay. It now checks how the phone is actually held, and never shows while you're typing. Before, the keyboard made the page wider than tall, which looked like a phone held sideways.
 
 ## 1.2.0
 

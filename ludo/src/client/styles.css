@@ -501,10 +501,9 @@ h3 {
     transform: rotate(0);
   }
 }
-@media (orientation: landscape) and (max-height: 500px) {
-  #rotate {
-    display: flex;
-  }
+/* Set by rotateHint.ts from the phone's real orientation, not the page's shape. */
+.sideways #rotate {
+  display: flex;
 }
 
 /* ---------- shared layout ---------- */

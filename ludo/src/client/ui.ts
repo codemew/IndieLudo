@@ -5,6 +5,19 @@ export function esc(s: unknown): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }
 
+const lastHtml = new WeakMap<Element, string>();
+
+/**
+ * Sets innerHTML only when it differs from what was last set here. Screens that redraw on every
+ * update (pings every few seconds, voice changes, game updates) then leave unchanged parts
+ * alone: no replayed animations, no buttons swapped out mid-tap.
+ */
+export function setHtml(target: Element, html: string): void {
+  if (lastHtml.get(target) === html) return;
+  lastHtml.set(target, html);
+  target.innerHTML = html;
+}
+
 export function el<T extends HTMLElement = HTMLElement>(html: string): T {
   const t = document.createElement('template');
   t.innerHTML = html.trim();

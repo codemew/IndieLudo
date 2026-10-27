@@ -856,7 +856,8 @@ h3 {
 }
 .settled .lobby-card,
 .settled .my-lobby-card,
-.settled .seat {
+.settled .seat,
+.qchip.settled {
   animation: none;
 }
 .lobby-card:active:not(:disabled),
@@ -2509,4 +2510,11 @@ button.me:active {
 }
 .seat-net .sig {
   margin-left: 0;
+}
+
+.pchip-ping {
+  display: flex;
+}
+.pchip-ping:empty {
+  display: none;
 }

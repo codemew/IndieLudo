@@ -20,9 +20,10 @@ import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
 import { state, subscribe, update } from '../store.js';
 import { uuid } from '../storage.js';
-import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, toast } from '../ui.js';
+import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, setHtml, toast } from '../ui.js';
 import { voice } from '../voice.js';
 import { pingText, signalBars } from '../netUi.js';
+import { freshDice } from '../queueDiff.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Corner order around the board, matching each colour's base. */
@@ -334,7 +335,7 @@ export function gameScreen(root: HTMLElement): () => void {
       const seat = gs!.seats.find((s) => s.color === color);
       if (!seat) {
         chip.className = 'pchip pchip-empty';
-        chip.innerHTML = '';
+        setHtml(chip, '');
         continue;
       }
       const rank = gs!.ranks.indexOf(color);
@@ -342,21 +343,31 @@ export function gameScreen(root: HTMLElement): () => void {
       const homeCount = gs!.tokens[color].filter((p) => p === HOME).length;
       const timed = active && gs!.turn.deadline > 0;
       chip.className = `pchip p-${color}${active ? ' active' : ''}${timed ? ' timed' : ''}${seat.connected ? '' : ' offline'}`;
-      chip.innerHTML = `
-        <span class="pchip-icon">
-          <span class="pchip-dot">${seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
-          ${pingText(seat.userId)}
-        </span>
-        <span class="pchip-text">
-          <span class="pchip-name">${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}${signalBars(seat.userId)}</span>
-          <span class="pchip-sub">${chipStatus(seat, rank, homeCount)}</span>
-        </span>
-        <span class="pchip-timer"><i></i></span>`;
-      if (timed) {
-        const total = Math.max(1, (gs!.turn.deadline - gs!.serverNow) || 1);
-        const remaining = Math.max(0, gs!.turn.deadline - (Date.now() + clockOffset));
-        const bar = chip.querySelector<HTMLElement>('.pchip-timer i')!;
-        bar.animate([{ transform: `scaleX(${Math.min(1, remaining / total)})` }, { transform: 'scaleX(0)' }], { duration: remaining, fill: 'forwards' });
+      // Built once; afterwards only the parts that changed are touched, since pings and voice
+      // changes redraw the chips every few seconds.
+      setHtml(
+        chip,
+        '<span class="pchip-icon"><span class="pchip-dot"></span><span class="pchip-ping"></span></span>' +
+          '<span class="pchip-text"><span class="pchip-name"><span class="pn"></span><span class="pchip-sig"></span></span><span class="pchip-sub"></span></span>' +
+          '<span class="pchip-timer"><i></i></span>',
+      );
+      setHtml($(chip, '.pchip-dot'), seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? ''));
+      setHtml($(chip, '.pchip-ping'), pingText(seat.userId));
+      // Name and mic badge apart from the signal bars, which change with every ping.
+      setHtml($(chip, '.pn'), `${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}`);
+      setHtml($(chip, '.pchip-sig'), signalBars(seat.userId));
+      setHtml($(chip, '.pchip-sub'), chipStatus(seat, rank, homeCount));
+      // The timer bar restarts only for a new deadline, not on every redraw.
+      const bar = $(chip, '.pchip-timer i');
+      const timerKey = timed ? String(gs!.turn.deadline) : '';
+      if (bar.dataset.deadline !== timerKey) {
+        bar.dataset.deadline = timerKey;
+        bar.getAnimations().forEach((a) => a.cancel());
+        if (timed) {
+          const total = Math.max(1, (gs!.turn.deadline - gs!.serverNow) || 1);
+          const remaining = Math.max(0, gs!.turn.deadline - (Date.now() + clockOffset));
+          bar.animate([{ transform: `scaleX(${Math.min(1, remaining / total)})` }, { transform: 'scaleX(0)' }], { duration: remaining, fill: 'forwards' });
+        }
       }
     }
   }
@@ -413,6 +424,7 @@ export function gameScreen(root: HTMLElement): () => void {
    * Queued dice, in the current player's colour. On your move the die the next token tap will
    * use is lifted, outlined, glowing and tagged "USE"; dice that can't move anything are greyed.
    */
+  let shownQueue: number[] = [];
   function renderQueue(s: GameState, interactive: boolean): void {
     const q = $(root, '#queue');
     q.innerHTML = '';
@@ -421,10 +433,13 @@ export function gameScreen(root: HTMLElement): () => void {
     q.classList.toggle('mine', mine);
     const legal = mine ? gs!.legalMoves : [];
     const sel = mine ? validSelection(legal) : null;
+    // Dice already in the queue keep still; only newly rolled ones pop in.
+    const fresh = freshDice(shownQueue, s.turn.queue);
+    shownQueue = [...s.turn.queue];
     s.turn.queue.forEach((v, i) => {
       const usable = legal.some((m) => m.dieIndex === i);
       const chip = el<HTMLButtonElement>(
-        `<button class="qchip${sel === i ? ' selected' : ''}${mine && !usable ? ' dim' : ''}" aria-label="Die ${v}${sel === i ? ', selected' : ''}">${dieChip(v)}${sel === i ? '<span class="qtag">USE</span>' : ''}</button>`,
+        `<button class="qchip${fresh[i] ? '' : ' settled'}${sel === i ? ' selected' : ''}${mine && !usable ? ' dim' : ''}" aria-label="Die ${v}${sel === i ? ', selected' : ''}">${dieChip(v)}${sel === i ? '<span class="qtag">USE</span>' : ''}</button>`,
       );
       chip.disabled = !mine || !usable;
       chip.onclick = () => {
@@ -464,7 +479,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
     const banner = $(root, '#banner');
     banner.className = `turn-banner b-${seat.color}`;
-    banner.innerHTML = gs.finished ? 'Game over' : `<span class="dot"></span><span class="tb-text">${isMyTurn() ? 'Your turn' : `${esc(seat.username)}'s turn`}</span>`;
+    setHtml(banner, gs.finished ? 'Game over' : `<span class="dot"></span><span class="tb-text">${isMyTurn() ? 'Your turn' : `${esc(seat.username)}'s turn`}</span>`);
 
     let hint = '';
     if (gs.finished) hint = 'Game over';
@@ -474,7 +489,7 @@ export function gameScreen(root: HTMLElement): () => void {
     else if (isMyTurn() && gs.turn.phase === 'rolling') hint = gs.turn.sixes > 0 ? `Rolled ${gs.turn.sixes === 1 ? 'a 6' : 'two 6s'}! Roll again` : 'Tap the dice to roll';
     else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Moving with the highlighted die · tap another die to switch' : 'Tap a glowing token';
     else hint = seat.controller === 'human' ? `Waiting for ${esc(seat.username)}…` : `${esc(seat.username)} (bot) is playing…`;
-    $(root, '#hint').innerHTML = hint;
+    setHtml($(root, '#hint'), hint);
 
     $(root, '#takeback').hidden = !(me && me.controller === 'takeover' && !gs.finished);
   }
@@ -503,17 +518,18 @@ export function gameScreen(root: HTMLElement): () => void {
 
   /** Where each glowing token would land with the selected die. */
   function renderTargets(moves: LegalMove[]): void {
-    targets.innerHTML = '';
     const color = mySeat()?.color;
-    if (!color) return;
+    let html = '';
     const seen = new Set<string>();
-    for (const m of moves) {
-      const [x, y] = tokenCell(color, m.to, m.tokenId);
+    for (const m of color ? moves : []) {
+      const [x, y] = tokenCell(color!, m.to, m.tokenId);
       const key = m.to === HOME ? 'home' : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      targets.appendChild(el(`<div class="target t-${color}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%"></div>`));
+      html += `<div class="target t-${color}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%"></div>`;
     }
+    // Unchanged markers keep pulsing instead of restarting on every redraw.
+    setHtml(targets, html);
   }
 
   function burst(cell: readonly [number, number], color: Color | 'gold'): void {

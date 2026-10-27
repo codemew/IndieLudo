@@ -14,6 +14,12 @@
 
 ### Fixed
 - **Lobby flicker:** since 1.4.0 the lobby rebuilt every seat card on each ping update (every 3 seconds) and each voice change. That replayed the cards' entrance animation and could swallow a tap on Ready, Sit here or Kick. Ping, signal bars and mic badges now update in place, and the cards animate in only once. The voice panel's buttons are rebuilt only when they actually change.
+- **Game screen redraws:** the same kind of fix as the lobby, applied to the game screen.
+  - **Queued dice:** dice already in the queue no longer pop in again on every update; only a newly rolled die does.
+  - **Player cards:** built once. After that only the ping, signal bars, mic badge or status that actually changed is updated, and the turn-timer bar restarts only for a new turn, not every 3 seconds.
+  - **Turn banner, hint and landing markers:** redrawn only when they change.
+
+  Measured over a turn, queue pop animations went from 8 to 2, and banner rebuilds from 24 to 2. With two players idle for 10 seconds, the only changes left are the ping value and signal bars when they actually change. The results screen was already steady.
 
 ## 1.4.0
 

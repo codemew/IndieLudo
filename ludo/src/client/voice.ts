@@ -11,6 +11,20 @@ const WATCHDOG_MS = 2000;
 /** A link that isn't connected after this long (or has failed for RETRY_MS) is redialled. */
 const STALL_MS = 12_000;
 const RETRY_MS = 1500;
+/** Plugging in or pairing a headset fires several devicechange events; act once they settle. */
+const DEVICE_SETTLE_MS = 700;
+const MIC_CONSTRAINTS: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+
+/**
+ * Which microphone to use after the audio devices changed: one that just appeared (Bluetooth
+ * earphones connecting, a headset plugged in) is wanted right away; otherwise the system
+ * default, which is also where audio falls back to when earphones go away.
+ */
+export function pickMicAfterChange(before: readonly string[], now: readonly { deviceId: string; kind: string }[]): string | null {
+  const known = new Set(before);
+  const added = now.find((d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications' && !known.has(d.deviceId));
+  return added?.deviceId ?? null;
+}
 
 /**
  * Lets the remote Opus encoder go up to `kbps` and turns on in-band FEC. The live quality
@@ -103,6 +117,11 @@ class VoiceClient {
   private rangAt = new Map<number, number>();
   private seq = Math.floor(Math.random() * 1e9);
   private watchdog: ReturnType<typeof setInterval> | null = null;
+  /** Microphones the phone had last time we looked, to spot earphones connecting. */
+  private knownMics: string[] = [];
+  private deviceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while swapping to a new microphone, so the watchdog doesn't mistake the old one ending for a fault. */
+  private switching = false;
   private listeners = new Set<() => void>();
   private audioBox: HTMLElement | null = null;
 
@@ -111,6 +130,11 @@ class VoiceClient {
     // A tap anywhere lets audio that the browser refused to autoplay start.
     document.addEventListener('pointerdown', () => this.resumeAudio(), { capture: true });
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.check());
+    // Bluetooth earphones connecting or disconnecting mid-call.
+    navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+      if (this.deviceTimer) clearTimeout(this.deviceTimer);
+      this.deviceTimer = setTimeout(() => void this.onDevicesChanged(), DEVICE_SETTLE_MS);
+    });
   }
 
   onChange(fn: () => void): () => void {
@@ -198,14 +222,72 @@ class VoiceClient {
       return;
     }
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-        video: false,
-      });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS, video: false });
       this.micAvailable = true;
+      this.knownMics = await this.listMics();
     } catch {
       this.stream = null;
       this.micAvailable = false;
+    }
+  }
+
+  private async listMics(): Promise<string[]> {
+    try {
+      return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput').map((d) => d.deviceId);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Earphones connected or went away. Phones pick the audio route (Bluetooth or wired headset,
+   * versus earpiece or speaker) when the microphone is opened, so a call keeps the old route
+   * until the mic is opened again. Open a fresh one (the new headset's if one just appeared),
+   * swap it into every call without redialling, and restart playback so it follows the new route.
+   */
+  private async onDevicesChanged(): Promise<void> {
+    if (!this.joined || this.joining || this.switching || !this.stream) return;
+    this.switching = true;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+      const wanted = pickMicAfterChange(this.knownMics, devices);
+      this.knownMics = devices.filter((d) => d.kind === 'audioinput').map((d) => d.deviceId);
+      const open = (deviceId: string | null) =>
+        navigator.mediaDevices.getUserMedia({ audio: deviceId ? { ...MIC_CONSTRAINTS, deviceId: { exact: deviceId } } : MIC_CONSTRAINTS, video: false });
+      let next: MediaStream | null = null;
+      try {
+        next = await open(wanted);
+      } catch {
+        // Some phones can't hold two captures at once, or the new device isn't ready yet:
+        // release the old mic and try the default.
+        this.stopStream();
+        next = await open(null).catch(() => null);
+      }
+      if (!this.joined || !next) {
+        for (const t of next?.getTracks() ?? []) t.stop();
+        if (!next && this.joined) void this.rejoin();
+        return;
+      }
+      const track = next.getAudioTracks()[0];
+      const old = this.stream;
+      this.stream = next;
+      this.applyMute();
+      for (const p of this.peers.values()) {
+        for (const sender of p.pc.getSenders()) {
+          if (sender.track?.kind === 'audio') await sender.replaceTrack(track).catch(() => {});
+        }
+        // Reattach playback so the browser opens its output on the new route.
+        const src = p.audio.srcObject;
+        if (src) {
+          p.audio.srcObject = null;
+          p.audio.srcObject = src;
+          void p.audio.play().catch(() => {});
+        }
+      }
+      for (const t of old?.getTracks() ?? []) if (!next.getTracks().includes(t)) t.stop();
+    } finally {
+      this.switching = false;
+      this.notify();
     }
   }
 
@@ -423,7 +505,7 @@ class VoiceClient {
    * browser didn't start.
    */
   private check(): void {
-    if (!this.joined || this.joining) return;
+    if (!this.joined || this.joining || this.switching) return;
     if (this.stream && !this.stream.getAudioTracks().some((t) => t.readyState === 'live') && document.visibilityState === 'visible') {
       void this.rejoin();
       return;

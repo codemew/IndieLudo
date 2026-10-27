@@ -9,6 +9,7 @@
 
   Each phone now runs a watchdog that redials broken or stuck links and gets a fresh microphone when needed. Only one phone of each pair dials (the lower user id; the other "rings"), so phones reconnecting together can't cross their calls.
 - **Blocked playback:** incoming voice that the browser refused to play starts on the next tap.
+- **Bluetooth earphones:** connecting or removing Bluetooth or wired earphones during a call now moves voice to them, or back to the phone. Before, the audio stayed on whatever was in use when you joined.
 
 ### Added
 - **Rejoin voice** button for everyone, on the lobby screen and in the game menu, with a status line such as "Talking with all 3 players".

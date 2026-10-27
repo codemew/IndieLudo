@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { setOpusBitrate } from '../../src/client/voice.js';
+import { pickMicAfterChange, setOpusBitrate } from '../../src/client/voice.js';
 
 const SDP = [
   'v=0',
@@ -39,5 +39,19 @@ describe('setOpusBitrate', () => {
   it('leaves an SDP without opus alone', () => {
     const noOpus = 'v=0\r\nm=audio 9 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n';
     expect(setOpusBitrate(noOpus, 32)).toBe(noOpus);
+  });
+});
+
+describe('pickMicAfterChange', () => {
+  const mic = (deviceId: string) => ({ deviceId, kind: 'audioinput' });
+  it('switches to a microphone that just appeared (earphones connected)', () => {
+    expect(pickMicAfterChange(['default', 'builtin'], [mic('default'), mic('builtin'), mic('bt-buds'), { deviceId: 'bt-out', kind: 'audiooutput' }])).toBe('bt-buds');
+  });
+  it('falls back to the system default when earphones go away or nothing new appeared', () => {
+    expect(pickMicAfterChange(['default', 'builtin', 'bt-buds'], [mic('default'), mic('builtin')])).toBeNull();
+    expect(pickMicAfterChange(['default', 'builtin'], [mic('default'), mic('builtin'), { deviceId: 'bt-out', kind: 'audiooutput' }])).toBeNull();
+  });
+  it('ignores the "default" and "communications" aliases and blank ids', () => {
+    expect(pickMicAfterChange([], [mic('default'), mic('communications'), mic('')])).toBeNull();
   });
 });

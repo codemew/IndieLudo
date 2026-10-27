@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import { loadTls } from './src/server/tls.ts';
+
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string };
 
 // Dev server: HTTPS with its own self-signed cert, proxying the API and sockets to the backend.
 export default defineConfig(async ({ command }) => {
@@ -11,6 +14,8 @@ export default defineConfig(async ({ command }) => {
   }
   return {
     root: 'src/client',
+    // Shown on the splash screen so you can tell which build a phone is running.
+    define: { __APP_VERSION__: JSON.stringify(version) },
     publicDir: 'public',
     build: { outDir: '../../dist/client', emptyOutDir: true, target: 'es2020' },
     server: {

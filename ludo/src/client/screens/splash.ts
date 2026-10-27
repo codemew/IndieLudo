@@ -17,6 +17,7 @@ export function splashScreen(root: HTMLElement): void {
       </div>
       <h1 class="title">Ludo</h1>
       <p class="tagline">Roll · Race · Capture</p>
+      <p class="app-version">v${__APP_VERSION__}</p>
       <button class="btn btn-primary btn-xl" id="play">${fs ? 'Tap to play fullscreen' : 'Tap to play'}</button>
       ${
         showIosHint

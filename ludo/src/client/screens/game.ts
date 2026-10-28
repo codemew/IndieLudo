@@ -77,7 +77,7 @@ export function gameScreen(root: HTMLElement): () => void {
       <div class="dock-left">
         <div class="queue" id="queue"></div>
         <div class="hint" id="hint"></div>
-        <button class="btn btn-small btn-primary" id="takeback" hidden>🤖 A bot is playing for you — take back</button>
+        <button class="btn btn-small btn-primary" id="takeback" hidden>🤖 Bot playing for you · Take back</button>
       </div>
       <div class="dice-slot" id="dice-slot"></div>
     </footer>`;
@@ -580,7 +580,10 @@ export function gameScreen(root: HTMLElement): () => void {
     if (!me && !gs.finished) hint = `<span class="watch-tag">👀 Watching</span> ${hint}`;
     setHtml($(root, '#hint'), hint);
 
-    $(root, '#takeback').hidden = !(me && me.controller === 'takeover' && !gs.finished);
+    // The take-back button sits where the hint goes, so the dock never grows a row.
+    const takeback = Boolean(me && me.controller === 'takeover' && !gs.finished);
+    $(root, '#takeback').hidden = !takeback;
+    $(root, '#hint').hidden = takeback;
   }
 
   /** A red strip slams across the board: FIRST BLOOD, and who captured whom. */

@@ -1089,6 +1089,7 @@ h3 {
   align-items: center;
   gap: 8px;
   min-width: 0;
+  height: 60px; /* the same with or without a ping label under the avatar */
   padding: 7px 10px 9px;
   border-radius: 14px;
   background: var(--surface);
@@ -1449,12 +1450,15 @@ h3 {
 
 /* ---------- dock & dice ---------- */
 
+/* The dock, the queue, the hint and the player chips all have fixed heights: dice appearing,
+   a two-line hint or a ping label must never push the board up or down. */
 .dock {
   display: flex;
   align-items: center;
   gap: 14px;
   padding: 8px 16px calc(12px + var(--sab));
-  min-height: 104px;
+  height: calc(132px + var(--sab));
+  flex: none;
 }
 .dock-left {
   flex: 1;
@@ -1469,7 +1473,8 @@ h3 {
   display: flex;
   gap: 8px;
   justify-content: flex-start;
-  min-height: 46px;
+  height: 64px;
+  flex: none;
   padding-bottom: 14px; /* room for the USE tag */
 }
 .dice-slot {
@@ -1702,9 +1707,24 @@ h3 {
 .hint {
   font-size: 15px;
   font-weight: 650;
+  line-height: 1.4;
   color: var(--muted);
-  min-height: 1.4em;
+  height: 2.8em; /* two lines, always */
+  flex: none;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   text-align: left;
+}
+.hint[hidden] {
+  display: none;
+}
+#takeback {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pchip-sub .warn {
   color: #f59e0b;

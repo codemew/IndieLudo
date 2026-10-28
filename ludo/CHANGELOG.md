@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.1
+
+### Fixed
+- **The board no longer shifts up and down during a game.** It only stays still if the areas above and below it keep their height, and they didn't:
+  - **The dice queue:** grew by 18 px when dice appeared in it.
+  - **The hint line:** grew a second line for longer hints (such as "Time's up…").
+  - **The take-back button:** added a row.
+  - **Player chips:** grew when a ping label appeared under an avatar.
+
+  These now all have fixed heights, and the take-back button takes the hint's place. Measured on 390×844 and 360×640 screens, the board stays in one place through a whole game. Only the tokens move, including the heavy moustache hops and the board shake.
+
+### Tests
+- **Browser checks:** the board must not move between turns, or through 4.4 s of a bot battle.
+
 ## 2.3.0
 
 ### Added

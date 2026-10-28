@@ -87,6 +87,8 @@ async function tap(p: Page, sel: string): Promise<void> {
   await p.$eval(sel, (e) => (e as HTMLElement).click());
 }
 const shot = (p: Page, name: string) => (SHOTS ? p.screenshot({ path: join(SHOTS, `${name}.png`) }) : Promise.resolve());
+/** Where the board sits on screen; it must never move while a game is on. */
+const boardBox = (p: Page) => p.$eval('#board', (b) => { const r = b.getBoundingClientRect(); return `${Math.round(r.top)}/${Math.round(r.height)}`; });
 /** Each occupied seat in the lobby as "colour:name". */
 const seats = (p: Page) => p.$$eval('.seat:not(.seat-open)', (ss) => ss.map((s) => `${s.className.match(/s-(\w+)/)![1]}:${s.querySelector('.seat-name')!.childNodes[0].textContent!.trim()}`));
 
@@ -175,7 +177,11 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
   afterAll(() => t?.close());
 
   it('at its home turn the board shows both ways, and tapping the token offers the two choices', async () => {
+    await aliceTurn();
+    await sleep(600);
+    const still = await boardBox(alice); // dice showing, empty queue
     await roll(5, [48, B, B, B]);
+    expect(await boardBox(alice), 'dice gone and a die in the queue: the board stays put').toBe(still);
     const board = await alice.evaluate(() => ({
       home: document.querySelectorAll('.trail.home').length,
       round: document.querySelectorAll('.trail.round').length,
@@ -289,7 +295,10 @@ describe.skipIf(!CHROME || !BUILT)('watching and bot battles', () => {
     game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
     expect(game.botBattle).toBe(true);
     const v0 = game.version;
-    await sleep(5000);
+    await sleep(600); // the screen has slid in
+    const places = new Set<string>();
+    for (let i = 0; i < 44; i++, await sleep(100)) places.add(await boardBox(alice));
+    expect([...places], 'dice, queue and hint come and go; the board never moves').toHaveLength(1);
     // Early on most turns are a roll with nothing to move: about 3.25 s each at the normal pace
     // (1.4 s "thinking" + dice + "no moves"), so fewer than 2 changes in 5 s. A bot battle does 5+.
     expect(game.version - v0).toBeGreaterThanOrEqual(5);

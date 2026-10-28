@@ -80,6 +80,11 @@ export function emit<T = unknown>(event: keyof ClientToServer, payload: object, 
   });
 }
 
+/** Emits without waiting for a reply (relayed voice frames); dropped while offline. */
+export function send(event: keyof ClientToServer, payload: object): void {
+  if (socket?.connected) (socket as any).emit(event, payload);
+}
+
 /** Coming back online or to the foreground: reconnect right away instead of waiting for backoff. */
 export function installNetworkListeners(onResume: () => void): void {
   const kick = () => {

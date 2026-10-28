@@ -68,7 +68,9 @@ describe('routesIn', () => {
       'a=candidate:5 1 udp 41885439 198.51.100.2 3478 typ relay raddr 203.0.113.7 rport 54400',
       '',
     ].join('\r\n');
-    expect(routesIn(sdp)).toEqual({ host: 3, mdns: 1, srflx: 1, relay: 1 });
-    expect(routesIn(undefined)).toEqual({ host: 0, mdns: 0, srflx: 0, relay: 0 });
+    expect(routesIn(sdp)).toEqual({ host: 3, mdns: 1, srflx: 1, relay: 1, v4: 4, v6: 0 });
+    expect(routesIn(undefined)).toEqual({ host: 0, mdns: 0, srflx: 0, relay: 0, v4: 0, v6: 0 });
+    const jio = 'a=candidate:9 1 udp 2122262783 2409:4073:2d8a:1c2f::1b 50001 typ host generation 0\r\na=candidate:8 1 udp 2122194687 7a3c-uuid.local 50002 typ host generation 0';
+    expect(routesIn(jio)).toEqual({ host: 2, mdns: 1, srflx: 0, relay: 0, v4: 0, v6: 1 });
   });
 });

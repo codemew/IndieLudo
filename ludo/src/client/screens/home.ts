@@ -33,9 +33,9 @@ export function homeScreen(root: HTMLElement): () => void {
       <div id="my-lobby"></div>
       <div class="section-title"><h3>Lobbies</h3><span class="live-dot" title="Live"></span></div>
       <div class="lobby-list" id="lobby-list"></div>
-      <div class="app-update" id="app-update"></div>
     </section>
     <footer class="bottom-bar">
+      <div class="app-update" id="app-update"></div>
       <button class="btn btn-primary btn-xl" id="create">＋ Create lobby</button>
     </footer>`;
 

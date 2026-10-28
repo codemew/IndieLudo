@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.8.0
+
+### Added
+- **Voice through the game server:** when two phones can't connect directly (typically Jio mobile data against IPv4-only Wi-Fi), voice for that pair goes through the game server after 8 seconds, with about 0.2 s of extra delay.
+  - **What it needs:** nothing on the router; it works anywhere the game works.
+  - **The audio:** Opus at the lobby's quality setting, with its own limit so it can't trip the game's flood protection. Mute stops it.
+  - **Lateness:** a backlog after a network stall is skipped, so delay stays short.
+  - **Back to direct:** the direct link keeps retrying and takes over again once it connects.
+- **Voice Details shows IPv4 and IPv6:** each phone's routes are split by IPv4 and IPv6. It says plainly when one phone can only be reached over IPv6 and the other only over IPv4, so a direct link is impossible.
+
+### Changed
+- **The Update app row sits in the bottom bar,** just above **Create lobby**.
+
 ## 1.7.0
 
 ### Added

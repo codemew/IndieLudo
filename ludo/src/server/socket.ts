@@ -1,5 +1,5 @@
 import type { Server, Socket } from 'socket.io';
-import { SCHEMAS, matchesSchema, type Ack, type ClientToServer, type Hello, type Schema, type ServerToClient, type VoiceSignalKind } from '../shared/protocol.js';
+import { RELAY_LIMITS, SCHEMAS, matchesSchema, type Ack, type ClientToServer, type Hello, type Schema, type ServerToClient, type VoiceFramesOut, type VoiceSignalKind } from '../shared/protocol.js';
 import type { Color } from '../shared/types.js';
 import type { Ctx } from './context.js';
 import type { Lobby } from './lobbies.js';
@@ -218,6 +218,28 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       if ((kind === 'ring') !== (p.sdp.length === 0)) return { ok: false, error: 'BAD_PAYLOAD' };
       const target = ctx.voice.relayTarget(p.lobbyId, userId, p.to);
       io.to(target).emit('voice:signal', { lobbyId: p.lobbyId, from: userId, kind, call: p.call, sdp: p.sdp });
+    });
+
+    // Relayed voice: many small messages, so it has its own limit and doesn't count against the
+    // game's flood protection. Late audio is skipped by the receiving phone (voiceRelay.ts).
+    const relayBucket = new TokenBucket(RELAY_LIMITS.burst, RELAY_LIMITS.perSecond);
+    socket.on('voice:frames', (p: unknown) => {
+      if (!relayBucket.take()) return;
+      const msg = p as Partial<VoiceFramesOut> | null;
+      if (!msg || typeof msg.lobbyId !== 'string' || msg.lobbyId.length > 64) return;
+      const to = msg.to, frames = msg.frames as unknown[];
+      if (!Array.isArray(to) || to.length < 1 || to.length > RELAY_LIMITS.maxTargets || !to.every((id) => Number.isSafeInteger(id))) return;
+      if (!Array.isArray(frames) || frames.length < 1 || frames.length > RELAY_LIMITS.maxFrames) return;
+      if (!frames.every((f) => (Buffer.isBuffer(f) || f instanceof ArrayBuffer) && f.byteLength > 0 && f.byteLength <= RELAY_LIMITS.maxFrameBytes)) return;
+      for (const id of new Set(to)) {
+        let target: string;
+        try {
+          target = ctx.voice.relayTarget(msg.lobbyId, userId, id);
+        } catch {
+          continue; // not both in this voice channel
+        }
+        io.to(target).emit('voice:frames', { lobbyId: msg.lobbyId, from: userId, frames: frames as ArrayBuffer[] });
+      }
     });
 
     socket.on('disconnect', () => {

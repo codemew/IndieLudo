@@ -1,6 +1,7 @@
-import type { RTCIceServerConfig, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
+import type { RTCIceServerConfig, VoiceFramesIn, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
 import { DEFAULT_VOICE_BITRATE, VOICE_BITRATES, type VoiceState } from '../shared/types.js';
-import { emit } from './net.js';
+import { emit, send } from './net.js';
+import { RelayPlayer, RelaySender, relaySupport } from './voiceRelay.js';
 
 export type PeerStatus = 'connecting' | 'connected' | 'failed';
 
@@ -10,6 +11,8 @@ const ICE_GATHER_TIMEOUT_MS = 3000;
 const WATCHDOG_MS = 2000;
 /** A link that isn't connected after this long (or has failed for RETRY_MS) is redialled. */
 const STALL_MS = 12_000;
+/** A link that hasn't connected directly for this long carries its voice through the game server. */
+const RELAY_AFTER_MS = 8_000;
 const RETRY_MS = 1500;
 /** Plugging in or pairing a headset fires several devicechange events; act once they settle. */
 const DEVICE_SETTLE_MS = 700;
@@ -64,18 +67,24 @@ export interface RouteSummary {
   srflx: number;
   /** Through a TURN relay. */
   relay: number;
+  /** Of the routes whose address is visible, how many are IPv4 and how many IPv6. */
+  v4: number;
+  v6: number;
 }
 
 export function routesIn(sdp: string | undefined): RouteSummary {
-  const r: RouteSummary = { host: 0, mdns: 0, srflx: 0, relay: 0 };
+  const r: RouteSummary = { host: 0, mdns: 0, srflx: 0, relay: 0, v4: 0, v6: 0 };
   for (const line of (sdp ?? '').split(/\r?\n/)) {
     const m = /^a=candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ (host|srflx|prflx|relay)/.exec(line);
     if (!m) continue;
+    const addr = m[1];
     if (m[2] === 'host') {
       r.host++;
-      if (m[1].endsWith('.local')) r.mdns++;
+      if (addr.endsWith('.local')) r.mdns++;
     } else if (m[2] === 'relay') r.relay++;
     else r.srflx++;
+    if (addr.includes(':')) r.v6++;
+    else if (/^\d+\.\d+\.\d+\.\d+$/.test(addr)) r.v4++;
   }
   return r;
 }
@@ -93,6 +102,8 @@ export interface LinkReport {
   gotReply: boolean;
   /** Candidates sent / received after the first offer or answer. */
   late: { sent: number; got: number };
+  /** Voice through the game server: we send to them, and how much of theirs we've received. */
+  relay: { sending: boolean; heard: boolean; framesIn: number };
   mine: RouteSummary;
   theirs: RouteSummary;
   /** Route types of the working connection, e.g. "host → host". */
@@ -207,7 +218,16 @@ class VoiceClient {
   }
 
   peerStatus(userId: number): PeerStatus | null {
+    // Heard through the game server counts as connected, even while the direct link keeps trying.
+    if (this.relayIn.heard(userId)) return 'connected';
     return this.peers.get(userId)?.status ?? null;
+  }
+
+  /** Players whose voice reaches us through the game server rather than directly. */
+  get relayedCount(): number {
+    let n = 0;
+    for (const id of this.others) if (this.peers.get(id)?.status !== 'connected' && this.relayIn.heard(id)) n++;
+    return n;
   }
 
   /** Last error the server gave for one of our voice signals (e.g. a rejected offer). */
@@ -245,6 +265,7 @@ class VoiceClient {
         ice: peer ? `${peer.pc.iceConnectionState}/${peer.pc.iceGatheringState}` : '-',
         gotReply: Boolean(peer?.pc.remoteDescription),
         late: peer ? { ...peer.trickled } : { sent: 0, got: 0 },
+        relay: { sending: this.relayTo.has(userId), heard: this.relayIn.heard(userId), framesIn: this.relayIn.framesFrom(userId) },
         mine: routesIn(peer?.pc.localDescription?.sdp),
         theirs: routesIn(peer?.pc.remoteDescription?.sdp),
         via,
@@ -257,7 +278,7 @@ class VoiceClient {
   /** How many of the other members we have a working audio link with. */
   get linked(): { connected: number; total: number } {
     let connected = 0;
-    for (const id of this.others) if (this.peers.get(id)?.status === 'connected') connected++;
+    for (const id of this.others) if (this.peerStatus(id) === 'connected') connected++;
     return { connected, total: this.others.size };
   }
 
@@ -423,6 +444,7 @@ class VoiceClient {
     if (!this.micAvailable) return;
     this.muted = muted;
     this.applyMute();
+    this.updateRelay();
     this.notify();
     if (this.joined && this.lobbyId) await emit('voice:mute', { lobbyId: this.lobbyId, muted });
   }
@@ -451,6 +473,7 @@ class VoiceClient {
     if (state.bitrateKbps !== this.bitrateKbps) {
       this.bitrateKbps = state.bitrateKbps;
       for (const p of this.peers.values()) void this.applyBitrate(p.pc);
+      this.relayOut.setBitrate(this.bitrateKbps);
     }
     if (!state.enabled) {
       if (this.enabled) this.onNotice?.('The host turned voice chat off');
@@ -478,6 +501,15 @@ class VoiceClient {
     this.others = new Set(state.participants.map((p) => p.userId).filter((id) => id !== this.myId));
     for (const id of [...this.peers.keys()]) if (!this.others.has(id)) this.closePeer(id);
     this.notify();
+  }
+
+  /** Relayed voice from a player we can't reach directly. Ignored once the direct link works. */
+  onFrames(f: VoiceFramesIn): void {
+    if (!this.joined || f.lobbyId !== this.lobbyId || !this.others.has(f.from)) return;
+    if (this.peers.get(f.from)?.status === 'connected') return;
+    const wasHeard = this.relayIn.heard(f.from);
+    this.relayIn.push(f.from, f.frames);
+    if (!wasHeard) this.notify();
   }
 
   async onSignal(sig: VoiceSignalIn): Promise<void> {
@@ -676,12 +708,48 @@ class VoiceClient {
         this.signal(id, 'ring', 0, '');
       }
     }
+    this.updateRelay();
     this.resumeAudio();
+  }
+
+  /**
+   * Links that haven't connected directly for RELAY_AFTER_MS send our voice through the game
+   * server instead (the direct link keeps retrying, and takes over again once it connects).
+   */
+  private relayOut = new RelaySender((frames) => {
+    if (this.lobbyId && this.relayTo.size) send('voice:frames', { lobbyId: this.lobbyId, to: [...this.relayTo], frames });
+  });
+  private relayIn = new RelayPlayer();
+  private relayTo = new Set<number>();
+  private downSince = new Map<number, number>();
+
+  private updateRelay(): void {
+    const now = Date.now();
+    const before = this.relayTo.size;
+    this.relayTo.clear();
+    for (const id of this.others) {
+      if (this.peers.get(id)?.status === 'connected') {
+        this.downSince.delete(id);
+        this.relayIn.drop(id);
+        continue;
+      }
+      if (!this.downSince.has(id)) this.downSince.set(id, now);
+      if (now - this.downSince.get(id)! >= RELAY_AFTER_MS) this.relayTo.add(id);
+    }
+    for (const id of [...this.downSince.keys()]) if (!this.others.has(id)) this.downSince.delete(id);
+    const sendNow = this.joined && this.relayTo.size > 0 && Boolean(this.stream) && !this.muted && relaySupport().send;
+    // A new microphone (earphones connected, Rejoin): send from that one.
+    if (sendNow && this.relayOut.running && this.relayOut.stream !== this.stream) this.relayOut.stop();
+    if (sendNow && !this.relayOut.running) this.relayOut.start(this.stream!, this.bitrateKbps);
+    else if (!sendNow && this.relayOut.running) this.relayOut.stop();
+    if (before !== this.relayTo.size) this.notify();
   }
 
   /** Starts any incoming audio the browser left paused (autoplay rules after a reconnect). */
   resumeAudio(): void {
     for (const p of this.peers.values()) if (p.audio.srcObject && p.audio.paused) void p.audio.play().catch(() => {});
+    this.relayIn.resume();
+    this.relayOut.resume();
   }
 
   /** Caps every outgoing audio stream at the shared quality setting. */
@@ -707,6 +775,10 @@ class VoiceClient {
   private teardown(): void {
     this.joined = false;
     this.closeAllPeers();
+    this.relayOut.stop();
+    this.relayIn.stopAll();
+    this.relayTo.clear();
+    this.downSince.clear();
     this.stopStream();
     this.others.clear();
     if (this.watchdog) clearInterval(this.watchdog);

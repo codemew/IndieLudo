@@ -195,7 +195,14 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
   - **Reconnects:** after a dropped connection, the phone rejoins on its own.
   - **Earphones:** connecting or removing Bluetooth or wired earphones during a call moves voice to them, or back to the phone, without reconnecting. Phones pick the audio route when the mic is opened, so the app opens a fresh mic on the new device and swaps it into every call.
 - **Playing across networks:** on one Wi‑Fi network, voice works without any setup. When players are on different networks (mobile data, other houses), phones use the STUN server in `voice.iceServers` to find each other. For a LAN‑only setup, `"iceServers": []` avoids contacting Google's STUN server at all.
-- **Cellular players (Jio, Airtel…) need a relay:** carrier networks usually can't connect directly to a phone on home Wi‑Fi. A TURN relay carries the audio for those links.
+- **Voice through the game server, built in:** two phones sometimes can't connect directly. A typical case is a phone on Jio mobile data, reachable only over IPv6 or through carrier NAT, and a phone on IPv4‑only home Wi‑Fi.
+  - **The switch:** if a pair hasn't connected directly within 8 seconds, each of the two phones sends its voice for that link through the game server instead.
+  - **The audio:** it's Opus at the lobby's quality setting, in small batches over the same connection the game uses. So it works anywhere the game works, with no router changes.
+  - **Back to direct:** the direct link keeps retrying, and takes over again if it ever connects.
+  - **Extra delay:** about 0.2 s on those links only.
+  - **What you see:** the voice **Details** shows "via the game server", and the status line says how many players go through the server.
+  - **Browsers:** it needs a recent Chrome (on Android or desktop). On iPhone it needs a recent iOS.
+- **Optional, a TURN relay (lowest delay):** carrier networks usually can't connect directly to a phone on home Wi‑Fi, and the built‑in route above already handles that. A TURN relay does the same job with a little less delay. It needs a public IP and open UDP ports on your router. carrier networks usually can't connect directly to a phone on home Wi‑Fi. A TURN relay carries the audio for those links.
   - **Symptoms:** a player's mic badge keeps pulsing for some players, and the voice **Details** shows "routes exchanged but none got through", or that phone with no "internet" route.
   - **Only failing links use it:** phones that can connect directly still do.
   - **Option A, your own relay (coturn):**

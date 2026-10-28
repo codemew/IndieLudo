@@ -3131,15 +3131,14 @@ button.me:active {
   }
 }
 
-/* Home: app version and "Update app" */
+/* Home: app version and "Update app", in the bottom bar just above "Create lobby". */
 .app-update {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  margin-top: 18px;
-  padding: 10px 12px;
+  padding: 8px 10px 8px 12px;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--surface);

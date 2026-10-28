@@ -34,6 +34,8 @@ export interface ClientToServer {
   'voice:enabled': (p: { lobbyId: string; enabled: boolean }, ack: (r: Ack) => void) => void;
   'voice:reboot': (p: { lobbyId: string }, ack: (r: Ack) => void) => void;
   'voice:signal': (p: VoiceSignalOut, ack: (r: Ack) => void) => void;
+  /** Relayed voice for links that can't connect directly: a few Opus frames, for one or more players. */
+  'voice:frames': (p: VoiceFramesOut) => void;
 }
 
 export interface VoiceJoined {
@@ -73,6 +75,32 @@ export interface VoiceSignalIn {
   sdp: string;
 }
 
+/**
+ * Voice through the game server, for pairs of phones that can't connect directly (for example
+ * a phone on Jio mobile data and one on IPv4-only Wi-Fi). Each frame is 20 ms of Opus audio.
+ */
+export const RELAY_LIMITS = {
+  /** Frames per message (about 60 ms of audio is sent at a time). */
+  maxFrames: 8,
+  maxFrameBytes: 1500,
+  maxTargets: 3,
+  /** Messages per second, with a burst allowance; separate from the game's flood limit. */
+  perSecond: 30,
+  burst: 60,
+} as const;
+
+export interface VoiceFramesOut {
+  lobbyId: string;
+  to: number[];
+  frames: ArrayBuffer[];
+}
+
+export interface VoiceFramesIn {
+  lobbyId: string;
+  from: number;
+  frames: ArrayBuffer[];
+}
+
 export interface Hello {
   /** The version the server is running, so a phone on an older build can offer to update. */
   appVersion: string;
@@ -105,6 +133,7 @@ export interface ServerToClient {
   /** Every few seconds: each lobby member's ping and signal bars. */
   'net:stats': (s: NetStats) => void;
   'voice:signal': (s: VoiceSignalIn) => void;
+  'voice:frames': (f: VoiceFramesIn) => void;
 }
 
 type FieldType = 'string' | 'int' | 'bool' | 'color';

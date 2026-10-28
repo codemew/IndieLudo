@@ -118,8 +118,13 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
       status.textContent = voice.error ? `Not in voice chat: ${errorText(voice.error)}` : 'Not in voice chat.';
     } else {
       const { connected, total } = voice.linked;
+      const viaServer = voice.relayedCount ? ` (${voice.relayedCount} through the game server)` : '';
       status.textContent =
-        total === 0 ? 'In voice chat. Nobody else is here yet.' : connected === total ? `Talking with ${total === 1 ? '1 player' : `all ${total} players`}.` : `Connected to ${connected} of ${total}… fixing the rest.`;
+        total === 0
+          ? 'In voice chat. Nobody else is here yet.'
+          : connected === total
+            ? `Talking with ${total === 1 ? '1 player' : total === 2 ? 'both players' : `all ${total} players`}${viaServer}.`
+            : `Connected to ${connected} of ${total}${viaServer}… fixing the rest.`;
     }
     status.classList.toggle('warn', voice.enabled && voice.joined && voice.linked.connected < voice.linked.total);
 
@@ -213,11 +218,17 @@ export function qualityPicker(): { el: HTMLElement; refresh: () => void } {
 }
 
 const nameOf = (userId: number) => state.lobby?.members.find((m) => m.userId === userId)?.username ?? `player ${userId}`;
-const routeText = (r: LinkReport['mine']) =>
-  [r.host && `${r.host} local${r.mdns ? ` (${r.mdns} hidden)` : ''}`, r.srflx && `${r.srflx} internet`, r.relay && `${r.relay} relay`].filter(Boolean).join(', ') || 'none';
+const routeText = (r: LinkReport['mine']) => {
+  const kinds = [r.host && `${r.host} local${r.mdns ? ` (${r.mdns} hidden)` : ''}`, r.srflx && `${r.srflx} internet`, r.relay && `${r.relay} relay`].filter(Boolean).join(', ');
+  const fam = [r.v4 && `IPv4 ${r.v4}`, r.v6 && `IPv6 ${r.v6}`].filter(Boolean).join(' · ');
+  return kinds ? `${kinds}${fam ? ` [${fam}]` : ''}` : 'none';
+};
 
 /** What a link's state most likely means, in plain words. */
 function explain(l: LinkReport): string {
+  if (l.relay.heard || l.relay.sending) {
+    return `Going through the game server${l.relay.heard ? '' : ' (waiting for their audio)'}: a direct link isn't possible between these two phones, so voice takes the same route as the game, with a little extra delay.`;
+  }
   if (l.status === 'connected') {
     const how = l.via?.includes('relay') ? 'through a relay' : l.via?.includes('srflx') ? 'over the internet' : 'on the local network';
     return `Connected ${how}.`;
@@ -227,6 +238,11 @@ function explain(l: LinkReport): string {
   if (!l.gotReply) return l.role === 'dial' ? "Their phone hasn't answered our call yet." : 'Waiting for their phone to call us.';
   if (theirs === 0) return 'Their phone replied but listed no way to reach it: something on that phone (a VPN, data saver, or a very strict network) is blocking voice chat.';
   if (mine === 0) return 'This phone found no way to be reached: something here (a VPN, data saver, or a very strict network) is blocking voice chat.';
+  // One side reachable only over IPv6, the other only over IPv4 (typical: Jio cellular vs. an IPv4-only Wi-Fi).
+  const onlyV6 = (r: LinkReport['mine']) => r.v6 > 0 && r.v4 === 0;
+  const onlyV4 = (r: LinkReport['mine']) => r.v4 > 0 && r.v6 === 0;
+  if (!l.mine.relay && !l.theirs.relay && ((onlyV6(l.mine) && onlyV4(l.theirs)) || (onlyV4(l.mine) && onlyV6(l.theirs))))
+    return `No common route: ${onlyV6(l.mine) ? 'this phone' : 'their phone'} can only be reached over IPv6 (typical on mobile data like Jio) and the other only over IPv4. A direct link is impossible; only a relay can carry this audio.`;
   if (!l.mine.srflx && !l.theirs.srflx && !l.mine.relay && !l.theirs.relay)
     return 'Only local-network routes on both sides. This only works on the same Wi-Fi, and not if the Wi-Fi blocks phones from reaching each other (guest networks, "client isolation").';
   return 'Both phones offered routes but none got through: the network is blocking a direct link between these two phones. A relay (TURN server) would carry this audio.';
@@ -249,9 +265,9 @@ function linkDetails(): { el: HTMLElement; stop: () => void } {
     const rows = r.links
       .map(
         (l) => `
-        <li class="vd-link vd-${l.status}">
-          <div><b>${esc(nameOf(l.userId))}</b> · ${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`} · ${l.role === 'dial' ? 'we call them' : 'they call us'}</div>
-          <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}${l.late.sent || l.late.got ? ` · late routes ↑${l.late.sent} ↓${l.late.got}` : ''}</span>
+        <li class="vd-link vd-${l.relay.heard ? 'connected' : l.status}">
+          <div><b>${esc(nameOf(l.userId))}</b> · ${l.relay.heard ? 'via the game server' : `${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`}`} · ${l.role === 'dial' ? 'we call them' : 'they call us'}</div>
+          <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}${l.late.sent || l.late.got ? ` · late routes ↑${l.late.sent} ↓${l.late.got}` : ''}${l.relay.sending || l.relay.framesIn ? ` · via server ↑${l.relay.sending ? 'on' : 'off'} ↓${l.relay.framesIn} frames` : ''}</span>
           <em>${explain(l)}</em>
         </li>`,
       )

@@ -2950,3 +2950,50 @@ button.me:active {
   border-radius: 50%;
   background: var(--c);
 }
+
+/* Voice "Details" (diagnostics) */
+.voice-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vd-body[hidden] {
+  display: none;
+}
+.vd-body p {
+  margin: 0;
+}
+.vd-links {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.vd-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13px;
+  border-left: 3px solid #f59e0b;
+}
+.vd-link.vd-connected {
+  border-left-color: #22c55e;
+}
+.vd-link.vd-failed,
+.vd-link.vd-none {
+  border-left-color: #ef4444;
+}
+.vd-link span {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-word;
+}
+.vd-link em {
+  font-style: normal;
+  font-size: 12px;
+}

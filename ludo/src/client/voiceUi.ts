@@ -1,8 +1,8 @@
 import { VOICE_BITRATES } from '../shared/types.js';
 import { play } from './sound.js';
 import { state, subscribe } from './store.js';
-import { ICONS, confirmDialog, el, errorText, toast } from './ui.js';
-import { voice } from './voice.js';
+import { ICONS, confirmDialog, el, errorText, esc, setHtml, toast } from './ui.js';
+import { voice, type LinkReport } from './voice.js';
 
 /** Mic badge beside a member's name: live / muted, pulsing while our connection to them is set up. */
 export function voiceBadge(userId: number | null): string {
@@ -88,6 +88,8 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
     </div>`);
   const quality = qualityPicker();
   root.appendChild(quality.el);
+  const details = linkDetails();
+  root.appendChild(details.el);
   const status = root.querySelector<HTMLElement>('.voice-status')!;
   const actions = root.querySelector<HTMLElement>('.voice-actions')!;
 
@@ -168,6 +170,7 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
   const destroy = () => {
     offVoice();
     offStore();
+    details.stop();
   };
   refresh();
   return { el: root, destroy };
@@ -207,4 +210,82 @@ export function qualityPicker(): { el: HTMLElement; refresh: () => void } {
   });
   refresh();
   return { el: root, refresh };
+}
+
+const nameOf = (userId: number) => state.lobby?.members.find((m) => m.userId === userId)?.username ?? `player ${userId}`;
+const routeText = (r: LinkReport['mine']) =>
+  [r.host && `${r.host} local${r.mdns ? ` (${r.mdns} hidden)` : ''}`, r.srflx && `${r.srflx} internet`, r.relay && `${r.relay} relay`].filter(Boolean).join(', ') || 'none';
+
+/** What a link's state most likely means, in plain words. */
+function explain(l: LinkReport): string {
+  if (l.status === 'connected') {
+    const how = l.via?.includes('relay') ? 'through a relay' : l.via?.includes('srflx') ? 'over the internet' : 'on the local network';
+    return `Connected ${how}.`;
+  }
+  const theirs = l.theirs.host + l.theirs.srflx + l.theirs.relay;
+  const mine = l.mine.host + l.mine.srflx + l.mine.relay;
+  if (!l.gotReply) return l.role === 'dial' ? "Their phone hasn't answered our call yet." : 'Waiting for their phone to call us.';
+  if (theirs === 0) return 'Their phone replied but listed no way to reach it: something on that phone (a VPN, data saver, or a very strict network) is blocking voice chat.';
+  if (mine === 0) return 'This phone found no way to be reached: something here (a VPN, data saver, or a very strict network) is blocking voice chat.';
+  if (!l.mine.srflx && !l.theirs.srflx && !l.mine.relay && !l.theirs.relay)
+    return 'Only local-network routes on both sides. This only works on the same Wi-Fi, and not if the Wi-Fi blocks phones from reaching each other (guest networks, "client isolation").';
+  return 'Both phones offered routes but none got through: the network is blocking a direct link between these two phones. A relay (TURN server) would carry this audio.';
+}
+
+/** The "Details" toggle: each voice link's state, routes and a likely explanation, plus a copyable report. */
+function linkDetails(): { el: HTMLElement; stop: () => void } {
+  const root = el(`
+    <div class="voice-details">
+      <div class="menu-row"><button class="btn btn-small btn-ghost" data-act="toggle">Details</button><button class="btn btn-small btn-ghost" data-act="copy" hidden>Copy report</button></div>
+      <div class="vd-body" hidden></div>
+    </div>`);
+  const body = root.querySelector<HTMLElement>('.vd-body')!;
+  const toggle = root.querySelector<HTMLButtonElement>('[data-act=toggle]')!;
+  const copy = root.querySelector<HTMLButtonElement>('[data-act=copy]')!;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const paint = async () => {
+    if (!root.isConnected) return stop();
+    const r = await voice.report();
+    const rows = r.links
+      .map(
+        (l) => `
+        <li class="vd-link vd-${l.status}">
+          <div><b>${esc(nameOf(l.userId))}</b> · ${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`} · ${l.role === 'dial' ? 'we call them' : 'they call us'}</div>
+          <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}</span>
+          <em>${explain(l)}</em>
+        </li>`,
+      )
+      .join('');
+    setHtml(
+      body,
+      `<p class="muted small">Microphone: ${r.mic ? 'on' : 'blocked'} · STUN/TURN servers: ${r.iceServers}${r.signalError ? ` · last signalling error: ${esc(r.signalError)}` : ''}</p>` +
+        (rows ? `<ul class="vd-links">${rows}</ul>` : '<p class="muted small">Nobody else is in voice chat.</p>'),
+    );
+  };
+  const stop = () => {
+    if (timer) clearInterval(timer);
+    timer = null;
+  };
+  toggle.onclick = () => {
+    const open = body.hidden;
+    body.hidden = !open;
+    copy.hidden = !open;
+    toggle.textContent = open ? 'Hide details' : 'Details';
+    stop();
+    if (open) {
+      void paint();
+      timer = setInterval(() => void paint(), 2000);
+    }
+  };
+  copy.onclick = async () => {
+    const r = await voice.report();
+    const text = JSON.stringify({ app: __APP_VERSION__, ua: navigator.userAgent, ...r, names: Object.fromEntries(r.links.map((l) => [l.userId, nameOf(l.userId)])) }, null, 1);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Voice report copied', 'success');
+    } catch {
+      toast("Couldn't copy here. Take a screenshot of the details instead.", 'error');
+    }
+  };
+  return { el: root, stop };
 }

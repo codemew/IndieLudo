@@ -11,6 +11,16 @@
   - **Slower:** all reactions play 5% slower (1.7 s to 1.785 s).
 - **No repeated faces:** every reaction face is used for only one moment. The "Most cells travelled" award is now 👣, so 🏃 only means running away.
 
+
+### Fixed
+- **Voice signalling errors are no longer silent:** if the server refuses a voice offer or answer, the phone now marks that link failed and redials, instead of waiting forever.
+
+### Added
+- **Voice "Details":** a button in the voice section on the lobby screen and in the game's ☰ menu.
+  - **Per player:** the link's state and for how long, who calls whom, and the network routes each phone offered (local, hidden local, internet, relay).
+  - **Explanation:** which route worked, and what is most likely wrong, in plain words.
+  - **Copy report:** copies all of it for troubleshooting.
+
 ## 1.5.0
 
 ### Added

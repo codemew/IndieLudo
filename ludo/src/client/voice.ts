@@ -55,6 +55,49 @@ export function setOpusBitrate(sdp: string, kbps: number): string {
   return lines.join('\r\n');
 }
 
+/** How each side said it could be reached, from the a=candidate lines of an SDP. */
+export interface RouteSummary {
+  /** On the local network; `mdns` counts host addresses hidden behind a random .local name. */
+  host: number;
+  mdns: number;
+  /** As seen from the internet (found through STUN). */
+  srflx: number;
+  /** Through a TURN relay. */
+  relay: number;
+}
+
+export function routesIn(sdp: string | undefined): RouteSummary {
+  const r: RouteSummary = { host: 0, mdns: 0, srflx: 0, relay: 0 };
+  for (const line of (sdp ?? '').split(/\r?\n/)) {
+    const m = /^a=candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ (host|srflx|prflx|relay)/.exec(line);
+    if (!m) continue;
+    if (m[2] === 'host') {
+      r.host++;
+      if (m[1].endsWith('.local')) r.mdns++;
+    } else if (m[2] === 'relay') r.relay++;
+    else r.srflx++;
+  }
+  return r;
+}
+
+/** One voice link as seen from this phone, for the diagnostics panel. */
+export interface LinkReport {
+  userId: number;
+  status: PeerStatus | 'none';
+  /** Seconds in the current state. */
+  forSec: number;
+  /** We dial this player (lower id) or wait for their call. */
+  role: 'dial' | 'answer';
+  ice: string;
+  /** Their offer or answer arrived. */
+  gotReply: boolean;
+  mine: RouteSummary;
+  theirs: RouteSummary;
+  /** Route types of the working connection, e.g. "host → host". */
+  via: string | null;
+  audioKbIn: number;
+}
+
 /** Resolves once ICE gathering is done (or after a cap), so one offer/answer carries every candidate. */
 function iceGathered(pc: RTCPeerConnection): Promise<void> {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
@@ -153,6 +196,49 @@ class VoiceClient {
 
   peerStatus(userId: number): PeerStatus | null {
     return this.peers.get(userId)?.status ?? null;
+  }
+
+  /** Last error the server gave for one of our voice signals (e.g. a rejected offer). */
+  signalError: string | null = null;
+
+  /** Per-player link details for the "Details" panel and a copyable report. */
+  async report(): Promise<{ myId: number; mic: boolean; iceServers: number; signalError: string | null; links: LinkReport[] }> {
+    const links: LinkReport[] = [];
+    for (const userId of this.others) {
+      const peer = this.peers.get(userId);
+      let via: string | null = null;
+      let audioKbIn = 0;
+      if (peer) {
+        try {
+          const stats = await peer.pc.getStats();
+          const byId = new Map<string, any>();
+          stats.forEach((s: any) => byId.set(s.id, s));
+          stats.forEach((s: any) => {
+            if (s.type === 'inbound-rtp' && s.kind === 'audio') audioKbIn += Math.round((s.bytesReceived ?? 0) / 1024);
+            if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.nominated || s.selected)) {
+              const l = byId.get(s.localCandidateId);
+              const r = byId.get(s.remoteCandidateId);
+              via = `${l?.candidateType ?? '?'} → ${r?.candidateType ?? '?'}`;
+            }
+          });
+        } catch {
+          /* closed */
+        }
+      }
+      links.push({
+        userId,
+        status: peer?.status ?? 'none',
+        forSec: peer ? Math.round((Date.now() - peer.since) / 1000) : 0,
+        role: this.myId < userId ? 'dial' : 'answer',
+        ice: peer ? `${peer.pc.iceConnectionState}/${peer.pc.iceGatheringState}` : '-',
+        gotReply: Boolean(peer?.pc.remoteDescription),
+        mine: routesIn(peer?.pc.localDescription?.sdp),
+        theirs: routesIn(peer?.pc.remoteDescription?.sdp),
+        via,
+        audioKbIn,
+      });
+    }
+    return { myId: this.myId, mic: this.micAvailable, iceServers: this.iceServers.length, signalError: this.signalError, links };
   }
 
   /** How many of the other members we have a working audio link with. */
@@ -454,7 +540,15 @@ class VoiceClient {
   }
 
   private signal(to: number, kind: VoiceSignalKind, call: number, sdp: string): void {
-    if (this.lobbyId) void emit('voice:signal', { lobbyId: this.lobbyId, to, kind, call, sdp });
+    if (!this.lobbyId) return;
+    void emit('voice:signal', { lobbyId: this.lobbyId, to, kind, call, sdp }).then((r) => {
+      if (r.ok) return;
+      // The server refused it (e.g. too large, or they left): don't wait for an answer that
+      // can't come; the watchdog redials.
+      this.signalError = `${kind} to ${to}: ${r.error}`;
+      const peer = this.peers.get(to);
+      if (peer && kind !== 'ring') this.markFailed(to, peer);
+    });
   }
 
   private createPeer(userId: number, call: number): Peer {

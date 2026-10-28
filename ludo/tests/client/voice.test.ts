@@ -55,3 +55,20 @@ describe('pickMicAfterChange', () => {
     expect(pickMicAfterChange([], [mic('default'), mic('communications'), mic('')])).toBeNull();
   });
 });
+
+describe('routesIn', () => {
+  it('counts local (and hidden .local), internet and relay routes in an SDP', async () => {
+    const { routesIn } = await import('../../src/client/voice.js');
+    const sdp = [
+      'v=0',
+      'a=candidate:1 1 udp 2122260223 4f1c-uuid.local 54400 typ host generation 0',
+      'a=candidate:2 1 udp 2122260223 192.168.1.20 54401 typ host generation 0',
+      'a=candidate:3 1 tcp 1518280447 192.168.1.20 9 typ host tcptype active',
+      'a=candidate:4 1 udp 1686052607 203.0.113.7 54400 typ srflx raddr 0.0.0.0 rport 0',
+      'a=candidate:5 1 udp 41885439 198.51.100.2 3478 typ relay raddr 203.0.113.7 rport 54400',
+      '',
+    ].join('\r\n');
+    expect(routesIn(sdp)).toEqual({ host: 3, mdns: 1, srflx: 1, relay: 1 });
+    expect(routesIn(undefined)).toEqual({ host: 0, mdns: 0, srflx: 0, relay: 0 });
+  });
+});

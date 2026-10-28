@@ -114,6 +114,7 @@ npm run typecheck
   - **On the second lap:** the token moves, captures and can be captured like any other, and wears a dashed white ring. At the end of that lap it turns home; it can't go round a third time.
   - **Bots and the timer:** they head home, unless going round would capture someone.
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
+- **Your tokens sharing a square:** tap the one you want to move. When they wear different moustaches, the game always waits for your pick, so you can send a clean-shaven token forward and keep the macho one safe. Bots and the timer do the same: they move the smaller moustache.
 - **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base, and earns a **bonus roll**.
 - **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
 - **A useless six ends the turn:** when every token a player has left is in the home lane, a 6 can never be used, because even the first lane square plus 6 overshoots home. The 6 then ends the turn at once instead of giving another roll.
@@ -167,6 +168,7 @@ The results screen shows awards, everyone's match stats, and each player's award
 | 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
 | 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
+| 💈 Staches | Barber's nightmare | Clean-shaven tokens that grew a moustache: a token's first capture since it last left base. A token that is captured, shaved and grows one again counts again. |
 | 🩸 First blood | First blood | The game's first capture |
 
 - **Ties:** a tied award goes to everyone tied.

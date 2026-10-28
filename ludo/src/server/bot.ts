@@ -33,7 +33,10 @@ function score(state: GameState, me: Color, m: LegalMove): number {
   if (fromAbs !== null && threatened(state, me, fromAbs) && (toAbs === null || !threatened(state, me, toAbs))) s += 20;
   // Prefer moving tokens further along (a second-lap token counts as one lap further).
   const along = m.to === HOME ? 56 : isSecondLap(m.to) ? m.to - 6 : m.to;
-  return s + along / 10;
+  // Between tokens on the same square, move the one with the smaller moustache: the macho one
+  // stays put, and a clean-shaven one that captures grows a moustache of its own.
+  const kills = state.kills?.[me]?.[m.tokenId] ?? 0;
+  return s + along / 10 - kills / 1000;
 }
 
 /** Simple heuristic: capture > finish > leave base > reach safety > advance. */

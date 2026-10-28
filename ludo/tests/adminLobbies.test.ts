@@ -95,6 +95,26 @@ describe('players renaming themselves', () => {
     expect((await http(t.base, 'GET', '/api/me', { session: alice.token })).json.user.username).toBe('Alicia');
   });
 
+  it('a name changed on the home screen is the one used when they then create or join a lobby (the bug)', async () => {
+    t = await startTestServer();
+    const alice = await client(t, 'alice');
+    const bob = await client(t, 'bob');
+    clients.push(alice, bob);
+    // Both rename while connected but not in any lobby; the sockets were opened with the old names.
+    await http(t.base, 'PATCH', '/api/me', { session: alice.token, body: { username: 'Alicia' } });
+    await http(t.base, 'PATCH', '/api/me', { session: bob.token, body: { username: 'Bobby' } });
+    const lobbyId = await createLobby(alice);
+    await bob.emit('lobby:join', { lobbyId, password: 'pw' });
+    const lobby = t.server.ctx.lobbies.get(lobbyId)!;
+    expect(lobby.members.map((m) => m.username)).toEqual(['Alicia', 'Bobby']);
+    expect(t.server.ctx.lobbies.summaries()[0].hostName).toBe('Alicia');
+    // Watching too.
+    await bob.emit('lobby:leave', {});
+    await http(t.base, 'PATCH', '/api/me', { session: bob.token, body: { username: 'Roberto' } });
+    await bob.emit('lobby:join', { lobbyId, password: 'pw', watch: true });
+    expect(t.server.ctx.lobbies.get(lobbyId)!.spectators.map((s) => s.username)).toEqual(['Roberto']);
+  });
+
   it('rejects taken and invalid names, accounts-less admin sessions, and rapid renames', async () => {
     t = await startTestServer();
     const alice = await client(t, 'alice');

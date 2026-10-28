@@ -85,6 +85,8 @@ export interface PlayerStats {
   revenges: number;
   /** Tokens brought home while wearing a moustache (with at least one capture). Missing in older games. */
   machoHome?: number;
+  /** Clean-shaven tokens that grew a moustache (made their first capture since leaving base); fewest wins "Baby face". Missing in older games. */
+  staches?: number;
   firstBlood: boolean;
   /** Captures each opponent has made on you that you haven't avenged yet. */
   owed: Partial<Record<Color, number>>;

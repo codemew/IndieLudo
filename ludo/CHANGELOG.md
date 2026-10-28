@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.0
+
+### Added
+- **💈 Barber's nightmare:** a new award for whoever turns the most clean-shaven tokens into moustached ones (a token's first capture since it last left base). It also shows as a **Staches** column in the match stats. Games saved before this count it as 0.
+
+### Changed
+- **You choose which of your stacked tokens moves.** When your tokens share a square, for example on a star, but wear different moustaches, the game no longer moves one for you after 0.7 s: it waits for you to tap the one to send forward, so you can sacrifice a clean-shaven token instead of your macho one. Alike tokens are still moved for you when that's the only possible move.
+- **Bots and the timer protect moustaches too:** they move the token with the smaller moustache from a shared square.
+
+### Fixed
+- **A new name shows up in the lobby.** After renaming yourself on the home screen, creating or joining a lobby still showed your old name, because the connection kept the name it had when it opened. It now uses your current name.
+
+### Tests
+- **New:** tests for stacked tokens with different moustaches (rules, server, bot, and in the browser), the new award, and renaming before joining a lobby. The rename test fails without the fix.
+
 ## 2.3.1
 
 ### Fixed

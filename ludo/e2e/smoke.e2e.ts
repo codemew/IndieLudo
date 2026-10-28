@@ -228,6 +228,18 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(await alice.$('.lap-choice')).toBeNull();
   });
 
+  it('two tokens on one star with different moustaches: the game waits for the player to pick', async () => {
+    await aliceTurn();
+    game.kills = { [a]: [3, 0, 0, 0] }; // token 1 is macho, token 2 clean-shaven
+    await roll(3, [8, 8, B, B]);
+    expect(await alice.$$('.token.legal')).toHaveLength(2);
+    await sleep(1500); // longer than the 0.7 s auto-move
+    expect(game.tokens[a].slice(0, 2)).toEqual([8, 8]);
+    await tapToken(1); // sacrifice the clean-shaven one
+    await until('the move', () => game.tokens[a][1] === 11);
+    expect(game.tokens[a][0]).toBe(8);
+  });
+
   it('bringing a moustached token home wins "Most macho" on the results screen', async () => {
     await aliceTurn();
     game.kills = { [a]: [2, 0, 0, 0] };
@@ -243,6 +255,8 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
       expect(macho).toEqual(['moustached tokens brought home', expect.stringMatching(/^alice( you)?$/), '1']);
     }
     expect(await alice.$$eval('.stats-table th, .stats-table thead *', (h) => h.map((x) => x.textContent).join(' '))).toContain('Macho');
+    expect(await alice.$$eval('.stats-table thead th[scope=col]', (h) => h.map((x) => x.textContent))).toContain('💈Staches');
+    expect(await alice.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'six stat columns still fit the phone').toBe(true);
     await shot(alice, 'results-macho');
     expect(t.errors).toEqual([]);
   });

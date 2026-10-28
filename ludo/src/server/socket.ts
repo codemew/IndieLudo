@@ -121,7 +121,13 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       }) as any);
     };
 
-    const me = () => ({ id: userId, username: socket.data.username });
+    // The current name, not the one this socket connected with: the player may have renamed
+    // themselves since (the home screen's name tag), and a lobby they join must show the new one.
+    const me = () => {
+      const fresh = ctx.users.get(userId)?.username;
+      if (fresh) socket.data.username = fresh;
+      return { id: userId, username: socket.data.username };
+    };
     /** Joins all of this user's sockets to the lobby room, then sends them the state they missed. */
     const joinLobbyRoom = (lobby: Lobby) => {
       io.in(rooms.user(userId)).socketsJoin(rooms.lobby(lobby.id));

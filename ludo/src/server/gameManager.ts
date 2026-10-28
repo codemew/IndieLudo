@@ -305,7 +305,7 @@ export class GameManager {
     }
     const timeoutMs = this.opts.turnTimeoutSec * 1000 + pace;
     state.turn.deadline = Date.now() + timeoutMs;
-    if (state.turn.phase === 'moving' && distinctChoices(legalMoves(state)).length === 1) {
+    if (state.turn.phase === 'moving' && distinctChoices(legalMoves(state), state).length === 1) {
       game.timer = setTimeout(() => this.act(game, false), this.autoMoveDelayMs + pace);
       return;
     }

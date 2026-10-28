@@ -54,7 +54,7 @@ export function killsOf(state: GameState, color: Color): number[] {
 /** The player's match stats, created on first use (games saved before stats existed have none). */
 export function statsOf(state: GameState, color: Color): PlayerStats {
   state.stats ??= {};
-  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, firstBlood: false, owed: {} });
+  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, firstBlood: false, owed: {} });
 }
 
 export function currentColor(state: GameState): Color {
@@ -120,13 +120,16 @@ export function legalMoves(state: GameState): LegalMove[] {
 }
 
 /**
- * Collapses moves that lead to the same outcome (same die value, tokens on the same
- * square). When only one remains the server can play it without asking.
+ * Collapses moves that lead to the same outcome (same die value, tokens on the same square).
+ * When only one remains the server can play it without asking. Tokens sharing a square but
+ * with different moustaches (captures) are different choices: the player may want to send the
+ * clean-shaven one forward and keep the macho one safe, so that is left to them.
  */
-export function distinctChoices(moves: LegalMove[]): LegalMove[] {
+export function distinctChoices(moves: LegalMove[], state?: GameState): LegalMove[] {
+  const kills = state ? state.kills?.[currentColor(state)] : undefined;
   const seen = new Map<string, LegalMove>();
   for (const m of moves) {
-    const key = `${m.die}:${m.from}:${m.lap ? 'lap' : ''}`;
+    const key = `${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${kills?.[m.tokenId] ?? 0}`;
     if (!seen.has(key)) seen.set(key, m);
   }
   return [...seen.values()];
@@ -188,7 +191,9 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
     state.firstBlood = true;
     const theirs = statsOf(state, c.color);
     mine.captures++;
-    // The capturer's moustache grows; the captured token goes home clean-shaven.
+    // The capturer's moustache grows (a clean-shaven one grows its first, counted for "Baby face");
+    // the captured token goes home clean-shaven.
+    if (kills[tokenId] === 0) mine.staches = (mine.staches ?? 0) + 1;
     kills[tokenId]++;
     killsOf(state, c.color)[c.tokenId] = 0;
     if (firstBlood) mine.firstBlood = true;

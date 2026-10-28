@@ -122,7 +122,7 @@ The results screen shows awards, everyone's match stats, and each player's award
 
 | Stat | Award | What counts |
 |---|---|---|
-| 🏃 Cells | Most cells travelled | Every square moved; leaving base counts as 1 |
+| 👣 Cells | Most cells travelled | Every square moved; leaving base counts as 1 |
 | ⚔️ Captures | Most tokens captured | Opponent tokens sent back to base |
 | 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
@@ -132,8 +132,19 @@ The results screen shows awards, everyone's match stats, and each player's award
 - **No score:** a stat nobody scored has no award.
 
 The lobby shows each player's lifetime wins (🏆) beside their name.
-- A token landing on a star square chimes and briefly turns into 😌 or 😎, then goes back to normal.
-- A token that captures another briefly turns into 😋 or 🤤, chewing happily with a little slurp, then fades back to the token.
+- **Reactions:** tokens briefly turn into a face that plays its own little animation, then go back to normal. One of four is picked at random for each moment, never the same one twice in a row:
+
+  | Moment | Reactions |
+  |---|---|
+  | Landing on a star square (with a chime) | 😌 relieved sway · 😎 cool drop‑in and nod · 🥳 spin and wiggle · 😇 glowing float |
+  | Capturing a token (with a slurp) | 😋 chews and licks its lips · 🤤 satisfied wobble · 😈 gleeful shake · 😏 smug head tilt |
+  | Being captured and sent home | 😵 spins dizzily · 😭 sobs · 😱 jumps and trembles · 😖 squashed flat, then springs back |
+  | An opponent gets right behind it | 🏃 sprints on the spot · 😰 nervous shakes · 🥶 frozen with fear, shivering |
+
+  - **"Right behind":** an opponent 1–5 squares behind on the track, close enough to capture it with an ordinary roll.
+  - **Never in danger:** a token on a star or start square, a token in its home column, or one the opponent can't reach because the opponent turns into its own home column first.
+  - **Once per threat:** the reaction plays once, when the danger starts, not for as long as it lasts.
+  - **Timing:** each reaction lasts about 1.8 seconds.
 - On your move, the die your next tap will use is lifted, outlined in your colour and tagged **USE**, and dice that can't move anything are greyed out. The board marks where each glowing token would land.
 - The dice is a light cube with a glow in dark mode, and a dark cube with a shadow in light mode.
 

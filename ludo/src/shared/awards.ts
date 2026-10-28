@@ -11,8 +11,8 @@ export interface Award {
   value: number;
 }
 
-const COUNTED: { key: Exclude<AwardKey, 'firstBlood'>; icon: string; title: string }[] = [
-  { key: 'cells', icon: '🏃', title: 'Most cells travelled' },
+export const COUNTED: { key: Exclude<AwardKey, 'firstBlood'>; icon: string; title: string }[] = [
+  { key: 'cells', icon: '👣', title: 'Most cells travelled' },
   { key: 'captures', icon: '⚔️', title: 'Most tokens captured' },
   { key: 'sixes', icon: '🎲', title: 'Most sixes' },
   { key: 'revenges', icon: '😤', title: 'Most revenges taken' },

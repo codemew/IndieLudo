@@ -2284,7 +2284,9 @@ h3 {
   clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
 }
 
-/* Emoji moments: the token turns into a face for a moment (star = relieved, capture = yummy), then back. */
+/* Emoji moments: the token turns into a face for a moment, then back (reactions.ts picks one of
+   four per moment: on a star, after a capture, and while being sent home). Each pops in, does
+   its own little act, then shrinks away as the token comes back. */
 .token {
   container-type: size;
 }
@@ -2297,45 +2299,13 @@ h3 {
   font-size: 100cqw;
   line-height: 1;
   pointer-events: none;
-}
-.tok-emoji.safe {
-  animation: feels-safe 1.6s ease-in-out forwards;
-}
-.tok-emoji.yum {
-  animation: yummy 1.7s ease-in-out forwards;
+  /* 5% slower than the first version (1.7 s); REACTION_MS in reactions.ts matches. */
+  animation-duration: 1.785s;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: forwards;
 }
 .token.shows-emoji .tok-body {
-  animation: safe-body 1.6s ease-in-out forwards;
-}
-@keyframes feels-safe {
-  0% {
-    transform: scale(0) rotate(-30deg);
-    opacity: 0;
-  }
-  14% {
-    transform: scale(1.25) rotate(8deg);
-    opacity: 1;
-  }
-  26% {
-    transform: scale(1) rotate(-8deg);
-  }
-  38% {
-    transform: scale(1.05) rotate(6deg) translateY(-6%);
-  }
-  50% {
-    transform: scale(1) rotate(-4deg);
-  }
-  62% {
-    transform: scale(1.04) rotate(0) translateY(-4%);
-  }
-  82% {
-    transform: scale(1) rotate(0);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(0.4);
-    opacity: 0;
-  }
+  animation: safe-body 1.68s ease-in-out forwards;
 }
 @keyframes safe-body {
   0% {
@@ -2353,41 +2323,246 @@ h3 {
   }
 }
 
-/* Capture: pop in, a few happy chews (squash and stretch), a lick-of-the-lips wiggle, then fade. */
-@keyframes yummy {
-  0% {
-    transform: scale(0) rotate(20deg);
-    opacity: 0;
-  }
-  12% {
-    transform: scale(1.35) rotate(-6deg);
-    opacity: 1;
-  }
-  22% {
-    transform: scale(1.1, 0.85);
-  }
-  32% {
-    transform: scale(0.95, 1.12) translateY(-6%);
-  }
-  42% {
-    transform: scale(1.1, 0.86);
-  }
-  52% {
-    transform: scale(0.96, 1.1) translateY(-5%);
-  }
-  62% {
-    transform: scale(1.05) rotate(-10deg);
-  }
-  72% {
-    transform: scale(1.05) rotate(8deg);
-  }
-  84% {
-    transform: scale(1) rotate(0);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(0.4);
-    opacity: 0;
+/* ----- On a star ----- */
+.tok-emoji.r-sigh {
+  animation-name: react-sigh;
+}
+.tok-emoji.r-shades {
+  animation-name: react-shades;
+}
+.tok-emoji.r-party {
+  animation-name: react-party;
+}
+.tok-emoji.r-halo {
+  animation-name: react-halo;
+}
+/* 😌 a relieved little sway */
+@keyframes react-sigh {
+  0% { transform: scale(0) rotate(-30deg); opacity: 0; }
+  14% { transform: scale(1.25) rotate(8deg); opacity: 1; }
+  26% { transform: scale(1) rotate(-8deg); }
+  38% { transform: scale(1.05) rotate(6deg) translateY(-6%); }
+  50% { transform: scale(1) rotate(-4deg); }
+  62% { transform: scale(1.04) rotate(0) translateY(-4%); }
+  82% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😎 drops in from above and gives a slow, cool nod */
+@keyframes react-shades {
+  0% { transform: translateY(-70%) scale(0.8); opacity: 0; }
+  14% { transform: translateY(6%) scale(1.1); opacity: 1; }
+  22% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(5%) rotate(-4deg); }
+  56% { transform: translateY(0) rotate(0); }
+  70% { transform: translateY(5%) rotate(4deg); }
+  84% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 🥳 spins in and wiggles */
+@keyframes react-party {
+  0% { transform: scale(0) rotate(-200deg); opacity: 0; }
+  16% { transform: scale(1.25) rotate(12deg); opacity: 1; }
+  26% { transform: scale(1.05) rotate(-16deg); }
+  36% { transform: scale(1.1) rotate(16deg); }
+  46% { transform: scale(1.05) rotate(-14deg); }
+  56% { transform: scale(1.1) rotate(12deg); }
+  68% { transform: scale(1) rotate(-6deg); }
+  84% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😇 floats up, glowing softly */
+@keyframes react-halo {
+  0% { transform: scale(0) translateY(20%); opacity: 0; filter: drop-shadow(0 0 0 transparent); }
+  16% { transform: scale(1.1) translateY(-6%); opacity: 1; filter: drop-shadow(0 0 6px #fde68a); }
+  36% { transform: scale(1) translateY(-14%); }
+  56% { transform: scale(1.03) translateY(-6%); filter: drop-shadow(0 0 9px #fde68a); }
+  72% { transform: scale(1) translateY(-12%); }
+  84% { transform: scale(1) translateY(-8%); opacity: 1; filter: drop-shadow(0 0 4px #fde68a); }
+  100% { transform: scale(0.4) translateY(-20%); opacity: 0; filter: drop-shadow(0 0 0 transparent); }
+}
+
+/* ----- After capturing ----- */
+.tok-emoji.r-chew {
+  animation-name: react-chew;
+}
+.tok-emoji.r-drool {
+  animation-name: react-drool;
+}
+.tok-emoji.r-devil {
+  animation-name: react-devil;
+}
+.tok-emoji.r-smug {
+  animation-name: react-smug;
+}
+/* 😋 a few happy chews (squash and stretch), then licks its lips */
+@keyframes react-chew {
+  0% { transform: scale(0) rotate(20deg); opacity: 0; }
+  12% { transform: scale(1.35) rotate(-6deg); opacity: 1; }
+  22% { transform: scale(1.1, 0.85); }
+  32% { transform: scale(0.95, 1.12) translateY(-6%); }
+  42% { transform: scale(1.1, 0.86); }
+  52% { transform: scale(0.96, 1.1) translateY(-5%); }
+  62% { transform: scale(1.05) rotate(-10deg); }
+  72% { transform: scale(1.05) rotate(8deg); }
+  84% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 🤤 a slow, satisfied wobble */
+@keyframes react-drool {
+  0% { transform: scale(0); opacity: 0; }
+  14% { transform: scale(1.2); opacity: 1; }
+  28% { transform: scale(1.05) rotate(-12deg) translateX(-4%); }
+  42% { transform: scale(1.08, 1.02) rotate(12deg) translateX(4%); }
+  56% { transform: scale(1.05) rotate(-10deg) translateX(-3%); }
+  70% { transform: scale(1.04) rotate(8deg) translateX(2%); }
+  84% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😈 grows big and shakes with glee */
+@keyframes react-devil {
+  0% { transform: scale(0); opacity: 0; }
+  10% { transform: scale(1.45); opacity: 1; }
+  18% { transform: scale(1.15); }
+  24% { transform: scale(1.18) translateX(-6%) rotate(-5deg); }
+  30% { transform: scale(1.18) translateX(6%) rotate(5deg); }
+  36% { transform: scale(1.18) translateX(-6%) rotate(-5deg); }
+  42% { transform: scale(1.18) translateX(6%) rotate(5deg); }
+  48% { transform: scale(1.18) translateX(-4%) rotate(-3deg); }
+  56% { transform: scale(1.15) translateX(0) rotate(0); }
+  84% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😏 tilts its head, very pleased with itself */
+@keyframes react-smug {
+  0% { transform: scale(0); opacity: 0; }
+  14% { transform: scale(1.15); opacity: 1; }
+  30% { transform: scale(1.05) rotate(-15deg); }
+  62% { transform: scale(1.05) rotate(-15deg) translateY(-4%); }
+  72% { transform: scale(1.05) rotate(5deg); }
+  84% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+
+/* ----- Being sent home ----- */
+.tok-emoji.r-dizzy {
+  animation-name: react-dizzy;
+}
+.tok-emoji.r-sob {
+  animation-name: react-sob;
+}
+.tok-emoji.r-scream {
+  animation-name: react-scream;
+}
+.tok-emoji.r-squash {
+  animation-name: react-squash;
+}
+/* 😵 spins round and round on the way back */
+@keyframes react-dizzy {
+  0% { transform: scale(0) rotate(0); opacity: 0; }
+  12% { transform: scale(1.2) rotate(60deg); opacity: 1; }
+  84% { transform: scale(1) rotate(720deg); opacity: 1; }
+  100% { transform: scale(0.4) rotate(760deg); opacity: 0; }
+}
+/* 😭 sobs */
+@keyframes react-sob {
+  0% { transform: scale(0); opacity: 0; }
+  14% { transform: scale(1.15); opacity: 1; }
+  22% { transform: scale(1.05, 0.94) translateY(4%); }
+  30% { transform: scale(0.98, 1.05) translateY(-3%); }
+  38% { transform: scale(1.05, 0.94) translateY(4%); }
+  46% { transform: scale(0.98, 1.05) translateY(-3%); }
+  54% { transform: scale(1.05, 0.94) translateY(4%); }
+  62% { transform: scale(0.98, 1.05) translateY(-2%); }
+  84% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😱 jumps in fright, then trembles */
+@keyframes react-scream {
+  0% { transform: scale(0); opacity: 0; }
+  10% { transform: scale(1.5) translateY(-16%); opacity: 1; }
+  20% { transform: scale(1.15) translateY(0); }
+  30% { transform: scale(1.35) translateY(-8%); }
+  40% { transform: scale(1.15) translateY(0); }
+  48% { transform: scale(1.15) rotate(-4deg); }
+  54% { transform: scale(1.15) rotate(4deg); }
+  60% { transform: scale(1.15) rotate(-4deg); }
+  66% { transform: scale(1.15) rotate(4deg); }
+  72% { transform: scale(1.1) rotate(0); }
+  84% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😖 squashed flat, then springs back */
+@keyframes react-squash {
+  0% { transform: scale(0); opacity: 0; }
+  14% { transform: scale(1.2); opacity: 1; }
+  26% { transform: scale(1.35, 0.65) translateY(14%); }
+  40% { transform: scale(0.85, 1.18) translateY(-8%); }
+  54% { transform: scale(1.2, 0.8) translateY(6%); }
+  68% { transform: scale(0.96, 1.05); }
+  84% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* ----- An opponent right behind ----- */
+.tok-emoji.r-sprint {
+  animation-name: react-sprint;
+}
+.tok-emoji.r-sweat {
+  animation-name: react-sweat;
+}
+.tok-emoji.r-shiver {
+  animation-name: react-shiver;
+}
+/* 🏃 runs on the spot: quick bouncy strides, leaning forward */
+@keyframes react-sprint {
+  0% { transform: scale(0); opacity: 0; }
+  12% { transform: scale(1.2) rotate(-8deg); opacity: 1; }
+  20% { transform: scale(1.1) rotate(-10deg) translate(-4%, -8%); }
+  28% { transform: scale(1.1) rotate(-6deg) translate(4%, 0); }
+  36% { transform: scale(1.1) rotate(-10deg) translate(-4%, -8%); }
+  44% { transform: scale(1.1) rotate(-6deg) translate(4%, 0); }
+  52% { transform: scale(1.1) rotate(-10deg) translate(-4%, -8%); }
+  60% { transform: scale(1.1) rotate(-6deg) translate(4%, 0); }
+  68% { transform: scale(1.1) rotate(-10deg) translate(-4%, -8%); }
+  76% { transform: scale(1.05) rotate(-4deg) translate(0, 0); }
+  86% { transform: scale(1) rotate(0); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 😰 nervous little shakes */
+@keyframes react-sweat {
+  0% { transform: scale(0); opacity: 0; }
+  14% { transform: scale(1.15); opacity: 1; }
+  22% { transform: scale(1.1) translateX(-4%); }
+  28% { transform: scale(1.1) translateX(4%); }
+  34% { transform: scale(1.1) translateX(-4%); }
+  40% { transform: scale(1.1) translateX(3%); }
+  52% { transform: scale(1.05) translateX(0); }
+  60% { transform: scale(1.1) translateX(-3%); }
+  66% { transform: scale(1.1) translateX(3%); }
+  72% { transform: scale(1.05) translateX(0); }
+  86% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+/* 🥶 frozen with fear: shivers */
+@keyframes react-shiver {
+  0% { transform: scale(0); opacity: 0; }
+  14% { transform: scale(1.15, 0.95); opacity: 1; }
+  20% { transform: scale(1.1) rotate(-3deg); }
+  24% { transform: scale(1.1) rotate(3deg); }
+  28% { transform: scale(1.1) rotate(-3deg); }
+  32% { transform: scale(1.1) rotate(3deg); }
+  36% { transform: scale(1.1) rotate(-3deg); }
+  40% { transform: scale(1.1) rotate(3deg); }
+  48% { transform: scale(1.05, 0.95) rotate(0); }
+  56% { transform: scale(1.1) rotate(-3deg); }
+  60% { transform: scale(1.1) rotate(3deg); }
+  64% { transform: scale(1.1) rotate(-3deg); }
+  70% { transform: scale(1.05) rotate(0); }
+  86% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.4); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tok-emoji {
+    animation-name: react-sigh !important;
   }
 }
 

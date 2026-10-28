@@ -25,6 +25,8 @@ import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, setHtml, toast } f
 import { voice } from '../voice.js';
 import { pingText, signalBars } from '../netUi.js';
 import { freshDice } from '../queueDiff.js';
+import { REACTION_MS, pickReaction, type ReactionKind } from '../reactions.js';
+import { threatenedTokens } from '../../shared/threats.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Corner order around the board, matching each colour's base. */
@@ -170,6 +172,7 @@ export function gameScreen(root: HTMLElement): () => void {
       gs = u.state;
       update({ game: gs });
       renderAll();
+      warnThreatened(false);
       return;
     }
     const newest = pending.at(-1)?.state.version ?? gs.version;
@@ -186,12 +189,12 @@ export function gameScreen(root: HTMLElement): () => void {
       const prev = gs!;
       clockOffset = u.state.serverNow - Date.now();
       // Animate only a direct successor; after a gap (reconnect) or a backlog, snap.
-      if (u.events?.length && u.state.version === prev.version + 1 && pending.length < 3) {
-        await playEvents(structuredClone(prev), u.events);
-      }
+      const animate = Boolean(u.events?.length && u.state.version === prev.version + 1 && pending.length < 3);
+      if (animate) await playEvents(structuredClone(prev), u.events!);
       gs = u.state;
       update({ game: gs });
       renderAll();
+      warnThreatened(animate);
       if (gs.finished) {
         await sleep(1400);
         if (!destroyed) go('results');
@@ -276,8 +279,9 @@ export function gameScreen(root: HTMLElement): () => void {
           play('capture');
           vibrate([30, 50, 30]);
           burst(from, e.color);
-          // The capturer savours its meal while the victim slides home.
+          // The capturer savours its meal while the victim reacts on its way home.
           if (lastMover) tokenEmoji(lastMover, 'yum');
+          tokenEmoji(el, 'ouch');
           setTimeout(() => play('slurp'), 260);
           await slide(el, from, tokenCell(e.victim, BASE, e.tokenId), 560);
           work.tokens[e.victim][e.tokenId] = BASE;
@@ -519,19 +523,46 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   /**
-   * The token briefly becomes an emoji, then fades back into itself:
-   * relieved on a star ('safe'), licking its lips after a capture ('yum').
+   * The token briefly becomes an emoji, then fades back into itself: one of several reactions
+   * on a star ('safe'), after a capture ('yum') and while being sent home ('ouch'), picked at
+   * random but never the same one twice in a row.
    */
-  function tokenEmoji(token: HTMLElement, kind: 'safe' | 'yum'): void {
-    const faces = kind === 'safe' ? ['😌', '😎'] : ['😋', '😋', '🤤'];
+  const lastReaction: Partial<Record<ReactionKind, string>> = {};
+  function tokenEmoji(token: HTMLElement, kind: ReactionKind): void {
+    const r = pickReaction(kind, lastReaction[kind]);
+    lastReaction[kind] = r.anim;
     token.querySelector('.tok-emoji')?.remove();
-    const face = el(`<span class="tok-emoji ${kind}" aria-hidden="true">${faces[Math.floor(Math.random() * faces.length)]}</span>`);
+    const face = el(`<span class="tok-emoji r-${r.anim}" aria-hidden="true">${r.face}</span>`);
     token.appendChild(face);
     token.classList.add('shows-emoji');
     setTimeout(() => {
       face.remove();
       if (!token.querySelector('.tok-emoji')) token.classList.remove('shows-emoji');
-    }, 1700);
+    }, REACTION_MS);
+  }
+
+  /**
+   * A token that an opponent has just got within one roll of (see threats.ts) looks over its
+   * shoulder and runs: once, when the danger starts, not for as long as it lasts. After a
+   * resync (reconnect, catching up) we only take note, without animating.
+   */
+  let warned = new Set<string>();
+  function warnThreatened(animate: boolean): void {
+    const now = threatenedTokens(gs!);
+    if (animate) {
+      for (const key of now) {
+        if (warned.has(key)) continue;
+        const [color, id] = key.split(':') as [Color, string];
+        const show = () => {
+          const token = tokens.get(color, Number(id));
+          if (token && !destroyed && threatenedTokens(gs!).has(key)) tokenEmoji(token, 'flee');
+        };
+        // Let a reaction already playing (star, capture) finish first.
+        if (tokens.get(color, Number(id))?.classList.contains('shows-emoji')) setTimeout(show, REACTION_MS);
+        else show();
+      }
+    }
+    warned = now;
   }
 
   /** Where each glowing token would land with the selected die. */
@@ -583,6 +614,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
   setGameHandler(onUpdate);
   renderAll();
+  warnThreatened(false);
   if (gs.finished) queueMicrotask(() => go('results'));
 
   // Repaint the mic badges and signal bars when the channel, our peer connections or pings change.

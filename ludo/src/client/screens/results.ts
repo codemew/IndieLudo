@@ -59,7 +59,7 @@ export function resultsScreen(root: HTMLElement): void {
 }
 
 const STAT_COLUMNS = [
-  { key: 'cells', icon: '🏃', label: 'Cells' },
+  { key: 'cells', icon: '👣', label: 'Cells' },
   { key: 'captures', icon: '⚔️', label: 'Captures' },
   { key: 'sixes', icon: '🎲', label: 'Sixes' },
   { key: 'revenges', icon: '😤', label: 'Revenges' },

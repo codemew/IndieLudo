@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.1
+
+### Added
+- **More token reactions:** there are four reactions for each moment, each a different face with its own animation. They're picked at random and never repeat back to back.
+  - **Star squares:** 😌 😎 🥳 😇.
+  - **Capturing:** 😋 🤤 😈 😏.
+  - **Being captured** (new: the captured token now reacts on its way home): 😵 😭 😱 😖.
+  - **In danger** (new): when an opponent gets 1–5 squares behind a token, the token reacts once: 🏃 😰 🥶. It isn't in danger on safe squares, in its home column, or when the opponent would turn off into its own home column first.
+  - **Slower:** all reactions play 5% slower (1.7 s to 1.785 s).
+- **No repeated faces:** every reaction face is used for only one moment. The "Most cells travelled" award is now 👣, so 🏃 only means running away.
+
 ## 1.5.0
 
 ### Added

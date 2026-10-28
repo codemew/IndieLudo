@@ -41,6 +41,8 @@ export class RelaySender {
   private batch: ArrayBuffer[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private timestamp = 0;
+  /** The voice gate: while shut (nobody talking) nothing is encoded or sent. */
+  private gateOpen = true;
   frames = 0;
   bytes = 0;
 
@@ -62,7 +64,7 @@ export class RelaySender {
       const mute = ctx.createGain();
       mute.gain.value = 0;
       proc.onaudioprocess = (e) => {
-        if (!this.encoder || this.encoder.state !== 'configured') return;
+        if (!this.encoder || this.encoder.state !== 'configured' || !this.gateOpen) return;
         const pcm = new Float32Array(e.inputBuffer.getChannelData(0));
         const data = new AudioData({ format: 'f32-planar', sampleRate: ctx.sampleRate, numberOfFrames: pcm.length, numberOfChannels: 1, timestamp: this.timestamp, data: pcm });
         this.timestamp += (pcm.length / ctx.sampleRate) * 1e6;
@@ -77,6 +79,10 @@ export class RelaySender {
     } catch {
       this.stop();
     }
+  }
+
+  setGate(open: boolean): void {
+    this.gateOpen = open;
   }
 
   setBitrate(kbps: number): void {
@@ -127,6 +133,9 @@ interface Incoming {
   lastAt: number;
   frames: number;
   dropped: number;
+  /** Loudness of the last decoded frame, and when it played, for the talking animation. */
+  level: number;
+  levelAt: number;
 }
 
 /** Decodes and plays relayed audio from each player, with a short jitter buffer per player. */
@@ -144,7 +153,7 @@ export class RelayPlayer {
       gain.connect(ctx.destination);
       const decoder = new AudioDecoder({ output: (d) => this.play(userId, d), error: () => this.drop(userId) });
       decoder.configure({ codec: 'opus', sampleRate: RATE, numberOfChannels: 1 });
-      p = { decoder, gain, playAt: 0, timestamp: 0, lastAt: 0, frames: 0, dropped: 0 };
+      p = { decoder, gain, playAt: 0, timestamp: 0, lastAt: 0, frames: 0, dropped: 0, level: 0, levelAt: 0 };
       this.from.set(userId, p);
     }
     for (const data of frames) {
@@ -163,6 +172,10 @@ export class RelayPlayer {
     const n = data.numberOfFrames;
     const pcm = new Float32Array(n);
     data.copyTo(pcm, { planeIndex: 0, format: 'f32-planar' });
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += pcm[i] * pcm[i];
+    p.level = Math.sqrt(sum / (n || 1));
+    p.levelAt = performance.now();
     const buffer = ctx.createBuffer(1, n, data.sampleRate);
     buffer.copyToChannel(pcm, 0);
     data.close();
@@ -185,6 +198,13 @@ export class RelayPlayer {
   heard(userId: number): boolean {
     const p = this.from.get(userId);
     return Boolean(p && performance.now() - p.lastAt < HEARD_MS);
+  }
+
+  /** Their loudness 0..1 from relayed audio, 0 once it stops arriving. */
+  levelOf(userId: number): number {
+    const p = this.from.get(userId);
+    if (!p || performance.now() - p.levelAt > 250 || !(p.level > 0)) return 0;
+    return Math.min(1, Math.max(0, (20 * Math.log10(p.level) + 60) / 48));
   }
 
   framesFrom(userId: number): number {

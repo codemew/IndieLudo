@@ -118,7 +118,10 @@ export function voicePanel(): { el: HTMLElement; destroy: () => void } {
       status.textContent = voice.error ? `Not in voice chat: ${errorText(voice.error)}` : 'Not in voice chat.';
     } else {
       const { connected, total } = voice.linked;
-      const viaServer = voice.relayedCount ? ` (${voice.relayedCount} through the game server)` : '';
+      const via = [voice.sfuCount === total && total ? 'all via the voice server' : voice.sfuCount ? `${voice.sfuCount} via the voice server` : '', voice.relayedCount ? `${voice.relayedCount} through the game server` : '']
+        .filter(Boolean)
+        .join(', ');
+      const viaServer = via ? ` (${via})` : '';
       status.textContent =
         total === 0
           ? 'In voice chat. Nobody else is here yet.'
@@ -226,6 +229,7 @@ const routeText = (r: LinkReport['mine']) => {
 
 /** What a link's state most likely means, in plain words. */
 function explain(l: LinkReport): string {
+  if (l.sfu) return 'Through the voice server, over UDP: this phone sends its voice once and the server passes it on.';
   if (l.relay.heard || l.relay.sending) {
     return `Going through the game server${l.relay.heard ? '' : ' (waiting for their audio)'}: a direct link isn't possible between these two phones, so voice takes the same route as the game, with a little extra delay.`;
   }
@@ -265,8 +269,8 @@ function linkDetails(): { el: HTMLElement; stop: () => void } {
     const rows = r.links
       .map(
         (l) => `
-        <li class="vd-link vd-${l.relay.heard ? 'connected' : l.status}">
-          <div><b>${esc(nameOf(l.userId))}</b> · ${l.relay.heard ? 'via the game server' : `${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`}`} · ${l.role === 'dial' ? 'we call them' : 'they call us'}</div>
+        <li class="vd-link vd-${l.relay.heard || l.sfu ? 'connected' : l.status}">
+          <div><b>${esc(nameOf(l.userId))}</b> · ${l.sfu ? 'via the voice server (UDP)' : l.relay.heard ? 'via the game server' : `${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`}`}${l.sfu ? '' : ` · ${l.role === 'dial' ? 'we call them' : 'they call us'}`}</div>
           <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}${l.late.sent || l.late.got ? ` · late routes ↑${l.late.sent} ↓${l.late.got}` : ''}${l.relay.sending || l.relay.framesIn ? ` · via server ↑${l.relay.sending ? 'on' : 'off'} ↓${l.relay.framesIn} frames` : ''}</span>
           <em>${explain(l)}</em>
         </li>`,
@@ -274,7 +278,7 @@ function linkDetails(): { el: HTMLElement; stop: () => void } {
       .join('');
     setHtml(
       body,
-      `<p class="muted small">Microphone: ${r.mic ? 'on' : 'blocked'} · STUN/TURN servers: ${r.iceServers}${r.signalError ? ` · last signalling error: ${esc(r.signalError)}` : ''}</p>` +
+      `<p class="muted small">Microphone: ${r.mic ? `on${r.denoise ? ' · AI noise removal on' : ''}` : 'blocked'} · Voice server: ${r.sfu} · STUN/TURN servers: ${r.iceServers}${r.signalError ? ` · last signalling error: ${esc(r.signalError)}` : ''}</p>` +
         (rows ? `<ul class="vd-links">${rows}</ul>` : '<p class="muted small">Nobody else is in voice chat.</p>'),
     );
   };

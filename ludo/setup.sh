@@ -264,6 +264,13 @@ else
   PORT="$(config_get https.port)"
   REDIRECT_PORT="$(config_get https.httpRedirectPort)"
 fi
+# The built-in voice server's UDP ports (voice.sfu in config.json).
+VOICE_PORTS=""
+if [[ "$(config_get voice.sfu.enabled)" != "false" ]]; then
+  VOICE_MIN="$(config_get voice.sfu.portMin)"
+  VOICE_MAX="$(config_get voice.sfu.portMax)"
+  VOICE_PORTS="${VOICE_MIN:-40000}:${VOICE_MAX:-40099}"
+fi
 
 if [[ $SKIP_BUILD -eq 0 ]]; then
   step "Build"
@@ -283,15 +290,17 @@ open_ports() {
   [[ -n "$REDIRECT_PORT" ]] && ports+=("$REDIRECT_PORT")
   # Detect without root; sudo is only used if a rule is actually added.
   if have ufw && grep -qs '^ENABLED=yes' /etc/ufw/ufw.conf; then
-    if confirm "ufw is active. Allow ports ${ports[*]}/tcp from the network?"; then
+    if confirm "ufw is active. Allow ports ${ports[*]}/tcp${VOICE_PORTS:+ and voice ${VOICE_PORTS}/udp} from the network?"; then
       for p in "${ports[@]}"; do as_root ufw allow "$p/tcp"; done
+      [[ -n "$VOICE_PORTS" ]] && as_root ufw allow "$VOICE_PORTS/udp"
       ok "ufw rules added"
     else
       warn "Phones can't connect until ports ${ports[*]}/tcp are open"
     fi
   elif have firewall-cmd && systemctl is-active --quiet firewalld 2>/dev/null; then
-    if confirm "firewalld is running. Allow ports ${ports[*]}/tcp?"; then
+    if confirm "firewalld is running. Allow ports ${ports[*]}/tcp${VOICE_PORTS:+ and voice ${VOICE_PORTS}/udp}?"; then
       for p in "${ports[@]}"; do as_root firewall-cmd --permanent --add-port="$p/tcp"; done
+      [[ -n "$VOICE_PORTS" ]] && as_root firewall-cmd --permanent --add-port="${VOICE_PORTS/:/-}/udp"
       as_root firewall-cmd --reload
       ok "firewalld rules added"
     else
@@ -299,6 +308,9 @@ open_ports() {
     fi
   else
     ok "No active ufw/firewalld found (make sure ports ${ports[*]}/tcp are reachable)"
+  fi
+  if [[ -n "$VOICE_PORTS" ]]; then
+    warn "To play over the internet, also forward UDP ${VOICE_PORTS/:/–} on your router to this machine (voice)"
   fi
 }
 if [[ "$PLATFORM" == termux || "$PLATFORM" == macos ]]; then

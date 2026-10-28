@@ -18,6 +18,10 @@ export const BOT_BATTLE_TEMPO = 0.4;
 
 /** How many people can watch a lobby's games without a seat. */
 export const MAX_SPECTATORS = 4;
+/** Seats a lobby has. */
+export const MAX_SEATS = 4;
+/** Everyone a lobby's voice chat must carry at once: every seat and every spectator. */
+export const MAX_VOICE_PEERS = MAX_SEATS + MAX_SPECTATORS;
 
 export type Controller = 'human' | 'bot' | 'takeover';
 
@@ -165,7 +169,14 @@ export interface VoiceState {
   /** Bumped when the host restarts the channel; every member then reconnects from scratch. */
   epoch: number;
   bitrateKbps: number;
-  participants: { userId: number; muted: boolean }[];
+  /** `sfu`: connected to the built-in voice server, so it carries their voice to everyone else who is. */
+  participants: { userId: number; muted: boolean; sfu?: boolean }[];
+}
+
+/** One receive slot on a phone's voice-server connection: whose voice its track (by mid) carries. */
+export interface VoiceSlot {
+  mid: string;
+  userId: number | null;
 }
 
 /** How long a colour-swap request waits for an answer. */

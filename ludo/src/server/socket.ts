@@ -18,7 +18,8 @@ interface SocketData {
 export type LudoServerIO = Server<ClientToServer, ServerToClient, Record<string, never>, SocketData>;
 type LudoSocket = Socket<ClientToServer, ServerToClient, Record<string, never>, SocketData>;
 
-export const MAX_SOCKETS_PER_IP = 10;
+/** A whole family can share one public IP: 8 phones, each briefly with 2 sockets while reconnecting. */
+export const MAX_SOCKETS_PER_IP = 24;
 export const MAX_SOCKETS_PER_USER = 20;
 const BUCKET_CAPACITY = 20;
 const BUCKET_REFILL_PER_SEC = 10;
@@ -220,8 +221,41 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('voice:get', SCHEMAS.voiceRef, (p) => ({ ok: true, data: ctx.voice.stateFor(p.lobbyId, userId) }));
     on('voice:join', SCHEMAS.voiceRef, (p) => ({
       ok: true,
-      data: { state: ctx.voice.join(p.lobbyId, userId, socket.id), iceServers: iceServersFor(ctx.config.voice, userId) },
+      data: { state: ctx.voice.join(p.lobbyId, userId, socket.id), iceServers: iceServersFor(ctx.config.voice, userId), sfu: ctx.sfu.enabled },
     }));
+    // The built-in voice server. Setting up a connection takes a moment (ports, the offer), so
+    // these answer asynchronously; the membership checks come first, as everywhere else.
+    const sfuCall = (event: 'voice:sfuJoin' | 'voice:sfuAnswer' | 'voice:sfuCand', schema: Schema, run: (p: any) => Promise<unknown>) => {
+      socket.on(event, ((payload: unknown, ack: unknown) => {
+        const reply = typeof ack === 'function' ? (ack as (r: Ack) => void) : () => {};
+        if (!socket.data.bucket.take()) {
+          socket.disconnect(true);
+          return;
+        }
+        if (!matchesSchema(payload, schema)) return reply({ ok: false, error: 'BAD_PAYLOAD' });
+        const p = payload as { lobbyId: string };
+        if (!ctx.voice.isIn(p.lobbyId, userId)) return reply({ ok: false, error: 'NOT_IN_VOICE' });
+        run(p).then(
+          (data) => reply(data === undefined ? { ok: true } : { ok: true, data }),
+          (err) => {
+            if (!(err instanceof AppError)) log(`[voice] ${event} failed: ${(err as Error).stack ?? err}`);
+            reply({ ok: false, error: err instanceof AppError ? err.code : 'SFU_ERROR' });
+          },
+        );
+      }) as any);
+    };
+    sfuCall('voice:sfuJoin', SCHEMAS.voiceRef, (p) => ctx.sfu.join(p.lobbyId, userId));
+    sfuCall('voice:sfuAnswer', SCHEMAS.sfuSdp, (p) => ctx.sfu.answer(p.lobbyId, userId, p.sdp));
+    sfuCall('voice:sfuCand', SCHEMAS.sfuSdp, async (p) => {
+      let list: unknown;
+      try {
+        list = JSON.parse(p.sdp);
+      } catch {
+        throw new AppError('BAD_PAYLOAD');
+      }
+      if (!Array.isArray(list) || list.length > 20) throw new AppError('BAD_PAYLOAD');
+      for (const c of list) if (c && typeof c.candidate === 'string' && c.candidate.length < 512) await ctx.sfu.candidate(p.lobbyId, userId, c);
+    });
     on('voice:leave', SCHEMAS.voiceRef, (p) => void ctx.voice.leave(p.lobbyId, userId));
     on('voice:mute', SCHEMAS.voiceMute, (p) => void ctx.voice.setMuted(p.lobbyId, userId, p.muted));
     on('voice:bitrate', SCHEMAS.voiceBitrate, (p) => void ctx.voice.setBitrate(p.lobbyId, userId, p.kbps));

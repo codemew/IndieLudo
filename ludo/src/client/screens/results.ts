@@ -70,7 +70,6 @@ const STAT_COLUMNS = [
   { key: 'sixes', icon: '🎲', label: 'Sixes' },
   { key: 'revenges', icon: '😤', label: 'Revenges' },
   { key: 'machoHome', icon: '🥸', label: 'Macho' },
-  { key: 'staches', icon: '💈', label: 'Staches', fewest: true },
 ] as const;
 
 /** Awards (best in each stat, first blood) and everyone's numbers, best of each column highlighted. */
@@ -90,9 +89,7 @@ function matchStats(
       </li>`,
     )
     .join('');
-  // Highlighted per column: the highest, except the moustache count, where the baby face (fewest) shines.
-  const best = Object.fromEntries(STAT_COLUMNS.map((col) => [col.key, ('fewest' in col ? Math.min : Math.max)(...order.map((c) => statsOf(c)[col.key] ?? 0))]));
-  const hasBabyFace = awards.some((a) => a.key === 'babyFace');
+  const best = Object.fromEntries(STAT_COLUMNS.map((col) => [col.key, Math.max(...order.map((c) => statsOf(c)[col.key] ?? 0))]));
   const statRows = order
     .map(
       (c) => `
@@ -100,8 +97,7 @@ function matchStats(
         <th scope="row"><span class="st-dot"></span>${nameOf(c)}${statsOf(c).firstBlood ? ' <span title="First blood">🩸</span>' : ''}</th>
         ${STAT_COLUMNS.map((col) => {
           const v = statsOf(c)[col.key] ?? 0;
-          const shines = 'fewest' in col ? hasBabyFace && v === best[col.key] : v > 0 && v === best[col.key];
-          return `<td class="${shines ? 'best' : ''}">${v}</td>`;
+          return `<td class="${v > 0 && v === best[col.key] ? 'best' : ''}">${v}</td>`;
         }).join('')}
       </tr>`,
     )

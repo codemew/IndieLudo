@@ -3431,3 +3431,47 @@ button.me:active {
   outline: 2px dashed #fff;
   outline-offset: 1.5px;
 }
+
+/* ---------- talking: rings radiate from whoever is speaking (talkUi.ts) ---------- */
+/* --vl is their talking level 0..1: louder talking means bigger, brighter rings. */
+[data-talk] {
+  --vl: 0;
+  position: relative;
+}
+[data-talk]::before,
+[data-talk]::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--c, #a78bfa) 50%, #fff);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--c, #a78bfa) 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+}
+.talking::before {
+  animation: talk-ring 1s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+.talking::after {
+  animation: talk-ring 1s cubic-bezier(0.2, 0.6, 0.4, 1) 0.5s infinite;
+}
+@keyframes talk-ring {
+  0% {
+    transform: scale(1);
+    opacity: calc(0.3 + var(--vl) * 0.7);
+  }
+  100% {
+    transform: scale(calc(1.25 + var(--vl) * 0.85));
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .talking::before {
+    animation: none;
+    transform: scale(calc(1.1 + var(--vl) * 0.2));
+    opacity: calc(0.3 + var(--vl) * 0.6);
+  }
+  .talking::after {
+    animation: none;
+  }
+}

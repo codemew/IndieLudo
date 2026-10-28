@@ -3,94 +3,14 @@
  * things that only show up in the UI. Run with `npm run test:e2e`; skipped when Chrome isn't found
  * (set CHROME_PATH to point at one).
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import puppeteer, { type Browser, type Page } from 'puppeteer-core';
+import type { Page } from 'puppeteer-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { DEFAULTS, mergeConfig } from '../src/server/config.js';
-import { startServer, type LudoServer } from '../src/server/server.js';
 import { BASE as B, HOME, absoluteSquare, isSafeSquare } from '../src/shared/board.js';
 import type { Color, GameState } from '../src/shared/types.js';
+import { BUILT, CHROME, seats, setup, shot, sleep, tap, until } from './helpers.js';
 
-const CHROME = [process.env.CHROME_PATH, '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find((p) => p && existsSync(p));
-const BUILT = existsSync('dist/client/index.html');
-const SHOTS = process.env.E2E_SHOTS; // a folder to save screenshots in, if set
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const until = async (what: string, ok: () => boolean | Promise<boolean>, ms = 15_000) => {
-  for (const end = Date.now() + ms; Date.now() < end; await sleep(100)) if (await ok()) return;
-  throw new Error(`timed out waiting for ${what}`);
-};
-
-/** A server with scripted dice, and phones that sign in and join one lobby. */
-async function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'ludo-e2e-'));
-  const dice: number[] = [];
-  const server: LudoServer = await startServer(
-    mergeConfig(DEFAULTS, { lobbyCreatePassword: 'create', adminPassword: 'admin', dbPath: ':memory:', port: 0, turnTimeoutSec: 120, https: { enabled: false }, certDir: dir, voice: { iceServers: [] } }),
-    { dice: () => dice.shift() ?? 1, randomInt: () => 0, log: () => {}, gateDelayMs: 0 },
-  );
-  const url = `http://localhost:${server.port}`;
-  const browser: Browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--no-sandbox'] });
-  const errors: string[] = [];
-
-  async function phone(name: string): Promise<Page> {
-    const ctx = await browser.createBrowserContext();
-    const p = await ctx.newPage();
-    p.on('pageerror', (e) => errors.push(`[${name}] ${(e as Error).message}`));
-    await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-    await p.goto(url, { waitUntil: 'networkidle0' });
-    await tap(p, '#play');
-    await p.waitForSelector('#otp-input');
-    await p.type('#otp-input', server.ctx.gate.current);
-    await p.waitForSelector('#username');
-    await p.type('#username', name);
-    await tap(p, '#go');
-    await p.waitForSelector('.screen-home');
-    return p;
-  }
-
-  /** Alice hosts "Family"; everyone else joins it. */
-  async function lobby(names: string[]): Promise<Page[]> {
-    const phones = await Promise.all(names.map(phone));
-    const [host, ...rest] = phones;
-    await tap(host, '#create');
-    await host.waitForSelector('.modal [name=name]');
-    await host.type('.modal [name=name]', 'Family');
-    await host.type('.modal [name=password]', 'pw');
-    await host.type('.modal [name=createPassword]', 'create');
-    await tap(host, '.modal .btn-primary');
-    await host.waitForSelector('.screen-lobby');
-    for (const p of rest) {
-      await p.waitForSelector('.lobby-card');
-      await tap(p, '.lobby-card');
-      await p.waitForSelector('.modal input');
-      await p.type('.modal input', 'pw');
-      await tap(p, '.modal .btn-primary');
-      await p.waitForSelector('.screen-lobby');
-    }
-    await sleep(400);
-    return phones;
-  }
-
-  const close = async () => {
-    await browser.close();
-    await server.close();
-    rmSync(dir, { recursive: true, force: true });
-  };
-  return { server, dice, errors, phone, lobby, close };
-}
-
-async function tap(p: Page, sel: string): Promise<void> {
-  await p.waitForSelector(sel, { timeout: 10_000 });
-  await p.$eval(sel, (e) => (e as HTMLElement).click());
-}
-const shot = (p: Page, name: string) => (SHOTS ? p.screenshot({ path: join(SHOTS, `${name}.png`) }) : Promise.resolve());
 /** Where the board sits on screen; it must never move while a game is on. */
 const boardBox = (p: Page) => p.$eval('#board', (b) => { const r = b.getBoundingClientRect(); return `${Math.round(r.top)}/${Math.round(r.height)}`; });
-/** Each occupied seat in the lobby as "colour:name". */
-const seats = (p: Page) => p.$$eval('.seat:not(.seat-open)', (ss) => ss.map((s) => `${s.className.match(/s-(\w+)/)![1]}:${s.querySelector('.seat-name')!.childNodes[0].textContent!.trim()}`));
 
 describe.skipIf(!CHROME || !BUILT)('lobby seats', () => {
   let t: Awaited<ReturnType<typeof setup>>;
@@ -279,7 +199,7 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
       expect(macho).toEqual(['moustached tokens brought home', expect.stringMatching(/^alice( you)?$/), '1']);
     }
     expect(await alice.$$eval('.stats-table th, .stats-table thead *', (h) => h.map((x) => x.textContent).join(' '))).toContain('Macho');
-    expect(await alice.$$eval('.stats-table thead th[scope=col]', (h) => h.map((x) => x.textContent))).toContain('💈Staches');
+    expect(await alice.$$eval('.stats-table thead th[scope=col]', (h) => h.map((x) => x.textContent!).join(' '))).not.toMatch(/Staches/);
     expect(await alice.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'six stat columns still fit the phone').toBe(true);
     await shot(alice, 'results-macho');
     expect(t.errors).toEqual([]);

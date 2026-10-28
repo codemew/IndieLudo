@@ -15,6 +15,7 @@ import { resultsScreen } from './screens/results.js';
 import { signupScreen } from './screens/signup.js';
 import { splashScreen } from './screens/splash.js';
 import { installUnlockListeners } from './sound.js';
+import { installTalkUi } from './talkUi.js';
 import { installWakeLock } from './wakelock.js';
 
 register('splash', splashScreen);
@@ -32,6 +33,7 @@ installWakeLock();
 installKeyboardAvoidance();
 installInstallPrompt();
 installRotateHint();
+installTalkUi();
 tidyUpdateUrl();
 installNetworkListeners(() => void resyncGame());
 

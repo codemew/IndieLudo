@@ -34,10 +34,22 @@ class FakePC {
   constructor() {
     FakePC.all.push(this);
   }
+  transceivers: any[] = [];
   addTrack() {}
-  addTransceiver() {}
-  getSenders() {
+  addTransceiver(_kind: string, init: { direction: string }) {
+    const sender = { track: null, replaceTrack: async () => {}, getParameters: () => ({ encodings: [{}] }), setParameters: async () => {} };
+    const t = { sender, direction: init.direction, mid: '0', receiver: {} };
+    this.transceivers.push(t);
+    return t;
+  }
+  getTransceivers() {
+    return this.transceivers;
+  }
+  getReceivers() {
     return [];
+  }
+  getSenders() {
+    return this.transceivers.map((t) => t.sender);
   }
   async createOffer() {
     return { type: 'offer', sdp: 'v=0\r\na=rtpmap:111 opus/48000/2\r\na=candidate:1 1 udp 1 192.168.1.5 5000 typ host\r\n' };

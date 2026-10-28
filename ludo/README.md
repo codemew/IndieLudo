@@ -172,7 +172,7 @@ The results screen shows awards, everyone's match stats, and each player's award
 | 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
 | 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
-| 💈 Staches | 👶 Baby face (the comedy trophy) | The **fewest** clean-shaven tokens that grew a moustache (a token's first capture since it last left base). It's only given when someone else grew more, so it never goes to everyone. |
+| (no column) | 👶 Baby face (the comedy trophy) | The **fewest** clean-shaven tokens that grew a moustache (a token's first capture since it last left base). It's only given when someone else grew more, so it never goes to everyone. |
 | 🩸 First blood | First blood | The game's first capture |
 
 - **Ties:** a tied award goes to everyone tied.
@@ -199,16 +199,29 @@ The lobby shows each player's lifetime wins (🏆) beside their name.
 
 ## Voice chat
 
-Everyone in a lobby is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it by leaving the lobby or being kicked. It also ends when the lobby closes or the host turns it off.
+Everyone in a lobby, up to 8 people (4 seats and 4 spectators), is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it by leaving the lobby or being kicked. It also ends when the lobby closes or the host turns it off.
 
 - **Mute yourself:** the mic button is on the lobby screen, the game screen, and the home screen while you're in a lobby. It's green when you're live and red when you're muted. The browser asks for the microphone the first time. If you block it, you still hear everyone and show as muted, the button turns amber, and tapping it asks again.
 - **Who is in:** a small mic badge next to each name, on the lobby seats and the game's player cards. It's green when that person is live and red when muted. It pulses while your phone is still connecting to theirs.
+- **Who is talking:** rings radiate from the speaker's avatar in their seat colour (lavender for spectators). The louder they talk, the bigger and brighter the rings, and they fade within a moment of silence. The level is read off the voice packets themselves, so it costs no extra data. With reduced motion turned on, a steady glow replaces the rings.
+- **Clear voice, less noise:**
+  - **AI noise removal (RNNoise):** runs on the phone and removes fans, traffic, TV and keyboard noise. It's 112 KB, downloaded the first time voice starts and then cached. Where it can't run (very old browsers), the browser's own noise suppression is used instead.
+  - **Voice focus:** a filter chain cuts rumble below 100 Hz and hiss above 7.5 kHz, lifts speech presence around 2.5 kHz, and evens out loud and quiet talkers. The phone's "voice isolation" is used where it has one.
+  - **Echo cancellation and automatic gain:** always on.
+- **Nothing is sent in silence:** a voice gate, using RNNoise's speech detection, decides 10 ms at a time whether you're talking. While you're not, your phone sends no voice packets at all, even with a fan running. A 30 ms look-ahead means the first syllable isn't clipped, and it stays open for 0.4 s after the last word, so speech isn't chopped up.
 - **Can't hear someone?** Tap **Rejoin voice**, on the lobby screen or in the game's ☰ menu. Your phone gets a fresh microphone and reconnects to everyone. The status line above it shows how many players you're connected to.
 - **Host controls:** these are on the lobby screen and in the game's ☰ menu. If the host leaves, the next host gets them.
   - **Restart for everyone:** every phone drops its voice connections and joins again from scratch. Use it when several players can't hear each other.
   - **Turn off / Turn on:** turns voice chat off or on for the whole lobby. While it's off, no phone uses its microphone.
   - **Quality:** **6, 12, 24 or 48 kbps**. The change applies to everyone at once, without reconnecting. The default is 24 kbps. 6 kbps saves the most mobile data and still keeps speech clear. Browsers won't encode voice below 6 kbps. Other players can see the setting but not change it.
-- **How it works:** audio goes directly between phones over WebRTC, with every phone connected to every other (at most 3 others). The server never handles audio. It only checks lobby membership, keeps track of who is in and who is muted, and passes along the messages phones need to connect. The connection is encrypted (DTLS‑SRTP).
+- **How it works: the built-in voice server (UDP):**
+  - **One upload:** each phone has one WebRTC connection to the game server and sends its voice to it once. The server passes it on to everyone else in the lobby, without decoding or mixing it.
+  - **Data:** with 4 people talking, a phone uploads about 3.3× less than with a direct link to everyone (measured: 131 KB a minute against 438 KB).
+  - **Reach:** every phone can reach the server, since it's the game server, so mixed networks (Jio mobile data and IPv4-only Wi-Fi) work.
+  - **Reconnecting:** one connection to redo, instead of one per player.
+  - **Security:** audio is encrypted (DTLS‑SRTP) between each phone and the server.
+  - **Ports:** it uses the UDP ports in `voice.sfu.portMin`–`portMax` (40000–40099 by default), one or two per phone in voice. On one Wi‑Fi network nothing needs setting up. **To play over the internet, forward that UDP range on your router to the host**; `setup.sh` opens it in the host's firewall. Phones outside the home network reach the server at the router's public IP, which is found with STUN, or set it with `voice.sfu.announcedIp`.
+  - **Fallbacks:** a pair of phones that can't both use the voice server falls back to a direct WebRTC link, and then to the voice relay over the game's own connection (below).
 - **Repairs itself:**
   - **No crossed calls:** of each pair of phones, only the one whose user id is lower dials. The other asks it to call back with a "ring". So two phones that reconnect together never call each other at once.
   - **Watchdog:** every 2 seconds each phone checks its links. It redials a link that broke, or hasn't connected within 12 seconds. If the phone took the microphone away (iOS does this when it's locked or another app is opened), it gets a fresh one. It also starts any incoming audio the browser refused to play.
@@ -349,8 +362,9 @@ Plain HTTP on `httpRedirectPort` redirects to HTTPS.
 | `trustProxy` | `false` | Trust `X-Forwarded-*` headers |
 | `gate.maxFailsPerIp` / `globalFailRotateThreshold` | 5 / 50 | Limits on access‑code guessing |
 | `voice.iceServers` | Google STUN | STUN/TURN servers for voice chat; see [Voice chat](#voice-chat) |
+| `voice.sfu.enabled` / `portMin` / `portMax` / `announcedIp` | `true` / 40000 / 40099 / `""` | The built-in voice server and its UDP ports (forward them on the router to play over the internet); `announcedIp` overrides the public IP found with STUN |
 
-Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH` and `LUDO_TRUST_PROXY`.
+Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH`, `LUDO_TRUST_PROXY`, `LUDO_VOICE_SFU` (`false` turns the voice server off), `LUDO_VOICE_PORTS` (e.g. `40000-40099`) and `LUDO_VOICE_IP`.
 
 ## Project layout
 

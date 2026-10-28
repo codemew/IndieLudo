@@ -6,6 +6,7 @@ import type { LobbyManager } from './lobbies.js';
 import type { NetStatsTracker } from './netStats.js';
 import type { DeviceService, SessionService } from './sessions.js';
 import type { UserService } from './users.js';
+import type { VoiceServer } from './sfu.js';
 import type { VoiceManager } from './voice.js';
 
 /** Services shared by the HTTP API, the admin routes and the socket layer. */
@@ -21,6 +22,8 @@ export interface Ctx {
   lobbies: LobbyManager;
   games: GameManager;
   voice: VoiceManager;
+  /** The built-in voice server (UDP). */
+  sfu: VoiceServer;
   net: NetStatsTracker;
   /** Disconnects the sockets of revoked sessions (wired up by the socket layer). */
   kickSessions: (sessionIds: number[]) => void;

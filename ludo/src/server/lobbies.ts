@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { COLORS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
+import { COLORS, MAX_SEATS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 
@@ -46,7 +46,7 @@ export interface LobbyManagerOptions {
   winsOf?: (userId: number) => number;
 }
 
-export const MAX_MEMBERS = 4;
+export const MAX_MEMBERS = MAX_SEATS;
 
 export function hashLobbyPassword(password: string): string {
   const salt = crypto.randomBytes(16);

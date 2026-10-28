@@ -1,5 +1,6 @@
 import type { NetStats } from './net.js';
-import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, VoiceState } from './types.js';
+import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, VoiceSlot, VoiceState } from './types.js';
+import { MAX_VOICE_PEERS } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
 export type Ack<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
@@ -51,11 +52,23 @@ export interface ClientToServer {
   'voice:signal': (p: VoiceSignalOut, ack: (r: Ack) => void) => void;
   /** Relayed voice for links that can't connect directly: a few Opus frames, for one or more players. */
   'voice:frames': (p: VoiceFramesOut) => void;
+  /** Connect to the built-in voice server: it answers with its offer and the slot map. */
+  'voice:sfuJoin': (p: { lobbyId: string }, ack: (r: Ack<SfuOffer>) => void) => void;
+  'voice:sfuAnswer': (p: { lobbyId: string; sdp: string }, ack: (r: Ack) => void) => void;
+  /** Late ICE candidates from the phone, as JSON (a list of RTCIceCandidateInit). */
+  'voice:sfuCand': (p: { lobbyId: string; sdp: string }, ack: (r: Ack) => void) => void;
+}
+
+export interface SfuOffer {
+  sdp: string;
+  slots: VoiceSlot[];
 }
 
 export interface VoiceJoined {
   state: VoiceState;
   iceServers: RTCIceServerConfig[];
+  /** The built-in voice server is on: connect to it (voice:sfuJoin) first. */
+  sfu?: boolean;
 }
 
 /** Same shape as the browser's RTCIceServer, declared here so the server needs no DOM types. */
@@ -98,7 +111,8 @@ export const RELAY_LIMITS = {
   /** Frames per message (about 60 ms of audio is sent at a time). */
   maxFrames: 8,
   maxFrameBytes: 1500,
-  maxTargets: 3,
+  /** Everyone else in a full lobby (4 seats + 4 spectators − you). */
+  maxTargets: MAX_VOICE_PEERS - 1,
   /** Messages per second, with a burst allowance; separate from the game's flood limit. */
   perSecond: 30,
   burst: 60,
@@ -149,6 +163,8 @@ export interface ServerToClient {
   'net:stats': (s: NetStats) => void;
   'voice:signal': (s: VoiceSignalIn) => void;
   'voice:frames': (f: VoiceFramesIn) => void;
+  /** Which of your voice-server receive slots carries whose voice (sent when it changes). */
+  'voice:slots': (s: { lobbyId: string; slots: VoiceSlot[] }) => void;
 }
 
 type FieldType = 'string' | 'int' | 'bool' | 'color';
@@ -218,4 +234,5 @@ export const SCHEMAS = {
     call: { type: 'int' },
     sdp: { type: 'string', max: 12_000 },
   },
+  sfuSdp: { lobbyId: { type: 'string', max: 64 }, sdp: { type: 'string', min: 1, max: 14_000 } },
 } satisfies Record<string, Schema>;

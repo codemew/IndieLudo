@@ -9,7 +9,7 @@ import { Server } from 'socket.io';
 import { NET_PING_INTERVAL_MS, NET_PING_TIMEOUT_MS } from '../shared/net.js';
 import { apiRouter } from './api.js';
 import { compressedAssets } from './assets.js';
-import type { Config } from './config.js';
+import { DEFAULT_SFU, type Config } from './config.js';
 import type { Ctx } from './context.js';
 import { openDb, type DB } from './db.js';
 import { cryptoDice, type DiceFn } from './dice.js';
@@ -22,6 +22,7 @@ import { attachSocketHandlers, lobbyBroadcaster, rooms, type LudoServerIO } from
 import { loadTls, type TlsMaterial } from './tls.js';
 import { UserService } from './users.js';
 import { VoiceManager } from './voice.js';
+import { VoiceServer } from './sfu.js';
 
 /** The package.json version (same path from src/server and dist/server). */
 const APP_VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -123,6 +124,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       // Sent while the members are still in the lobby room, just before it empties.
       if (byAdmin) io?.to(rooms.lobby(lobby.id)).emit('lobby:closed', { byAdmin: true });
       voice.close(lobby.id);
+      sfu.close(lobby.id);
       if (lobby.gameId) games.abort(lobby.gameId);
     },
   });
@@ -133,7 +135,17 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       return Boolean(lobby && humanIds(lobby).includes(userId));
     },
     isHost: (lobbyId, userId) => lobbies.get(lobbyId)?.hostId === userId,
-    onChange: (state) => io?.to(rooms.lobby(state.lobbyId)).emit('voice:state', state),
+    onChange: (state) => {
+      // The voice server follows the channel: whoever left it (or a restart, or voice off) is dropped.
+      sfu.sync(state.lobbyId, state.enabled ? state.participants.map((p) => p.userId) : []);
+      io?.to(rooms.lobby(state.lobbyId)).emit('voice:state', state);
+    },
+  });
+  const sfu = new VoiceServer({
+    config: config.voice.sfu ?? DEFAULT_SFU,
+    log,
+    onSlots: (lobbyId, userId, slots) => io?.to(rooms.user(userId)).emit('voice:slots', { lobbyId, slots }),
+    onLink: (lobbyId, userId, connected) => voice.setSfu(lobbyId, userId, connected),
   });
 
   const net = new NetStatsTracker();
@@ -158,6 +170,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     lobbies,
     games,
     voice,
+    sfu,
     net,
     kickSessions: (ids) => {
       if (!io || ids.length === 0) return;
@@ -189,7 +202,9 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'"],
+          // 'wasm-unsafe-eval' lets the page compile RNNoise's WebAssembly (noise removal for voice); it
+          // allows no eval of JavaScript.
+          scriptSrc: ["'self'", "'wasm-unsafe-eval'"],
           styleSrc: ["'self'", "'unsafe-inline'"],
           imgSrc: ["'self'", 'data:'],
           connectSrc: ["'self'", 'wss:', 'ws:'],
@@ -303,6 +318,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       clearInterval(sweeper);
       clearInterval(pinger);
       games.shutdown();
+      sfu.shutdown();
       await new Promise<void>((r) => io!.close(() => r()));
       if (redirect) await new Promise<void>((r) => redirect!.close(() => r()));
       main.closeAllConnections?.();

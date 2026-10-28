@@ -26,10 +26,28 @@ export interface Config {
    * `turn` is a TURN relay using a shared secret (coturn's use-auth-secret, and most hosted
    * TURN services): each player gets a login that expires, and the secret never leaves the server.
    */
-  voice: { iceServers: RTCIceServerConfig[]; turn?: TurnConfig | null };
+  voice: { iceServers: RTCIceServerConfig[]; turn?: TurnConfig | null; sfu?: SfuConfig };
   /** Not in config.json: directory for generated certificates. */
   certDir: string;
 }
+
+/**
+ * The built-in voice server: every phone sends its voice to the game server once, over UDP, and
+ * the server passes it on to everyone else in the lobby (see sfu.ts).
+ */
+export interface SfuConfig {
+  enabled: boolean;
+  /** UDP ports for voice, one per phone in a voice chat. Forward this range on the router to play over the internet. */
+  portMin: number;
+  portMax: number;
+  /**
+   * The address phones outside the home network reach this server at (the router's public IP).
+   * Empty: found automatically with the STUN servers in `voice.iceServers`.
+   */
+  announcedIp: string;
+}
+
+export const DEFAULT_SFU: SfuConfig = { enabled: true, portMin: 40000, portMax: 40099, announcedIp: '' };
 
 export interface TurnConfig {
   /** e.g. ["turn:203.0.113.5:3478", "turn:203.0.113.5:3478?transport=tcp"] */
@@ -53,7 +71,7 @@ export const DEFAULTS: Config = {
   https: { enabled: true, port: 3443, httpRedirectPort: 3000, certPath: '', keyPath: '', autoSelfSigned: true },
   trustProxy: false,
   gate: { maxFailsPerIp: 5, globalFailRotateThreshold: 50 },
-  voice: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+  voice: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }], sfu: DEFAULT_SFU },
   certDir: './data/certs',
 };
 
@@ -69,7 +87,7 @@ export function mergeConfig(base: Config, over: ConfigOverrides): Config {
     ...over,
     https: { ...base.https, ...over.https },
     gate: { ...base.gate, ...over.gate },
-    voice: { ...base.voice, ...over.voice },
+    voice: { ...base.voice, ...over.voice, sfu: { ...DEFAULT_SFU, ...base.voice.sfu, ...over.voice?.sfu } },
   };
 }
 
@@ -84,6 +102,12 @@ const ENV_MAP: [string, (c: ConfigOverrides, v: string) => void][] = [
   ['LUDO_KEY_PATH', (c, v) => (c.https = { ...c.https, keyPath: v })],
   ['LUDO_TRUST_PROXY', (c, v) => (c.trustProxy = v === 'true' || v === '1')],
   ['LUDO_TURN_URLS', (c, v) => (c.voice = { ...c.voice, turn: { secret: '', ...c.voice?.turn, urls: v.split(',').map((u) => u.trim()) } })],
+  ['LUDO_VOICE_SFU', (c, v) => (c.voice = { ...c.voice, sfu: { ...DEFAULT_SFU, ...c.voice?.sfu, enabled: v !== 'false' && v !== '0' } })],
+  ['LUDO_VOICE_PORTS', (c, v) => {
+    const [min, max] = v.split('-').map((x) => Number(x.trim()));
+    c.voice = { ...c.voice, sfu: { ...DEFAULT_SFU, ...c.voice?.sfu, portMin: min, portMax: max ?? min } };
+  }],
+  ['LUDO_VOICE_IP', (c, v) => (c.voice = { ...c.voice, sfu: { ...DEFAULT_SFU, ...c.voice?.sfu, announcedIp: v.trim() } })],
   ['LUDO_TURN_SECRET', (c, v) => (c.voice = { ...c.voice, turn: { urls: [], ...c.voice?.turn, secret: v } })],
 ];
 
@@ -109,6 +133,12 @@ export function validateConfig(c: Config): string[] {
   const validUrls = (u: unknown) => typeof u === 'string' || (Array.isArray(u) && u.every((x) => typeof x === 'string'));
   if (!Array.isArray(ice) || !ice.every((s) => s && typeof s === 'object' && validUrls(s.urls))) {
     errors.push('voice.iceServers must be a list of { "urls": "stun:…" } objects');
+  }
+  const sfu = c.voice.sfu;
+  if (sfu) {
+    const port = (p: number) => Number.isInteger(p) && p >= 1024 && p <= 65535;
+    if (!port(sfu.portMin) || !port(sfu.portMax) || sfu.portMax < sfu.portMin) errors.push('voice.sfu.portMin/portMax must be a UDP port range between 1024 and 65535');
+    if (sfu.announcedIp && !/^\d{1,3}(\.\d{1,3}){3}$|^[0-9a-f:]+$/i.test(sfu.announcedIp)) errors.push('voice.sfu.announcedIp must be an IP address');
   }
   const turn = c.voice.turn;
   if (turn) {

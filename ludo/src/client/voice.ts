@@ -1,5 +1,6 @@
-import type { RTCIceServerConfig, VoiceFramesIn, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
-import { DEFAULT_VOICE_BITRATE, VOICE_BITRATES, type VoiceState } from '../shared/types.js';
+import type { RTCIceServerConfig, SfuOffer, VoiceFramesIn, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
+import { DEFAULT_VOICE_BITRATE, VOICE_BITRATES, type VoiceSlot, type VoiceState } from '../shared/types.js';
+import { MicChain, canDenoise, micConstraints } from './micChain.js';
 import { emit, send } from './net.js';
 import { RelayPlayer, RelaySender, relaySupport } from './voiceRelay.js';
 
@@ -16,7 +17,21 @@ const RELAY_AFTER_MS = 8_000;
 const RETRY_MS = 1500;
 /** Plugging in or pairing a headset fires several devicechange events; act once they settle. */
 const DEVICE_SETTLE_MS = 700;
-const MIC_CONSTRAINTS: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+/** With the voice server on, direct links wait this long for both phones to reach it first. */
+const SFU_GRACE_MS = 6000;
+/** A received voice level older than this means they stopped talking (nothing is sent in silence). */
+const LEVEL_STALE_MS = 250;
+
+/** Loudness 0..1 for the talking animation, from an amplitude 0..1: -60 dBFS → 0, -12 dBFS → 1. */
+export function talkLevel(amplitude: number): number {
+  if (!(amplitude > 0)) return 0;
+  return Math.min(1, Math.max(0, (20 * Math.log10(amplitude) + 60) / 48));
+}
+
+function micOptions(): MediaTrackConstraints {
+  const supported = (navigator.mediaDevices?.getSupportedConstraints?.() ?? {}) as Record<string, boolean | undefined>;
+  return micConstraints(canDenoise(), supported);
+}
 
 /**
  * Which microphone to use after the audio devices changed: one that just appeared (Bluetooth
@@ -107,6 +122,8 @@ export interface LinkReport {
   late: { sent: number; got: number };
   /** Voice through the game server: we send to them, and how much of theirs we've received. */
   relay: { sending: boolean; heard: boolean; framesIn: number };
+  /** Talking through the built-in voice server (UDP). */
+  sfu: boolean;
   mine: RouteSummary;
   theirs: RouteSummary;
   /** Route types of the working connection, e.g. "host → host". */
@@ -131,6 +148,8 @@ function iceGathered(pc: RTCPeerConnection): Promise<void> {
 
 interface Peer {
   pc: RTCPeerConnection;
+  /** Our microphone's sender on this link (null for listen-only). */
+  mic: RTCRtpSender | null;
   audio: HTMLAudioElement;
   status: PeerStatus;
   /** Ties an answer to our offer, or our answer to their offer. */
@@ -149,10 +168,32 @@ interface Peer {
 /** Late candidates are batched for this long, so a burst is one message. */
 const LATE_BATCH_MS = 250;
 
+/** Our one connection to the built-in voice server (see server/sfu.ts). */
+interface SfuLink {
+  pc: RTCPeerConnection | null;
+  mic: RTCRtpSender | null;
+  /** Which receive slot (mid) carries whose voice. */
+  slots: VoiceSlot[];
+  audios: HTMLAudioElement[];
+  status: PeerStatus;
+  since: number;
+  late: RTCIceCandidateInit[];
+  lateTimer: ReturnType<typeof setTimeout> | null;
+}
+
 /**
- * Voice chat for one lobby: a full mesh of audio-only WebRTC connections (at most 3 peers).
- * Every lobby member is in it from joining the lobby until leaving it, through matches and
- * results, unless the host turns it off.
+ * Voice chat for one lobby (up to 8 people: every seat and every spectator). Every lobby member
+ * is in it from joining the lobby until leaving it, through matches and results, unless the
+ * host turns it off.
+ *
+ * The voice goes, for each pair of phones, the best way that works:
+ * 1. through the built-in voice server over UDP, when both phones are connected to it (one
+ *    upload per phone however many listen);
+ * 2. otherwise a direct WebRTC link between the two;
+ * 3. and if that can't connect, relayed over the game's own connection (voiceRelay.ts).
+ *
+ * The microphone goes through RNNoise and a voice-focus filter (micChain.ts), and nothing at all
+ * is sent while nobody talks.
  *
  * Who dials whom is fixed: of each pair, the phone with the lower user id sends the offer and
  * the other only answers, or sends a "ring" to ask for a fresh offer. So two phones never
@@ -193,6 +234,19 @@ class VoiceClient {
   private switching = false;
   private listeners = new Set<() => void>();
   private audioBox: HTMLElement | null = null;
+  /** The microphone, cleaned up (RNNoise, filters) and gated; null where that can't run. */
+  private chain: MicChain | null = null;
+  private chainStream: MediaStream | null = null;
+  /** The server has the voice server on. */
+  private sfuOn = false;
+  private sfu: SfuLink | null = null;
+  private sfuStarting = false;
+  /** Others connected to the voice server (from the channel state). */
+  private onSfu = new Set<number>();
+  /** When each other member appeared, for the grace before dialling them directly. */
+  private seenAt = new Map<number, number>();
+  /** Last RTP timestamp seen per speaker, to tell a fresh voice level from a stale one. */
+  private lastSrc = new Map<number, { rtp: number; at: number }>();
 
   constructor() {
     if (typeof document === 'undefined') return;
@@ -221,6 +275,7 @@ class VoiceClient {
   }
 
   peerStatus(userId: number): PeerStatus | null {
+    if (this.viaSfu(userId)) return 'connected';
     // Heard through the game server counts as connected, even while the direct link keeps trying.
     if (this.relayIn.heard(userId)) return 'connected';
     return this.peers.get(userId)?.status ?? null;
@@ -229,15 +284,62 @@ class VoiceClient {
   /** Players whose voice reaches us through the game server rather than directly. */
   get relayedCount(): number {
     let n = 0;
-    for (const id of this.others) if (this.peers.get(id)?.status !== 'connected' && this.relayIn.heard(id)) n++;
+    for (const id of this.others) if (!this.viaSfu(id) && this.peers.get(id)?.status !== 'connected' && this.relayIn.heard(id)) n++;
     return n;
+  }
+
+  /** Players we talk with through the voice server. */
+  get sfuCount(): number {
+    let n = 0;
+    for (const id of this.others) if (this.viaSfu(id)) n++;
+    return n;
+  }
+
+  /** Our voice-server connection: off, or its state. */
+  get sfuStatus(): PeerStatus | 'off' {
+    return this.sfuOn ? (this.sfu?.status ?? 'connecting') : 'off';
+  }
+
+  /** RNNoise is cleaning up our microphone. */
+  get denoising(): boolean {
+    return Boolean(this.chain?.ready && this.chain.denoising);
+  }
+
+  /** Both of us are on the voice server, and it carries their voice to us. */
+  private viaSfu(userId: number): boolean {
+    return this.sfu?.status === 'connected' && this.onSfu.has(userId) && this.sfu.slots.some((s) => s.userId === userId);
+  }
+
+  /**
+   * How loudly someone is talking right now, 0..1, for the talking animation. Ours comes from
+   * the voice gate (0 while muted or quiet, matching what the others hear); theirs from the
+   * level the browser reads off each packet that arrives, or from relayed audio.
+   */
+  levelOf(userId: number): number {
+    if (!this.joined) return 0;
+    if (userId === this.myId) return !this.muted && this.chain?.ready ? this.chain.level : 0;
+    let receiver: RTCRtpReceiver | undefined;
+    if (this.viaSfu(userId)) {
+      const mid = this.sfu!.slots.find((s) => s.userId === userId)?.mid;
+      receiver = this.sfu!.pc?.getTransceivers().find((t) => t.mid === mid)?.receiver;
+    } else if (this.peers.get(userId)?.status === 'connected') {
+      receiver = this.peers.get(userId)!.pc.getReceivers()[0];
+    }
+    if (!receiver) return this.relayIn.levelOf(userId);
+    const src = receiver.getSynchronizationSources?.()[0];
+    if (!src) return 0;
+    const now = performance.now();
+    const last = this.lastSrc.get(userId);
+    if (!last || last.rtp !== src.rtpTimestamp) this.lastSrc.set(userId, { rtp: src.rtpTimestamp, at: now });
+    else if (now - last.at > LEVEL_STALE_MS) return 0;
+    return talkLevel(src.audioLevel ?? 0);
   }
 
   /** Last error the server gave for one of our voice signals (e.g. a rejected offer). */
   signalError: string | null = null;
 
   /** Per-player link details for the "Details" panel and a copyable report. */
-  async report(): Promise<{ myId: number; mic: boolean; iceServers: number; signalError: string | null; links: LinkReport[] }> {
+  async report(): Promise<{ myId: number; mic: boolean; iceServers: number; signalError: string | null; sfu: PeerStatus | 'off'; denoise: boolean; links: LinkReport[] }> {
     const links: LinkReport[] = [];
     for (const userId of this.others) {
       const peer = this.peers.get(userId);
@@ -269,13 +371,14 @@ class VoiceClient {
         gotReply: Boolean(peer?.pc.remoteDescription),
         late: peer ? { ...peer.trickled } : { sent: 0, got: 0 },
         relay: { sending: this.relayTo.has(userId), heard: this.relayIn.heard(userId), framesIn: this.relayIn.framesFrom(userId) },
+        sfu: this.viaSfu(userId),
         mine: routesIn(peer?.pc.localDescription?.sdp),
         theirs: routesIn(peer?.pc.remoteDescription?.sdp),
         via,
         audioKbIn,
       });
     }
-    return { myId: this.myId, mic: this.micAvailable, iceServers: this.iceServers.length, signalError: this.signalError, links };
+    return { myId: this.myId, mic: this.micAvailable, iceServers: this.iceServers.length, signalError: this.signalError, sfu: this.sfuStatus, denoise: this.denoising, links };
   }
 
   /** How many of the other members we have a working audio link with. */
@@ -313,6 +416,7 @@ class VoiceClient {
       const state = r.data!.state;
       this.error = null;
       this.iceServers = r.data!.iceServers;
+      this.sfuOn = Boolean(r.data!.sfu);
       this.bitrateKbps = state.bitrateKbps;
       this.epoch = state.epoch;
       this.enabled = state.enabled;
@@ -327,8 +431,10 @@ class VoiceClient {
       // The server remembers mute across rejoins; make it match what this phone is doing.
       const me = state.participants.find((p) => p.userId === myId);
       if (me && me.muted !== this.silent) void emit('voice:mute', { lobbyId, muted: this.silent });
-      this.others = new Set(state.participants.map((p) => p.userId).filter((id) => id !== myId));
-      for (const id of this.others) this.connect(id);
+      this.setOthers(state);
+      // The voice server first; direct links (the watchdog) only for those it can't carry.
+      if (this.sfuOn) void this.startSfu();
+      else for (const id of this.others) this.connect(id);
       this.startWatchdog();
       return null;
     } finally {
@@ -345,13 +451,59 @@ class VoiceClient {
       return;
     }
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: MIC_CONSTRAINTS, video: false });
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: micOptions(), video: false });
       this.micAvailable = true;
+      await this.buildChain();
       this.knownMics = await this.listMics();
     } catch {
       this.stream = null;
       this.micAvailable = false;
     }
+  }
+
+  /** Runs the microphone through RNNoise, the voice-focus filters and the voice gate. */
+  private async buildChain(): Promise<void> {
+    this.chain?.stop();
+    this.chain = this.chainStream = null;
+    const stream = this.stream;
+    if (!stream) return;
+    const chain = await MicChain.create(stream);
+    if (this.stream !== stream) {
+      chain?.stop();
+      return;
+    }
+    if (!chain) {
+      // No audio worklets here: let the browser suppress noise instead.
+      void stream.getAudioTracks()[0]?.applyConstraints(micConstraints(false)).catch(() => {});
+      return;
+    }
+    chain.onGate = () => this.applySendTrack();
+    chain.onReady = () => this.applySendTrack();
+    chain.onNoRnnoise = () => void stream.getAudioTracks()[0]?.applyConstraints(micConstraints(false)).catch(() => {});
+    this.chain = chain;
+    this.chainStream = new MediaStream([chain.track]);
+    chain.track.enabled = !this.muted;
+  }
+
+  /**
+   * What our senders carry: the cleaned-up microphone while we talk, and nothing at all (no
+   * packets) while we're quiet or muted. Without the chain (or before iOS lets audio run): the
+   * raw microphone, muted by disabling it.
+   */
+  private sendTrack(): MediaStreamTrack | null {
+    const raw = this.stream?.getAudioTracks()[0] ?? null;
+    if (!raw) return null;
+    const c = this.chain;
+    if (c?.ready) return !this.muted && c.open ? c.track : null;
+    return raw;
+  }
+
+  private applySendTrack(): void {
+    const track = this.sendTrack();
+    for (const sender of [...[...this.peers.values()].map((p) => p.mic), this.sfu?.mic]) {
+      if (sender && sender.track !== track) void sender.replaceTrack(track).catch(() => {});
+    }
+    this.relayOut.setGate(!this.chain?.ready || this.chain.open);
   }
 
   private async listMics(): Promise<string[]> {
@@ -376,7 +528,7 @@ class VoiceClient {
       const wanted = pickMicAfterChange(this.knownMics, devices);
       this.knownMics = devices.filter((d) => d.kind === 'audioinput').map((d) => d.deviceId);
       const open = (deviceId: string | null) =>
-        navigator.mediaDevices.getUserMedia({ audio: deviceId ? { ...MIC_CONSTRAINTS, deviceId: { exact: deviceId } } : MIC_CONSTRAINTS, video: false });
+        navigator.mediaDevices.getUserMedia({ audio: deviceId ? { ...micOptions(), deviceId: { exact: deviceId } } : micOptions(), video: false });
       let next: MediaStream | null = null;
       try {
         next = await open(wanted);
@@ -391,21 +543,19 @@ class VoiceClient {
         if (!next && this.joined) void this.rejoin();
         return;
       }
-      const track = next.getAudioTracks()[0];
       const old = this.stream;
       this.stream = next;
+      await this.buildChain();
+      // Every sender switches to the new microphone (applyMute does that) without redialling.
       this.applyMute();
-      for (const p of this.peers.values()) {
-        for (const sender of p.pc.getSenders()) {
-          if (sender.track?.kind === 'audio') await sender.replaceTrack(track).catch(() => {});
-        }
-        // Reattach playback so the browser opens its output on the new route.
-        const src = p.audio.srcObject;
-        if (src) {
-          p.audio.srcObject = null;
-          p.audio.srcObject = src;
-          void p.audio.play().catch(() => {});
-        }
+      this.updateRelay();
+      // Reattach playback so the browser opens its output on the new route.
+      for (const audio of [...[...this.peers.values()].map((p) => p.audio), ...(this.sfu?.audios ?? [])]) {
+        const src = audio.srcObject;
+        if (!src) continue;
+        audio.srcObject = null;
+        audio.srcObject = src;
+        void audio.play().catch(() => {});
       }
       for (const t of old?.getTracks() ?? []) if (!next.getTracks().includes(t)) t.stop();
     } finally {
@@ -475,7 +625,8 @@ class VoiceClient {
     if (state.lobbyId !== this.lobbyId) return;
     if (state.bitrateKbps !== this.bitrateKbps) {
       this.bitrateKbps = state.bitrateKbps;
-      for (const p of this.peers.values()) void this.applyBitrate(p.pc);
+      for (const p of this.peers.values()) void this.applyBitrate(p.mic);
+      void this.applyBitrate(this.sfu?.mic ?? null);
       this.relayOut.setBitrate(this.bitrateKbps);
     }
     if (!state.enabled) {
@@ -501,9 +652,111 @@ class VoiceClient {
       if (this.error !== 'NO_MIC_SUPPORT') void this.restart();
       return;
     }
-    this.others = new Set(state.participants.map((p) => p.userId).filter((id) => id !== this.myId));
-    for (const id of [...this.peers.keys()]) if (!this.others.has(id)) this.closePeer(id);
+    this.setOthers(state);
+    for (const id of [...this.peers.keys()]) if (!this.others.has(id) || this.viaSfu(id)) this.closePeer(id);
     this.notify();
+  }
+
+  private setOthers(state: VoiceState): void {
+    const now = Date.now();
+    this.others = new Set(state.participants.map((p) => p.userId).filter((id) => id !== this.myId));
+    this.onSfu = new Set(state.participants.filter((p) => p.sfu && p.userId !== this.myId).map((p) => p.userId));
+    for (const id of this.others) if (!this.seenAt.has(id)) this.seenAt.set(id, now);
+    for (const id of [...this.seenAt.keys()]) if (!this.others.has(id)) this.seenAt.delete(id);
+  }
+
+  /** The voice server says which receive slot carries whose voice. */
+  onSlots(s: { lobbyId: string; slots: VoiceSlot[] }): void {
+    if (s.lobbyId !== this.lobbyId || !this.sfu) return;
+    this.sfu.slots = s.slots;
+    for (const id of [...this.peers.keys()]) if (this.viaSfu(id)) this.closePeer(id);
+    this.notify();
+  }
+
+  /** Connects (again) to the voice server: one connection carries everyone. */
+  private async startSfu(): Promise<void> {
+    const lobbyId = this.lobbyId;
+    if (!lobbyId || !this.sfuOn || this.sfuStarting) return;
+    this.sfuStarting = true;
+    this.closeSfu();
+    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], status: 'connecting', since: Date.now(), late: [], lateTimer: null };
+    this.sfu = link;
+    this.notify();
+    const fail = () => {
+      if (this.sfu !== link) return;
+      link.status = 'failed';
+      link.since = Date.now();
+    };
+    try {
+      const r = await emit<SfuOffer>('voice:sfuJoin', { lobbyId }, 10_000);
+      if (this.sfu !== link || this.lobbyId !== lobbyId) return;
+      if (!r.ok) {
+        if (r.error === 'SFU_OFF') this.sfuOn = false;
+        return fail();
+      }
+      link.slots = r.data!.slots;
+      const pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+      link.pc = pc;
+      pc.ontrack = (e) => {
+        const audio = document.createElement('audio');
+        audio.autoplay = true;
+        audio.setAttribute('playsinline', '');
+        audio.srcObject = new MediaStream([e.track]);
+        this.box().appendChild(audio);
+        link.audios.push(audio);
+        void audio.play().catch(() => {});
+      };
+      pc.onicecandidate = (e) => {
+        if (!e.candidate || this.sfu !== link) return;
+        link.late.push(e.candidate.toJSON());
+        link.lateTimer ??= setTimeout(() => {
+          link.lateTimer = null;
+          if (this.sfu === link && link.late.length) void emit('voice:sfuCand', { lobbyId, sdp: JSON.stringify(link.late.splice(0)) });
+        }, LATE_BATCH_MS);
+      };
+      pc.onconnectionstatechange = () => {
+        if (this.sfu !== link) return;
+        const s = pc.connectionState;
+        const status: PeerStatus = s === 'connected' ? 'connected' : s === 'failed' || s === 'closed' ? 'failed' : 'connecting';
+        if (status !== link.status) link.since = Date.now();
+        link.status = status;
+        if (status === 'connected') {
+          void this.applyBitrate(link.mic);
+          for (const a of link.audios) void a.play().catch(() => {});
+        }
+        this.updateRelay();
+        this.notify();
+      };
+      await pc.setRemoteDescription({ type: 'offer', sdp: setOpusBitrate(r.data!.sdp, MAX_KBPS) });
+      // The first section is our microphone (the server only receives on it); the rest are slots.
+      const up = pc.getTransceivers()[0];
+      up.direction = this.stream ? 'sendonly' : 'inactive';
+      link.mic = up.sender;
+      await up.sender.replaceTrack(this.sendTrack());
+      await pc.setLocalDescription(await pc.createAnswer());
+      const a = await emit('voice:sfuAnswer', { lobbyId, sdp: pc.localDescription!.sdp });
+      if (!a.ok) fail();
+    } catch {
+      fail();
+    } finally {
+      this.sfuStarting = false;
+      this.notify();
+    }
+  }
+
+  private closeSfu(): void {
+    const link = this.sfu;
+    if (!link) return;
+    this.sfu = null;
+    if (link.lateTimer) clearTimeout(link.lateTimer);
+    if (link.pc) {
+      link.pc.ontrack = link.pc.onicecandidate = link.pc.onconnectionstatechange = null;
+      link.pc.close();
+    }
+    for (const a of link.audios) {
+      a.srcObject = null;
+      a.remove();
+    }
   }
 
   /** Relayed voice from a player we can't reach directly. Ignored once the direct link works. */
@@ -517,6 +770,8 @@ class VoiceClient {
 
   async onSignal(sig: VoiceSignalIn): Promise<void> {
     if (!this.joined || sig.lobbyId !== this.lobbyId) return;
+    // Both on the voice server: it carries this pair, no direct link needed.
+    if (sig.kind !== 'cand' && this.viaSfu(sig.from)) return;
     if (sig.kind === 'cand') {
       this.onLateCandidates(sig);
     } else if (sig.kind === 'ring') {
@@ -529,9 +784,16 @@ class VoiceClient {
       if (this.myId < sig.from) return; // we are the dialler for this pair; they'll get our offer
       // A new offer always replaces whatever link we had with that player.
       this.closePeer(sig.from);
-      const peer = this.createPeer(sig.from, sig.call);
+      const peer = this.createPeer(sig.from, sig.call, false);
       try {
         await peer.pc.setRemoteDescription({ type: 'offer', sdp: sig.sdp });
+        // Their offer made our audio section: send our microphone on it (or just listen).
+        const t = peer.pc.getTransceivers()[0];
+        if (t) {
+          t.direction = this.stream ? 'sendrecv' : 'recvonly';
+          peer.mic = t.sender;
+          await t.sender.replaceTrack(this.sendTrack());
+        }
         const answer = await peer.pc.createAnswer();
         await peer.pc.setLocalDescription({ type: 'answer', sdp: setOpusBitrate(answer.sdp ?? '', MAX_KBPS) });
         this.applyQueued(peer);
@@ -592,6 +854,7 @@ class VoiceClient {
     if (!lobbyId || this.joining) return null;
     this.joined = false;
     this.closeAllPeers();
+    this.closeSfu();
     return this.join(lobbyId, this.myId);
   }
 
@@ -607,10 +870,8 @@ class VoiceClient {
   }
 
   private async call(userId: number): Promise<void> {
-    const peer = this.createPeer(userId, ++this.seq);
+    const peer = this.createPeer(userId, ++this.seq, true);
     try {
-      // Listen-only (no microphone): still ask to receive their audio.
-      if (!this.stream) peer.pc.addTransceiver('audio', { direction: 'recvonly' });
       const offer = await peer.pc.createOffer();
       await peer.pc.setLocalDescription({ type: 'offer', sdp: setOpusBitrate(offer.sdp ?? '', MAX_KBPS) });
       await iceGathered(peer.pc);
@@ -632,14 +893,20 @@ class VoiceClient {
     });
   }
 
-  private createPeer(userId: number, call: number): Peer {
+  /** A direct link. The dialler adds its audio section now; the answerer once the offer is in. */
+  private createPeer(userId: number, call: number, dialler: boolean): Peer {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers as RTCIceServer[] });
-    for (const track of this.stream?.getAudioTracks() ?? []) pc.addTrack(track, this.stream!);
+    let mic: RTCRtpSender | null = null;
+    if (dialler) {
+      // Listen-only (no microphone): still ask to receive their audio.
+      mic = pc.addTransceiver('audio', { direction: this.stream ? 'sendrecv' : 'recvonly' }).sender;
+      void mic.replaceTrack(this.sendTrack()).catch(() => {});
+    }
     const audio = document.createElement('audio');
     audio.autoplay = true;
     audio.setAttribute('playsinline', '');
     this.box().appendChild(audio);
-    const peer: Peer = { pc, audio, status: 'connecting', call, since: Date.now(), sentSdp: false, late: [], lateTimer: null, queued: [], trickled: { sent: 0, got: 0 } };
+    const peer: Peer = { pc, mic, audio, status: 'connecting', call, since: Date.now(), sentSdp: false, late: [], lateTimer: null, queued: [], trickled: { sent: 0, got: 0 } };
     // Candidates found after our offer/answer went out: pass them on in small batches.
     pc.onicecandidate = (e) => {
       if (!e.candidate || !peer.sentSdp || this.peers.get(userId) !== peer) return;
@@ -663,13 +930,13 @@ class VoiceClient {
       if (status === 'failed' && peer.status !== 'failed') peer.since = Date.now();
       peer.status = status;
       if (status === 'connected') {
-        void this.applyBitrate(pc);
+        void this.applyBitrate(peer.mic);
         void audio.play().catch(() => {});
       }
       this.notify();
     };
     this.peers.set(userId, peer);
-    void this.applyBitrate(pc);
+    void this.applyBitrate(mic);
     this.notify();
     return peer;
   }
@@ -697,7 +964,18 @@ class VoiceClient {
       return;
     }
     const now = Date.now();
+    // The voice-server link: (re)connect it when it's missing, broke, or never came up.
+    if (this.sfuOn && !this.sfuStarting) {
+      const s = this.sfu;
+      if (!s || (s.status === 'failed' && now - s.since > RETRY_MS) || (s.status !== 'connected' && now - s.since > STALL_MS) || s.pc?.connectionState === 'closed') void this.startSfu();
+    }
     for (const id of this.others) {
+      if (this.viaSfu(id)) {
+        if (this.peers.has(id)) this.closePeer(id);
+        continue;
+      }
+      // Give both phones a moment to reach the voice server before dialling directly.
+      if (this.sfuOn && !this.peers.has(id) && now - (this.seenAt.get(id) ?? 0) < SFU_GRACE_MS) continue;
       const peer = this.peers.get(id);
       // close() fires no state event, so a link closed under us still reads as connected.
       if (peer && peer.pc.connectionState === 'closed' && peer.status !== 'failed') this.markFailed(id, peer);
@@ -731,7 +1009,7 @@ class VoiceClient {
     const before = this.relayTo.size;
     this.relayTo.clear();
     for (const id of this.others) {
-      if (this.peers.get(id)?.status === 'connected') {
+      if (this.peers.get(id)?.status === 'connected' || this.viaSfu(id)) {
         this.downSince.delete(id);
         this.relayIn.drop(id);
         continue;
@@ -740,44 +1018,50 @@ class VoiceClient {
       if (now - this.downSince.get(id)! >= RELAY_AFTER_MS) this.relayTo.add(id);
     }
     for (const id of [...this.downSince.keys()]) if (!this.others.has(id)) this.downSince.delete(id);
-    const sendNow = this.joined && this.relayTo.size > 0 && Boolean(this.stream) && !this.muted && relaySupport().send;
+    // The cleaned-up microphone when it runs (gated: nothing is encoded while we're quiet).
+    const source = this.chain?.ready ? this.chainStream : this.stream;
+    const sendNow = this.joined && this.relayTo.size > 0 && Boolean(source) && !this.muted && relaySupport().send;
     // A new microphone (earphones connected, Rejoin): send from that one.
-    if (sendNow && this.relayOut.running && this.relayOut.stream !== this.stream) this.relayOut.stop();
-    if (sendNow && !this.relayOut.running) this.relayOut.start(this.stream!, this.bitrateKbps);
+    if (sendNow && this.relayOut.running && this.relayOut.stream !== source) this.relayOut.stop();
+    if (sendNow && !this.relayOut.running) this.relayOut.start(source!, this.bitrateKbps);
     else if (!sendNow && this.relayOut.running) this.relayOut.stop();
+    this.relayOut.setGate(!this.chain?.ready || this.chain.open);
     if (before !== this.relayTo.size) this.notify();
   }
 
   /** Starts any incoming audio the browser left paused (autoplay rules after a reconnect). */
   resumeAudio(): void {
     for (const p of this.peers.values()) if (p.audio.srcObject && p.audio.paused) void p.audio.play().catch(() => {});
+    for (const a of this.sfu?.audios ?? []) if (a.paused) void a.play().catch(() => {});
+    this.chain?.resume();
     this.relayIn.resume();
     this.relayOut.resume();
   }
 
-  /** Caps every outgoing audio stream at the shared quality setting. */
-  private async applyBitrate(pc: RTCPeerConnection): Promise<void> {
-    for (const sender of pc.getSenders()) {
-      if (sender.track?.kind !== 'audio') continue;
-      const params = sender.getParameters();
-      if (!params.encodings?.length) params.encodings = [{}];
-      params.encodings[0].maxBitrate = this.bitrateKbps * 1000;
-      try {
-        await sender.setParameters(params);
-      } catch {
-        /* not negotiated yet; applied again once connected */
-      }
+  /** Caps our outgoing audio at the shared quality setting. */
+  private async applyBitrate(sender: RTCRtpSender | null): Promise<void> {
+    if (!sender) return;
+    const params = sender.getParameters();
+    if (!params.encodings?.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = this.bitrateKbps * 1000;
+    try {
+      await sender.setParameters(params);
+    } catch {
+      /* not negotiated yet; applied again once connected */
     }
   }
 
   private applyMute(): void {
     for (const t of this.stream?.getAudioTracks() ?? []) t.enabled = !this.muted;
+    if (this.chain) this.chain.track.enabled = !this.muted;
+    this.applySendTrack();
   }
 
   /** Drops every connection and the microphone; we are out of the channel. */
   private teardown(): void {
     this.joined = false;
     this.closeAllPeers();
+    this.closeSfu();
     this.relayOut.stop();
     this.relayIn.stopAll();
     this.relayTo.clear();
@@ -807,6 +1091,8 @@ class VoiceClient {
   }
 
   private stopStream(): void {
+    this.chain?.stop();
+    this.chain = this.chainStream = null;
     for (const t of this.stream?.getTracks() ?? []) t.stop();
     this.stream = null;
   }

@@ -3,6 +3,8 @@ import { AppError } from './errors.js';
 
 interface Member {
   muted: boolean;
+  /** Connected to the built-in voice server. */
+  sfu: boolean;
   /** The socket that joined; signals for this member go only there. */
   socketId: string;
 }
@@ -39,7 +41,7 @@ export class VoiceManager {
       enabled: ch?.enabled ?? true,
       epoch: ch?.epoch ?? 0,
       bitrateKbps: ch?.bitrateKbps ?? DEFAULT_VOICE_BITRATE,
-      participants: ch ? [...ch.members].map(([userId, m]) => ({ userId, muted: m.muted })) : [],
+      participants: ch ? [...ch.members].map(([userId, m]) => ({ userId, muted: m.muted, ...(m.sfu && { sfu: true }) })) : [],
     };
   }
 
@@ -73,7 +75,7 @@ export class VoiceManager {
     const ch = this.channel(lobbyId);
     if (!ch.enabled) return this.state(lobbyId);
     const existing = ch.members.get(userId);
-    ch.members.set(userId, { muted: existing?.muted ?? false, socketId });
+    ch.members.set(userId, { muted: existing?.muted ?? false, sfu: false, socketId });
     return this.changed(lobbyId);
   }
 
@@ -121,6 +123,19 @@ export class VoiceManager {
     if (!ch.enabled) throw new AppError('VOICE_DISABLED', 409);
     ch.epoch++;
     ch.members.clear();
+    this.changed(lobbyId);
+  }
+
+  /** True while the user is in the lobby's voice channel. */
+  isIn(lobbyId: string, userId: number): boolean {
+    return Boolean(this.channels.get(lobbyId)?.members.has(userId));
+  }
+
+  /** Their voice-server connection came up or went down. */
+  setSfu(lobbyId: string, userId: number, sfu: boolean): void {
+    const member = this.channels.get(lobbyId)?.members.get(userId);
+    if (!member || member.sfu === sfu) return;
+    member.sfu = sfu;
     this.changed(lobbyId);
   }
 

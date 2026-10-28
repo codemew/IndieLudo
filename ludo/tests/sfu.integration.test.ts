@@ -1,0 +1,105 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { MAX_VOICE_PEERS } from '../src/shared/types.js';
+import { client, createLobby, startTestServer, wait, type TestClient, type TestServer } from './serverHelpers.js';
+import { sfuPhone } from './sfuPhone.js';
+
+let t: TestServer;
+const clients: TestClient[] = [];
+const phones: { close: () => Promise<void> }[] = [];
+afterEach(async () => {
+  await Promise.all(phones.splice(0).map((p) => p.close()));
+  clients.splice(0).forEach((c) => c.close());
+  await t?.close();
+});
+
+const start = (ports: [number, number], enabled = true) =>
+  startTestServer({ voice: { iceServers: [], sfu: { enabled, portMin: ports[0], portMax: ports[1], announcedIp: '' } } });
+
+/** A lobby with `n` people: the first 4 seated, the rest watching. */
+async function lobbyOf(n: number) {
+  const cs: TestClient[] = [];
+  for (let i = 0; i < n; i++) cs.push(await client(t, `player${i}`));
+  clients.push(...cs);
+  const lobbyId = await createLobby(cs[0]);
+  for (let i = 1; i < n; i++) {
+    const r = await cs[i].emit('lobby:join', { lobbyId, password: 'pw', watch: i >= 4 });
+    if (!r.ok) throw new Error(r.error);
+  }
+  return { cs, lobbyId };
+}
+
+describe('the built-in voice server', () => {
+  it("passes A's voice to B, on the slot that says it's A, and never back to A", async () => {
+    t = await start([41000, 41039]);
+    const { cs, lobbyId } = await lobbyOf(2);
+    const [a, b] = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId).then((p) => (phones.push(p), p))));
+    await wait(200);
+    await a.talk(30);
+    await wait(300);
+    expect(b.heard.get(cs[0].userId)?.length).toBeGreaterThanOrEqual(28);
+    expect(a.heard.size).toBe(0);
+    // The channel shows who is on the voice server.
+    const state = t.server.ctx.voice.state(lobbyId);
+    expect(state.participants.every((p) => p.sfu)).toBe(true);
+  });
+
+  it('sends nothing on while a phone sends nothing (the voice gate keeps silence off the network)', async () => {
+    t = await start([41040, 41079]);
+    const { cs, lobbyId } = await lobbyOf(2);
+    const [, b] = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId).then((p) => (phones.push(p), p))));
+    await wait(600);
+    expect(b.heard.size).toBe(0);
+  });
+
+  it('a phone that rejoins gets a fresh connection, and the others keep hearing it with no jump in sequence numbers', async () => {
+    t = await start([41080, 41119]);
+    const { cs, lobbyId } = await lobbyOf(2);
+    const [a1, b] = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId).then((p) => (phones.push(p), p))));
+    await a1.talk(10);
+    await wait(200);
+    const a2 = await sfuPhone(cs[0], lobbyId); // reconnect: replaces a1 on the server
+    phones.push(a2);
+    await wait(200);
+    await a2.talk(10);
+    await wait(300);
+    const seqs = b.heard.get(cs[0].userId)!;
+    expect(seqs.length).toBeGreaterThanOrEqual(18);
+    const steps = seqs.slice(1).map((s, i) => (s - seqs[i] + 65536) % 65536);
+    expect(Math.max(...steps)).toBeLessThanOrEqual(2);
+  });
+
+  it(`all ${MAX_VOICE_PEERS} people of a full lobby (4 seats + 4 watching) hear each other at once`, async () => {
+    t = await start([41120, 41239]);
+    const { cs, lobbyId } = await lobbyOf(MAX_VOICE_PEERS);
+    const ps = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId).then((p) => (phones.push(p), p))));
+    await wait(300);
+    await Promise.all(ps.map((p) => p.talk(15)));
+    await wait(600);
+    for (const [i, p] of ps.entries()) {
+      const heardFrom = [...p.heard.keys()].sort((x, y) => x - y);
+      expect(heardFrom, `p${i} hears everyone else`).toEqual(cs.filter((_, j) => j !== i).map((c) => c.userId).sort((x, y) => x - y));
+      for (const seqs of p.heard.values()) expect(seqs.length).toBeGreaterThanOrEqual(12);
+    }
+  }, 60_000);
+
+  it('someone who leaves frees their slot on everyone else; outsiders and the switched-off server are refused', async () => {
+    t = await start([41240, 41279]);
+    const { cs, lobbyId } = await lobbyOf(3);
+    const ps = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId).then((p) => (phones.push(p), p))));
+    await cs[2].emit('voice:leave', { lobbyId });
+    await wait(200);
+    expect(ps[0].slots().filter((s) => s.userId !== null).map((s) => s.userId)).toEqual([cs[1].userId]);
+    const [stranger] = await Promise.all([client(t, 'stranger')]);
+    clients.push(stranger);
+    expect(await stranger.emit('voice:sfuJoin', { lobbyId })).toEqual({ ok: false, error: 'NOT_IN_VOICE' });
+    expect(await cs[0].emit('voice:sfuAnswer', { lobbyId, sdp: 'x'.repeat(15_000) })).toEqual({ ok: false, error: 'BAD_PAYLOAD' }); // over the 14 KB a description may be
+    await t.close();
+    t = await start([41280, 41289], false);
+    const [solo] = await Promise.all([client(t, 'solo')]);
+    clients.push(solo);
+    const l = await createLobby(solo);
+    const joined = await solo.emit<{ sfu: boolean }>('voice:join', { lobbyId: l });
+    expect(joined.ok && joined.data!.sfu).toBe(false);
+    expect(await solo.emit('voice:sfuJoin', { lobbyId: l })).toEqual({ ok: false, error: 'SFU_OFF' });
+  });
+});

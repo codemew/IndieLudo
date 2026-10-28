@@ -484,7 +484,11 @@ export function gameScreen(root: HTMLElement): () => void {
           '<span class="pchip-text"><span class="pchip-name"><span class="pn"></span><span class="pchip-sig"></span></span><span class="pchip-sub"></span></span>' +
           '<span class="pchip-timer"><i></i></span>',
       );
-      setHtml($(chip, '.pchip-dot'), seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? ''));
+      const dot = $(chip, '.pchip-dot');
+      setHtml(dot, seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? ''));
+      // Talking rings (talkUi.ts) for anyone in the voice chat.
+      if (seat.userId !== null && seat.controller !== 'bot') dot.dataset.talk = String(seat.userId);
+      else delete dot.dataset.talk;
       setHtml($(chip, '.pchip-ping'), pingText(seat.userId));
       // Name and mic badge apart from the signal bars, which change with every ping.
       setHtml($(chip, '.pn'), `${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}`);

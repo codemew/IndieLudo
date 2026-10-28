@@ -1,5 +1,49 @@
 # Changelog
 
+## 3.0.0
+
+### Added
+- **Built-in voice server (UDP).** Every phone in a lobby's voice chat now has one connection to the game server, sends its voice once, and the server passes it on.
+  - **Less upload:** measured with 4 people, about 3.3× less upload per phone (131 KB a minute against 438 KB), and the gap grows with more people.
+  - **Works across networks:** every phone reaches the server, so mixed networks such as Jio mobile data and IPv4-only Wi-Fi work.
+  - **Faster reconnect:** one connection to redo, instead of one per player.
+  - **Fallbacks:** direct links and the relay over the game connection are kept for phones that can't reach the voice server.
+  - **To play over the internet:** forward UDP 40000–40099 (`voice.sfu.portMin`/`portMax`) on the router. `setup.sh` opens them in the host's firewall.
+- **AI noise removal (RNNoise) and voice focus.**
+  - **Noise removal:** fans, traffic, TV and keyboard noise are removed on the phone. It's a 112 KB download the first time voice starts, then cached.
+  - **Voice focus:** rumble and hiss are filtered out, speech presence is lifted, and levels are evened out. The phone's "voice isolation" is used where it has one.
+- **No packets while you're quiet:** a voice gate, using RNNoise's speech detection, stops all voice packets while you're not talking, even with steady background noise. In tests a voice followed by silence and then fan noise sent nothing for the whole 9 s of silence and noise. A 30 ms look-ahead keeps first syllables whole.
+- **Talking rings:** rings radiate from the avatar of whoever is talking (lobby seats, spectators, game player cards), bigger and brighter the louder they talk. The level travels inside each voice packet (RFC 6464), so it costs no extra data.
+- **8 people in voice at once** (4 seats + 4 spectators), tested end to end.
+
+### Fixed
+- **The voice relay reached only 3 listeners**, so in a lobby of 8 some people never heard relayed audio. It now reaches all 7 others.
+- **Connections per IP:** raised from 10 to 24, so a whole family behind one public IP isn't turned away while phones reconnect.
+
+### Changed
+- **💈 Staches column removed** from the end-of-game stats. The 👶 Baby face award stays.
+- **The page's security policy** allows WebAssembly to compile (`'wasm-unsafe-eval'`, for RNNoise). JavaScript eval is still blocked.
+
+### Not done
+- **Larger packets at the 6 and 12 kbps steps (40 ms frames):** left out. Changing it while a call is running would mean renegotiating every connection, and the savings only show at those two settings.
+
+### Tests
+- **Voice server:**
+  - audio passed to the right slot and never back to the sender
+  - nothing passed in silence
+  - continuous sequence numbers after a reconnect
+  - all 8 people of a full lobby hearing each other
+  - outsiders, oversized messages and the switched-off server refused
+- **Voice gate:** speech, pauses, steady noise, RNNoise decisions, a silent mic.
+- **Mic settings, talking levels, the relay gate, and `voice.sfu` config.**
+- **In Chrome**, with a real recorded voice as the microphone:
+  - voice through the voice server with no direct links
+  - RNNoise loading with no security errors
+  - no packets in silence or fan noise
+  - rings appearing and stopping
+  - 8 phones (4 seated, 4 watching) all on the voice server
+  - the direct-link fallback with the voice server off
+
 ## 2.5.1
 
 ### Added

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0
+
+Version 2 brings together everything since 1.0: lobby voice chat that also works across mobile networks, the moustache and heavy-token effects, first blood, awards and match stats, colour swaps, signal and ping, and in-app updates.
+
+### Changed
+- **Update now is only available when there is an update:** while the phone already runs the server's version, the button is disabled and reads "✓ Up to date" ("Checking…" before the server has said which version it runs).
+- **The moustache grows a moment later:** after a capture it waits until the token is still (its reaction face has ended and it isn't hopping), then pauses 1 second before growing, so nothing hides the growth. If another reaction starts during the pause, it waits again.
+
 ## 1.8.0
 
 ### Added

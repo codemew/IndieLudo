@@ -139,7 +139,7 @@ Every capture grows the capturing token's moustache a level, and makes it heavie
   - **Hops:** they crouch and squash more, hop lower, flap their moustache on every hop, and jiggle to a stop.
   - **Board shake:** from the first kill, harder with each level.
   - **Dust:** kicked up from 2 kills.
-- **Moustache:** it twitches now and then. It pops up to the next size after a capture, once the token's reaction face has finished.
+- **Moustache:** it twitches now and then. After a capture, it waits until the token is still, with no reaction face and no hop, then pauses one more second and pops up to the next size, so the growth is always visible.
 - **Losing it:** a captured token goes home clean‑shaven, back to 0 kills.
 - **Same on every phone:** the server counts kills per token, so every phone shows the same moustache. Bots and turn timers wait for the slower moves.
 
@@ -238,7 +238,8 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
 - **The page is always checked:** the server tells browsers to check the main page with the server every time (`Cache-Control: no-cache`). After you rebuild and restart the server, a normal reload loads the new version.
 - **Built files:** the game's script and stylesheet have the build's fingerprint in their names, so they can be cached for a year without going stale.
 - **A phone that kept the game open:** it shows **"v… is ready · Update now"** at the bottom of its home screen, since the server tells each phone its version when it connects.
-- **Update now / Update app:** the button goes through `/refresh`.
+- **Up to date:** while a phone already runs the server's version, the button is disabled and reads **✓ Up to date**.
+- **Update now:** the button goes through `/refresh`.
   - That page sends `Clear-Site-Data: "cache"`, which drops the browser's saved copies of the site's files. It doesn't touch logins, cookies or local data.
   - The app also deletes any offline caches.
   - Then it reloads the game, and reports "Updated to v…" (or that it's already up to date).

@@ -24,6 +24,7 @@ export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopO
   const squash = el.querySelector<HTMLElement>('.tok-squash');
   const shadow = el.querySelector<HTMLElement>('.tok-shadow');
   el.style.zIndex = '30';
+  el.classList.add('hopping');
   let prev = from;
   try {
     for (let i = 0; i < cells.length; i++) {
@@ -47,6 +48,7 @@ export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopO
     squash?.getAnimations().forEach((a) => a.cancel());
     shadow?.getAnimations().forEach((a) => a.cancel());
     el.style.zIndex = '';
+    el.classList.remove('hopping');
   }
 }
 

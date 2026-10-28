@@ -4,6 +4,9 @@ import { COLORS, type Color, type GameState } from '../../shared/types.js';
 import { moustacheSvg } from '../moustache.js';
 import { reducedMotion } from './animate.js';
 
+/** After a capture, how long the token must sit still before its moustache grows, so the growth is seen. */
+const GROW_DELAY_MS = 1000;
+
 function starPoints(cx: number, cy: number, outer: number, inner: number): string {
   const pts: string[] = [];
   for (let i = 0; i < 10; i++) {
@@ -126,42 +129,51 @@ export class TokenLayer {
   }
 
   /**
-   * Shows the moustache for this level. Growing pops it up to the new size, after any reaction
-   * emoji on the token has finished so the pop isn't hidden behind it; shaving it (captured) is instant.
+   * Shows the moustache for this level. Shaving (captured) and the first paint of a token are
+   * instant. Growing waits until the token is still (no reaction face, not hopping), then pauses
+   * GROW_DELAY_MS more, so the growth isn't hidden by another animation; if something starts
+   * during the pause, the wait starts over.
    */
   private setMoustache(b: HTMLButtonElement, level: number): void {
     b.dataset.want = String(level);
     const shown = Number(b.dataset.lvl);
+    const firstPaint = b.dataset.painted !== '1';
+    b.dataset.painted = '1';
     if (level === shown) return;
-    if (level > shown && b.classList.contains('shows-emoji')) {
-      if (!b.dataset.waiting) {
-        b.dataset.waiting = '1';
-        const retry = () => {
-          if (b.classList.contains('shows-emoji')) return void setTimeout(retry, 150);
-          delete b.dataset.waiting;
-          this.setMoustache(b, Number(b.dataset.want));
-        };
-        setTimeout(retry, 150);
-      }
-      return;
-    }
+    if (level < shown || firstPaint || reducedMotion()) return this.drawMoustache(b, level, false);
+    if (b.dataset.waiting) return;
+    b.dataset.waiting = '1';
+    const busy = () => b.classList.contains('shows-emoji') || b.classList.contains('hopping');
+    let stillSince = 0;
+    const attempt = () => {
+      if (!b.isConnected) return;
+      if (busy()) stillSince = 0;
+      else if (!stillSince) stillSince = performance.now();
+      if (!stillSince || performance.now() - stillSince < GROW_DELAY_MS) return void setTimeout(attempt, 100);
+      delete b.dataset.waiting;
+      const want = Number(b.dataset.want);
+      if (want !== Number(b.dataset.lvl)) this.drawMoustache(b, want, want > Number(b.dataset.lvl));
+    };
+    setTimeout(attempt, 100);
+  }
+
+  private drawMoustache(b: HTMLButtonElement, level: number, grow: boolean): void {
     const squash = b.querySelector('.tok-squash')!;
     squash.querySelector('.tok-stache')?.remove();
     squash.insertAdjacentHTML('beforeend', moustacheSvg(level));
     b.dataset.lvl = String(level);
-    if (level > shown && !reducedMotion()) {
-      squash.animate([{ transform: 'scale(1, 1)' }, { transform: 'scale(1.14, 0.86)' }, { transform: 'scale(0.94, 1.08)' }, { transform: 'scale(1, 1)' }], { duration: 520, easing: 'ease-out' });
-      squash.querySelector('.stache')?.animate(
-        [
-          { transform: 'scale(0.6)', opacity: 0.4 },
-          { transform: 'scale(1.3) rotate(-4deg)', opacity: 1, offset: 0.35 },
-          { transform: 'scale(0.92) rotate(3deg)', offset: 0.6 },
-          { transform: 'scale(1.04) rotate(-1deg)', offset: 0.8 },
-          { transform: 'scale(1) rotate(0deg)' },
-        ],
-        { duration: 700, easing: 'ease-out' },
-      );
-    }
+    if (!grow) return;
+    squash.animate([{ transform: 'scale(1, 1)' }, { transform: 'scale(1.14, 0.86)' }, { transform: 'scale(0.94, 1.08)' }, { transform: 'scale(1, 1)' }], { duration: 520, easing: 'ease-out' });
+    squash.querySelector('.stache')?.animate(
+      [
+        { transform: 'scale(0.6)', opacity: 0.4 },
+        { transform: 'scale(1.3) rotate(-4deg)', opacity: 1, offset: 0.35 },
+        { transform: 'scale(0.92) rotate(3deg)', offset: 0.6 },
+        { transform: 'scale(1.04) rotate(-1deg)', offset: 0.8 },
+        { transform: 'scale(1) rotate(0deg)' },
+      ],
+      { duration: 700, easing: 'ease-out' },
+    );
   }
 
   get(color: Color, id: number): HTMLButtonElement | undefined {

@@ -227,17 +227,22 @@ function renameDialog(): void {
   setTimeout(() => input.select(), 50);
 }
 
-/** The app's version, and the button that loads the newest build (highlighted when one is ready). */
+/**
+ * The app's version, and the button that loads the newest build. It only works when the server
+ * has a newer version than this phone runs; otherwise it is disabled and says so.
+ */
 function renderUpdate(box: HTMLElement): void {
   const ready = updateAvailable();
+  const known = Boolean(state.serverVersion);
   const html = ready
     ? `<span><b>v${esc(state.serverVersion)} is ready</b> <span class="muted small">· you have v${__APP_VERSION__}</span></span><button class="btn btn-small btn-primary" id="update">⟳ Update now</button>`
-    : `<span class="muted small">Ludo v${__APP_VERSION__}</span><button class="btn btn-small btn-ghost" id="update">⟳ Update app</button>`;
+    : `<span class="muted small">Ludo v${__APP_VERSION__}</span><button class="btn btn-small btn-ghost" id="update" disabled aria-disabled="true">${known ? '✓ Up to date' : 'Checking…'}</button>`;
   if (box.dataset.html === html) return;
   box.dataset.html = html;
   box.innerHTML = html;
   box.classList.toggle('ready', ready);
   const btn = $<HTMLButtonElement>(box, '#update');
+  if (!ready) return;
   btn.onclick = () => {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Updating…';

@@ -197,7 +197,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       crossOriginEmbedderPolicy: false,
     }),
   );
-  app.use('/api', express.json({ limit: '4kb' }), apiRouter(ctx, { gateDelayMs: opts.gateDelayMs }));
+  app.use('/api', apiRouter(ctx, { gateDelayMs: opts.gateDelayMs }));
 
   // "Update app" navigates here. Browsers clear their cache for Clear-Site-Data reliably when it
   // comes with a page load (they finish clearing before showing it); then we go on to the game.

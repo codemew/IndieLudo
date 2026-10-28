@@ -271,6 +271,24 @@ describe('disconnects', () => {
     expect(gm.get(g.id)!.seats[0]).toMatchObject({ controller: 'human', timeouts: 0 });
   });
 
+  it('the "take back" button returns a seat from the takeover bot, and does nothing otherwise', () => {
+    const gm = manager(Array(20).fill(1));
+    const g = gm.create(twoHumans());
+    for (let i = 0; i < 9; i++) vi.advanceTimersByTime(30_000);
+    expect(gm.get(g.id)!.seats[0]).toMatchObject({ controller: 'takeover', timeouts: 5 });
+    const before = updates.length;
+    expect(gm.takeback(A, g.id)).toEqual({ ok: true });
+    expect(gm.get(g.id)!.seats[0]).toMatchObject({ controller: 'human', timeouts: 0 });
+    // Everyone is told (a state update without events).
+    expect(updates.slice(before).map((u) => u.state.seats[0].controller)).toEqual(['human']);
+    // Already playing yourself: nothing changes and nothing is sent.
+    const sent = updates.length;
+    expect(gm.takeback(A, g.id)).toEqual({ ok: true });
+    expect(updates.length).toBe(sent);
+    // Someone who isn't in the game can't.
+    expect(gm.takeback(999, g.id)).toEqual({ ok: false, error: 'NO_GAME' });
+  });
+
   it('leaving for good hands the seat to a permanent bot', () => {
     const gm = manager([3, 3]);
     const g = gm.create(twoHumans());

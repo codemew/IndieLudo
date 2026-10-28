@@ -165,32 +165,70 @@ export function gameScreen(root: HTMLElement): () => void {
     }
     // At its home turn on the first lap the token may go round again: ask which way.
     const lap = candidates.find((m) => m.dieIndex === pick.dieIndex && m.lap);
-    if (lap) return chooseLap(pick.dieIndex, pick.tokenId, lap);
+    const home = candidates.find((m) => m.dieIndex === pick.dieIndex && !m.lap);
+    if (lap && home) return chooseLap(home, lap);
     play('tap');
     void send('game:move', { dieIndex: pick.dieIndex, tokenId: pick.tokenId });
   }
 
-  /** The small confirm for a token at its home turn: into the home stretch, or round once more. */
-  function chooseLap(dieIndex: number, tokenId: number, lap: LegalMove): void {
+  /** The open "home or another lap?" confirm, closed if the game moves on (e.g. the timer plays the turn). */
+  let lapChooser: { close: () => void; version: number } | null = null;
+
+  /**
+   * The choice for a token at its home turn: two option cards, coloured like the trails on the
+   * board (gold home, blue round again), each saying what it means. The board's markers can be
+   * tapped instead.
+   */
+  function chooseLap(home: LegalMove, lap: LegalMove): void {
     play('tap');
-    const catches = lap.captures.length ? `<p class="lap-catch">Going round lands on ${lap.captures.length === 1 ? 'a token' : `${lap.captures.length} tokens`} and captures ${lap.captures.length === 1 ? 'it' : 'them'}.</p>` : '';
-    modal({
-      title: 'Home stretch or another lap?',
-      body: el(`<div class="lap-choice">
-        <p>This token can turn into its home stretch, or go round the whole board once more. It can only go round once.</p>
-        ${catches}
-        <p class="lap-legend"><span class="lap-dot home"></span> heads home <span class="lap-dot round"></span> goes round again</p>
-      </div>`),
-      actions: [
-        { label: '↻ Go round again', onClick: () => void send('game:move', { dieIndex, tokenId, lap: true }) },
-        { label: '🏠 Head home', kind: 'primary', onClick: () => void send('game:move', { dieIndex, tokenId, lap: false }) },
-      ],
-    });
+    lapChooser?.close();
+    const toGo = HOME - home.to;
+    const victims = lap.captures.map((c) => `<b class="lap-victim n-${c.color}">${esc(seatName(c.color))}</b>`).join(' ');
+    const body = el(`<div class="lap-choice">
+      <div class="lap-opts">
+        <button class="lap-opt home" data-go="home">
+          <span class="lap-ico">🏠</span>
+          <b>Head home</b>
+          <small>${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'Finishes now!'}</small>
+          <small>Safe from capture</small>
+        </button>
+        <button class="lap-opt round" data-go="round">
+          <span class="lap-ico">↻</span>
+          <b>Go round again</b>
+          ${victims ? `<span class="lap-badge">⚔ Captures ${victims}</span>` : '<small>Hunt more, but it can be caught</small>'}
+        </button>
+      </div>
+      <p class="lap-note">A token can go round only once. Tip: tap the gold or blue marker on the board.</p>
+    </div>`);
+    const answer = (goRound: boolean) => {
+      lapChooser?.close();
+      lapChooser = null;
+      play('tap');
+      void send('game:move', { dieIndex: home.dieIndex, tokenId: home.tokenId, lap: goRound });
+    };
+    body.querySelectorAll<HTMLButtonElement>('.lap-opt').forEach((b) => (b.onclick = () => answer(b.dataset.go === 'round')));
+    const m = modal({ title: 'Which way?', body, actions: [{ label: 'Not now' }], onDismiss: () => (lapChooser = null) });
+    lapChooser = { close: m.close, version: gs!.version };
   }
+
+  // Tapping a gold or blue marker on the board chooses that way directly.
+  targets.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
+    if (!t || !canMove()) return;
+    lapChooser?.close();
+    lapChooser = null;
+    play('tap');
+    void send('game:move', { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' });
+  });
 
   // ---------- updates from the server ----------
 
   function onUpdate(u: GameUpdate): void {
+    // The turn moved on without us (the timer played it, or a resync): that choice is gone.
+    if (lapChooser && u.state.version !== lapChooser.version) {
+      lapChooser.close();
+      lapChooser = null;
+    }
     if (!gs || u.state.id !== gs.id) {
       gs = u.state;
       update({ game: gs });
@@ -621,7 +659,8 @@ export function gameScreen(root: HTMLElement): () => void {
       const key = m.to === HOME ? 'home' : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      html += `<div class="target t-${color}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}">${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
+      const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-lap="${m.lap ? 1 : 0}" role="button" aria-label="${m.lap ? 'Go round again' : 'Head home'}"` : '';
+      html += `<div class="target t-${color}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}"${pick}>${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.
     setHtml(targets, html);

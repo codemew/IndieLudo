@@ -85,4 +85,39 @@ describe('placements', () => {
     expect(p.get('red:2')).toEqual({ x: TRACK[10][0], y: TRACK[10][1], scale: 1 });
     expect(p.get('red:3')!.scale).toBe(1);
   });
+
+  it('a token on its second lap stacks with a first-lap token on the same square', () => {
+    const s = game(['red', 'green']);
+    s.tokens.red = [57, BASE, BASE, BASE]; // second lap: absolute (0 + 57 - 6) % 52 = 51
+    s.tokens.green = [38, BASE, BASE, BASE]; // first lap: (13 + 38) % 52 = 51
+    const p = placements(s);
+    const [a, b] = [p.get('red:0')!, p.get('green:0')!];
+    expect(a.scale).toBeLessThan(1);
+    expect(b.scale).toBe(a.scale);
+    expect(`${a.x},${a.y}`).not.toBe(`${b.x},${b.y}`);
+    expect(Math.hypot(a.x - TRACK[51][0], a.y - TRACK[51][1])).toBeLessThan(0.5);
+  });
+
+  it('tokens in base keep their own slots and full size, never fanned out', () => {
+    const s = game(['red', 'green']);
+    const p = placements(s);
+    for (const color of ['red', 'green'] as const) {
+      for (let id = 0; id < 4; id++) {
+        const [x, y] = tokenCell(color, BASE, id);
+        expect(p.get(`${color}:${id}`)).toEqual({ x, y, scale: 1 });
+      }
+    }
+  });
+
+  it('three and four tokens on one square all get their own spot, smaller the more there are', () => {
+    const s = game(['red', 'green']);
+    s.tokens.red = [5, 5, 5, BASE];
+    const three = placements(s);
+    s.tokens.red = [5, 5, 5, 5];
+    const four = placements(s);
+    const spots = (p: ReturnType<typeof placements>, n: number) => new Set([...Array(n).keys()].map((i) => `${p.get(`red:${i}`)!.x},${p.get(`red:${i}`)!.y}`)).size;
+    expect(spots(three, 3)).toBe(3);
+    expect(spots(four, 4)).toBe(4);
+    expect(four.get('red:0')!.scale).toBeLessThanOrEqual(three.get('red:0')!.scale);
+  });
 });

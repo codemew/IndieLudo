@@ -54,7 +54,7 @@ export function killsOf(state: GameState, color: Color): number[] {
 /** The player's match stats, created on first use (games saved before stats existed have none). */
 export function statsOf(state: GameState, color: Color): PlayerStats {
   state.stats ??= {};
-  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, firstBlood: false, owed: {} });
+  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, firstBlood: false, owed: {} });
 }
 
 export function currentColor(state: GameState): Color {
@@ -205,6 +205,8 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
 
   if (move.to === HOME) {
     events.push({ type: 'home', color, tokenId });
+    // A token with a moustache (at least one capture) made it home: that counts for "most macho".
+    if (kills[tokenId] > 0) mine.machoHome = (mine.machoHome ?? 0) + 1;
     if (allHome(state, color)) {
       state.ranks.push(color);
       events.push({ type: 'rank', color, rank: state.ranks.length });

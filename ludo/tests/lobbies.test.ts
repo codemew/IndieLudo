@@ -240,3 +240,43 @@ describe('random colours', () => {
     expect(seen).toEqual(new Set(['red', 'green', 'yellow', 'blue']));
   });
 });
+
+describe('bots on the seat you tap', () => {
+  it('adds the bot on exactly the colour chosen, and refuses a taken or unknown one', () => {
+    const l = create();
+    for (const color of ['yellow', 'blue', 'green'] as const) {
+      lm.addBot(alice.id, color);
+      expect(lm.get(l.id)!.members.find((m) => m.color === color)).toMatchObject({ isBot: true, username: `Bot ${color[0].toUpperCase()}${color.slice(1)}` });
+    }
+    const l2 = make();
+    const other = l2.create(bob, { createPassword: 'secret', name: 'Room 2', password: 'pw' });
+    const taken = other.members[0].color;
+    expect(() => l2.addBot(bob.id, taken)).toThrow('COLOR_TAKEN');
+    expect(() => l2.addBot(bob.id, 'purple' as never)).toThrow('INVALID_COLOR');
+  });
+
+  it('every bot is named after the seat it sits on, also after swapping with a player', () => {
+    const l = create();
+    lm.join(bob, l.id, 'pw');
+    const free = (['red', 'green', 'yellow', 'blue'] as const).find((c) => !lm.get(l.id)!.members.some((m) => m.color === c))!;
+    lm.addBot(alice.id, free);
+    const bobColor = lm.get(l.id)!.members.find((m) => m.userId === bob.id)!.color;
+    expect(lm.askSwap(bob.id, free)).toMatchObject({ swapped: true });
+    const bot = lm.get(l.id)!.members.find((m) => m.isBot)!;
+    expect(bot.color).toBe(bobColor);
+    expect(bot.username).toBe(`Bot ${bobColor[0].toUpperCase()}${bobColor.slice(1)}`);
+    for (const m of lm.get(l.id)!.members.filter((x) => x.isBot)) expect(m.username.toLowerCase()).toBe(`bot ${m.color}`);
+  });
+
+  it('a lobby saved with a mismatched bot name is fixed when the server restarts', () => {
+    const l = create();
+    lm.addBot(alice.id, 'blue');
+    // Simulate a lobby saved by an older version: the bot moved seats but kept its old name.
+    const saved = JSON.parse((db.prepare('SELECT data FROM lobbies WHERE id = ?').get(l.id) as { data: string }).data);
+    saved.members.find((m: { isBot: boolean }) => m.isBot).username = 'Bot Red';
+    db.prepare('UPDATE lobbies SET data = ? WHERE id = ?').run(JSON.stringify(saved), l.id);
+    const restarted = make();
+    restarted.load();
+    expect(restarted.get(l.id)!.members.find((m) => m.isBot)).toMatchObject({ color: 'blue', username: 'Bot Blue' });
+  });
+});

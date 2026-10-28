@@ -67,6 +67,8 @@ export interface PlayerStats {
   sixes: number;
   /** Captures of a player who had captured you and you hadn't paid back yet. */
   revenges: number;
+  /** Tokens brought home while wearing a moustache (with at least one capture). Missing in older games. */
+  machoHome?: number;
   firstBlood: boolean;
   /** Captures each opponent has made on you that you haven't avenged yet. */
   owed: Partial<Record<Color, number>>;

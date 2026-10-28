@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BASE } from '../src/shared/board.js';
 import { gameAwards, playerStats } from '../src/shared/awards.js';
 import { applyMove, applyRoll } from '../src/shared/rules.js';
+import type { GameState } from '../src/shared/types.js';
 import { game, withQueue } from './helpers.js';
 
 describe('match stats', () => {
@@ -38,6 +39,26 @@ describe('match stats', () => {
     expect(playerStats(s, 'red').firstBlood).toBe(true);
     expect(playerStats(s, 'yellow').firstBlood).toBe(false);
   });
+
+  it('macho: a token that captured someone counts when it reaches home; a clean-shaven one does not', () => {
+    const s = withQueue(game(), [3, 2]);
+    s.tokens.red = [53, 54, BASE, BASE];
+    s.kills = { red: [2, 0, 0, 0] };
+    applyMove(s, 0, 0); // 53 + 3 = home, with 2 kills
+    expect(playerStats(s, 'red').machoHome).toBe(1);
+    applyMove(s, 0, 1); // 54 + 2 = home, no kills
+    expect(playerStats(s, 'red').machoHome).toBe(1);
+  });
+
+  it('macho: a captured token loses its moustache, so it no longer counts when it gets home', () => {
+    const s = withQueue(game(['red', 'yellow'], 1), [3]); // yellow moves
+    s.tokens.red = [5, BASE, BASE, BASE]; // absolute 5
+    s.tokens.yellow = [28, BASE, BASE, BASE]; // absolute 2
+    s.kills = { red: [3, 0, 0, 0] };
+    applyMove(s, 0, 0);
+    expect(s.kills.red![0]).toBe(0);
+    expect(s.kills.yellow![0]).toBe(1);
+  });
 });
 
 describe('gameAwards', () => {
@@ -56,6 +77,19 @@ describe('gameAwards', () => {
       ['sixes', ['green'], 5],
       ['firstBlood', ['red'], 1],
     ]);
+  });
+
+  it('most macho goes to whoever brought the most moustached tokens home', () => {
+    const s = game(['red', 'green']);
+    s.stats = { red: stats({ machoHome: 1 }), green: stats({ machoHome: 3 }) };
+    expect(gameAwards(s)).toEqual([{ key: 'machoHome', icon: '🥸', title: 'Most macho', colors: ['green'], value: 3 }]);
+  });
+
+  it('stats saved before macho existed count it as 0, with no award and no crash', () => {
+    const s = game(['red', 'green']);
+    s.stats = { red: { cells: 10, captures: 0, sixes: 0, revenges: 0, firstBlood: false, owed: {} } } as GameState['stats'];
+    expect(playerStats(s, 'red').machoHome).toBe(0);
+    expect(gameAwards(s).map((a) => a.key)).toEqual(['cells']);
   });
 
   it('a game without stats (saved before they existed) has no awards', () => {

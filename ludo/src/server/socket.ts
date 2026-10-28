@@ -161,7 +161,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     });
     on('lobby:swapAnswer', SCHEMAS.swapAnswer, (p) => void ctx.lobbies.answerSwap(userId, p.from, p.accept));
     on('lobby:swapCancel', SCHEMAS.empty, () => void ctx.lobbies.cancelSwap(userId));
-    on('lobby:addBot', SCHEMAS.empty, () => void ctx.lobbies.addBot(userId));
+    on('lobby:addBot', SCHEMAS.lobbyAddBot, (p) => void ctx.lobbies.addBot(userId, p.color as Color | undefined));
     on('lobby:removeBot', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.removeBot(userId, p.color as Color));
 
     on('lobby:kick', SCHEMAS.lobbyKick, (p) => {

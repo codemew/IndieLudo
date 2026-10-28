@@ -132,8 +132,41 @@ describe('colour swaps over sockets', () => {
       ['alice', bobColor],
       ['bob', aliceColor],
     ]);
+    // Asking again and cancelling: the other player is told, and can no longer accept.
+    const asked2 = new Promise<SwapRequest>((res) => guest.socket.once('lobby:swapRequest', res));
+    expect(await host.emit('lobby:swapAsk', { color: aliceColor })).toEqual({ ok: true, data: { swapped: false } });
+    await asked2;
+    const cancelled = new Promise((res) => guest.socket.once('lobby:swapEnded', res));
+    expect(await host.emit('lobby:swapCancel', {})).toEqual({ ok: true });
+    expect(await cancelled).toEqual({ from: host.userId, to: guest.userId, how: 'cancelled' });
+    expect(await guest.emit('lobby:swapAnswer', { from: host.userId, accept: true })).toEqual({ ok: false, error: 'SWAP_EXPIRED' });
     // Nobody can answer for someone else, or forge a payload.
     expect(await host.emit('lobby:swapAnswer', { from: guest.userId, accept: true })).toEqual({ ok: false, error: 'SWAP_EXPIRED' });
     expect(await host.emit('lobby:swapAsk', { color: 'purple' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+  });
+});
+
+describe('bots over sockets', () => {
+  let t: TestServer;
+  const clients: TestClient[] = [];
+  afterEach(async () => {
+    clients.splice(0).forEach((c) => c.close());
+    await t?.close();
+  });
+
+  it('"+ Bot" on a seat puts the bot on that seat, named for it; unknown colours are refused', async () => {
+    t = await startTestServer();
+    const host = await client(t, 'alice');
+    clients.push(host);
+    await createLobby(host);
+    await wait(30);
+    const free = (['red', 'green', 'yellow', 'blue'] as Color[]).filter((c) => !host.lobbyStates.at(-1)!.members.some((m) => m.color === c));
+    for (const color of free) expect(await host.emit('lobby:addBot', { color })).toEqual({ ok: true });
+    await wait(30);
+    const bots = host.lobbyStates.at(-1)!.members.filter((m) => m.isBot);
+    expect(bots.map((m) => m.color).sort()).toEqual([...free].sort());
+    for (const m of bots) expect(m.username).toBe(`Bot ${m.color[0].toUpperCase()}${m.color.slice(1)}`);
+    expect(await host.emit('lobby:addBot', { color: 'purple' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await host.emit('lobby:addBot', { color: free[0] })).toEqual({ ok: false, error: 'LOBBY_FULL' });
   });
 });

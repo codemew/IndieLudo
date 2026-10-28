@@ -23,7 +23,8 @@ export interface ClientToServer {
   'lobby:swapAsk': (p: { color: Color }, ack: (r: Ack<{ swapped: boolean }>) => void) => void;
   'lobby:swapAnswer': (p: { from: number; accept: boolean }, ack: (r: Ack) => void) => void;
   'lobby:swapCancel': (p: Record<string, never>, ack: (r: Ack) => void) => void;
-  'lobby:addBot': (p: Record<string, never>, ack: (r: Ack) => void) => void;
+  /** Adds a bot on the seat tapped (`color`); without one, on a random free seat. */
+  'lobby:addBot': (p: { color?: Color }, ack: (r: Ack) => void) => void;
   'lobby:removeBot': (p: { color: Color }, ack: (r: Ack) => void) => void;
   'lobby:kick': (p: { userId: number }, ack: (r: Ack) => void) => void;
   'lobby:start': (p: Record<string, never>, ack: (r: Ack) => void) => void;
@@ -183,6 +184,7 @@ export const SCHEMAS = {
   lobbyJoin: { lobbyId: { type: 'string', max: 64 }, password: { type: 'string', max: 64 } },
   lobbyReady: { ready: { type: 'bool' } },
   lobbyColor: { color: { type: 'color' } },
+  lobbyAddBot: { color: { type: 'color', optional: true } },
   lobbyKick: { userId: { type: 'int', min: 1 } },
   swapAnswer: { from: { type: 'int', min: 1 }, accept: { type: 'bool' } },
   roll: { gameId: { type: 'string', max: 64 }, version: { type: 'int' }, actionId: { type: 'string', min: 8, max: 64 } },

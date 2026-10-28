@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+- **🥸 Most macho award:** goes to whoever brings the most moustached tokens home. A token counts if it has captured someone and hasn't been captured since (being captured shaves it). It also shows as a **Macho** column in the match stats. Games saved before this count it as 0.
+- **Browser smoke tests** (`npm run test:e2e`): two phones in headless Chrome play through "+ Bot" on a seat, a bot swap, both ways of choosing at the home turn, and the results screen with the macho award.
+
+### Changed
+- **The "home or round again" choice is clearer.**
+  - **Option cards:** a **Which way?** sheet has two cards coloured like the trails on the board. **🏠 Head home** shows the squares left and that it's safe there. **↻ Go round again** shows who it would capture on landing, or that it can be caught. It doesn't say how far the extra lap is; that risk is the player's to judge.
+  - **Not now:** closes the sheet without moving, so you can pick another token or die.
+  - **Tap the board:** the gold and blue markers at the end of each trail can be tapped to go that way without the sheet.
+
+### Fixed
+- **Oversized or broken requests get a proper error:** a request body over 4 KB now gets `413` and broken JSON `400` (as JSON the app understands). Before, Express answered with its own HTML error page, because the JSON parser sat outside the API's error handler.
+
+### Tests
+- **New unit tests:**
+  - loading the config: the first-run copy of `config.example.json`, every environment override and invalid or broken files
+  - the API's 413, 400 and 404 answers
+  - how tokens stack on a square, including a second-lap token with a first-lap one, and tokens in base
+  - the signal bars and ping labels
+  - when "Update now" is offered
+  - the macho stat and award
+- **Coverage:** all tests together now cover 68% of statements. Most server and shared rules files are at 85–100%. Most of what's left is screen code, which the browser smoke tests cover instead.
+
+## 2.1.1
+
+### Fixed
+- **"+ Bot" adds the bot on the seat you tapped.** It used to land on a random free seat: the message never said which seat, which went unnoticed until seat colours became random in 1.6.0.
+- **A bot's name always matches its seat.** After swapping colours with a player it kept its old name ("Bot Red" on the green seat). Lobbies saved with a mismatched name are corrected when the server restarts.
+- **The "home stretch or another lap?" confirm closes if the turn moves on** (for example when the timer plays it). Before, it stayed open and tapping it showed an error.
+
+### Tests
+- Added tests that check what the screen promises, not just each server function: "+ Bot" on a chosen seat, bot names after swaps and restarts, cancelling a swap request, and taking a seat back from the bot after missed turns.
+
 ## 2.1.0
 
 ### Added

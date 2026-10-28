@@ -65,6 +65,11 @@ export function safeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ha, hb) && a.length === b.length;
 }
 
+/** A bot is named after the seat it sits on: "Bot Red", "Bot Green"… */
+export function botName(color: Color): string {
+  return `Bot ${color[0].toUpperCase()}${color.slice(1)}`;
+}
+
 export class LobbyManager {
   private lobbies = new Map<string, Lobby>();
   private byUser = new Map<number, string>();
@@ -81,7 +86,11 @@ export class LobbyManager {
     const rows = this.opts.db.prepare('SELECT data FROM lobbies').all() as { data: string }[];
     for (const row of rows) {
       const lobby = JSON.parse(row.data) as Lobby;
-      for (const m of lobby.members) m.connected = m.isBot;
+      for (const m of lobby.members) {
+        m.connected = m.isBot;
+        // Lobbies saved before bots were renamed on a swap may hold a "Bot Red" on the green seat.
+        if (m.isBot) m.username = botName(m.color);
+      }
       lobby.allOfflineSince = this.now();
       this.lobbies.set(lobby.id, lobby);
       for (const m of lobby.members) if (m.userId !== null) this.byUser.set(m.userId, lobby.id);
@@ -227,6 +236,7 @@ export class LobbyManager {
       if (!other.isBot) this.dropSwaps((r) => r.from === other.userId, 'accepted');
       this.dropSwaps((r) => r.from === userId, 'cancelled');
       [member.color, other.color] = [other.color, member.color];
+      if (other.isBot) other.username = botName(other.color); // a bot is named after its seat
       this.changed(lobby);
       return { swapped: true, lobby };
     }
@@ -292,11 +302,14 @@ export class LobbyManager {
     return lobby;
   }
 
-  addBot(userId: number): Lobby {
+  /** Adds a bot on the seat the host tapped (`color`), or on a random free seat if none was given. */
+  addBot(userId: number, color?: Color): Lobby {
     const lobby = this.hostLobby(userId);
     if (lobby.members.length >= MAX_MEMBERS) throw new AppError('LOBBY_FULL', 409);
-    const color = this.freeColor(lobby);
-    lobby.members.push({ color, userId: null, username: `Bot ${color[0].toUpperCase()}${color.slice(1)}`, isBot: true, ready: true, connected: true });
+    if (color !== undefined && !COLORS.includes(color)) throw new AppError('INVALID_COLOR');
+    if (color !== undefined && lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
+    const seat = color ?? this.freeColor(lobby);
+    lobby.members.push({ color: seat, userId: null, username: botName(seat), isBot: true, ready: true, connected: true });
     this.changed(lobby);
     return lobby;
   }

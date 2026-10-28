@@ -65,6 +65,7 @@ While the server runs, you can type these commands into it:
 ```bash
 npm run dev     # backend (tsx watch) + Vite with HMR on https://<LAN-IP>:5173
 npm test        # all unit and integration tests
+npm run test:e2e  # builds, then plays the lobby, second lap and results screens in headless Chrome (CHROME_PATH to pick one; skipped if none is found)
 npm run typecheck
 ```
 
@@ -81,7 +82,7 @@ npm run typecheck
    - **Changing it later:** tap your name or avatar at the top of the home screen. Your seat in the lobby, and in a game in progress, shows the new name to everyone at once.
 4. **Lobby:**
    - Creating a lobby needs the `lobbyCreatePassword` from `config.json` and a lobby password of the creator's choosing. Friends join with that lobby password.
-   - Everyone, the host included, starts on a random free colour, picked by the server. Players can then move or swap, and tap ready. The host can add bots to empty seats, which also get a random free colour, and then start the game.
+   - Everyone, the host included, starts on a random free colour, picked by the server. Players can then move or swap, and tap ready. The host can add a bot to any open seat with that seat's **＋ Bot** (a bot is always named after its seat, e.g. "Bot Green"), and then start the game.
    - **Swapping colours:** tap an open seat to move there, or **⇄ Swap** on another player's seat to ask them to swap.
      - **Asking:** they get a prompt showing who becomes which colour, with 20 seconds to answer. You can cancel while you wait.
      - **Accepting:** both colours swap at once for everyone, and ready status is kept.
@@ -101,7 +102,7 @@ npm run typecheck
 - **Leaving base** takes a 6.
 - **Finishing** takes the exact roll; a die that would overshoot cannot be used.
 - **Second lap:** a token about to turn into its home stretch on its first lap may go round the whole board once more instead.
-  - **Choosing:** the board shows a branching path, a gold trail into the home stretch and a blue one round again. Tapping the token asks **🏠 Head home** or **↻ Go round again**.
+  - **Choosing:** the board shows a branching path, a gold trail into the home stretch and a blue one round again. Tap the gold or blue marker at the end of a trail to go that way, or tap the token for a **Which way?** sheet with two cards: **🏠 Head home** (squares left, safe from capture) and **↻ Go round again** (who it would capture on landing; how far it is left for the player to judge). **Not now** closes it without moving.
   - **On the second lap:** the token moves, captures and can be captured like any other, and wears a dashed white ring. At the end of that lap it turns home; it can't go round a third time.
   - **Bots and the timer:** they head home, unless going round would capture someone.
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
@@ -157,6 +158,7 @@ The results screen shows awards, everyone's match stats, and each player's award
 | ⚔️ Captures | Most tokens captured | Opponent tokens sent back to base |
 | 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
+| 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
 | 🩸 First blood | First blood | The game's first capture |
 
 - **Ties:** a tied award goes to everyone tied.

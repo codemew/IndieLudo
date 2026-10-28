@@ -63,6 +63,7 @@ const STAT_COLUMNS = [
   { key: 'captures', icon: '⚔️', label: 'Captures' },
   { key: 'sixes', icon: '🎲', label: 'Sixes' },
   { key: 'revenges', icon: '😤', label: 'Revenges' },
+  { key: 'machoHome', icon: '🥸', label: 'Macho' },
 ] as const;
 
 /** Awards (best in each stat, first blood) and everyone's numbers, best of each column highlighted. */
@@ -77,19 +78,19 @@ function matchStats(
       (a, i) => `
       <li class="award" style="animation-delay:${600 + i * 110}ms">
         <span class="aw-icon">${a.icon}</span>
-        <span class="aw-text"><b>${a.title}</b><span>${a.colors.map((c) => `<span class="aw-who n-${c}">${nameOf(c)}</span>`).join(' ')}</span></span>
+        <span class="aw-text"><b>${a.title}</b>${a.key === 'machoHome' ? '<small class="aw-sub">moustached tokens brought home</small>' : ''}<span>${a.colors.map((c) => `<span class="aw-who n-${c}">${nameOf(c)}</span>`).join(' ')}</span></span>
         ${a.key === 'firstBlood' ? '' : `<span class="aw-val">${a.value}</span>`}
       </li>`,
     )
     .join('');
-  const best = Object.fromEntries(STAT_COLUMNS.map((col) => [col.key, Math.max(...order.map((c) => statsOf(c)[col.key]))]));
+  const best = Object.fromEntries(STAT_COLUMNS.map((col) => [col.key, Math.max(...order.map((c) => statsOf(c)[col.key] ?? 0))]));
   const statRows = order
     .map(
       (c) => `
       <tr class="p-${c}">
         <th scope="row"><span class="st-dot"></span>${nameOf(c)}${statsOf(c).firstBlood ? ' <span title="First blood">🩸</span>' : ''}</th>
         ${STAT_COLUMNS.map((col) => {
-          const v = statsOf(c)[col.key];
+          const v = statsOf(c)[col.key] ?? 0;
           return `<td class="${v > 0 && v === best[col.key] ? 'best' : ''}">${v}</td>`;
         }).join('')}
       </tr>`,

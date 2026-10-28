@@ -3195,12 +3195,12 @@ button.me:active {
 }
 .trail.home,
 .target.home,
-.lap-dot.home {
+.lap-opt.home {
   --tc: #f5b400;
 }
 .trail.round,
 .target.round,
-.lap-dot.round {
+.lap-opt.round {
   --tc: #00c2e0;
 }
 .target.home,
@@ -3217,32 +3217,91 @@ button.me:active {
   font-size: calc(100% / 15 * 0.5);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
+/* "Which way?" — two option cards coloured like the trails on the board. */
 .lap-choice {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
-.lap-catch {
-  font-weight: 750;
+.lap-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
-.lap-legend {
+.lap-opt {
+  --tc: #f5b400;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  font-size: 13px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  min-width: 0;
+  text-align: left;
+  color: var(--text);
+  font: inherit;
+  border-radius: 16px;
+  border: 2px solid var(--tc);
+  background: color-mix(in srgb, var(--tc) 14%, var(--surface));
+  box-shadow: 0 8px 20px -14px var(--tc);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.2s ease;
+}
+.lap-opt.round {
+  --tc: #00c2e0;
+}
+.lap-opt:active {
+  transform: scale(0.97);
+}
+.lap-opt:focus-visible {
+  outline: 3px solid var(--tc);
+  outline-offset: 2px;
+}
+.lap-ico {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff;
+  background: var(--tc);
+}
+.lap-opt b {
+  font-size: 16px;
+}
+.lap-opt small {
+  font-size: 12.5px;
+  line-height: 1.35;
   color: var(--muted);
 }
-.lap-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--tc);
-  margin-left: 6px;
+.lap-badge {
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  background: #e11d48;
 }
-.lap-dot:first-child {
-  margin-left: 0;
+.lap-victim {
+  font-weight: 900;
+}
+.lap-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+/* The branching markers on the board can be tapped to choose directly. */
+.target.home[data-token],
+.target.round[data-token] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.aw-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
 }
 /* A token on its second lap wears a dashed white ring. */
 .token.lap2 .tok-body {

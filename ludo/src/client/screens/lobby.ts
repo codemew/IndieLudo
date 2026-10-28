@@ -144,7 +144,7 @@ function seatCard(
     actions.appendChild(sit);
     if (ctx.isHost) {
       const bot = el<HTMLButtonElement>(`<button class="chip">＋ Bot</button>`);
-      bot.onclick = () => ctx.act('lobby:addBot');
+      bot.onclick = () => ctx.act('lobby:addBot', { color });
       actions.appendChild(bot);
     }
     return card;

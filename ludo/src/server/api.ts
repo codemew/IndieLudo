@@ -53,6 +53,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
   const api = express.Router();
+  // Parsed here, not in front of the router, so a too-large or broken body reaches the JSON
+  // error handler below instead of Express's HTML error page.
+  api.use(express.json({ limit: '4kb' }));
   const gateDelayMs = opts.gateDelayMs ?? 300;
   const signupLimiter = new RateLimiter(10, 60_000);
   const adminLoginLimiter = new RateLimiter(5, 60_000);

@@ -9,7 +9,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let muted = storage.get(KEYS.muted) === '1';
 
-export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp';
+export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood';
 
 export function unlock(): void {
   try {
@@ -186,6 +186,13 @@ export function play(name: Sfx): void {
       noise(0, 0.35, 0.18, 1800);
       tone(440, 0, 0.32, 'sawtooth', 0.12, 1320);
       [659, 831, 988, 1319].forEach((f, i) => tone(f, 0.28 + i * 0.05, 0.36, 'triangle', 0.13));
+      break;
+    case 'firstBlood':
+      // A deep drum hit, then a short low brass-like stab: dramatic without being shrill.
+      tone(110, 0, 0.5, 'sine', 0.32, 45);
+      noise(0, 0.12, 0.12, 300, 'lowpass');
+      [196, 247, 294].forEach((f) => tone(f, 0.12, 0.55, 'sawtooth', 0.06, f * 0.98));
+      [392, 494].forEach((f) => tone(f, 0.12, 0.45, 'triangle', 0.08));
       break;
     case 'turn':
       tone(880, 0, 0.12, 'sine', 0.22);

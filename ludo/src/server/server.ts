@@ -108,6 +108,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     lobbyIdleCloseSec: config.lobbyIdleCloseSec,
     onChange: (lobbyId) => broadcastLobby(lobbyId),
     onLeaveGame: (lobby, userId) => lobby.gameId && games.leave(lobby.gameId, userId),
+    winsOf: (userId) => users.get(userId)?.wins ?? 0,
     // Voice belongs to the lobby: leaving it (or being kicked or dropped) leaves the channel.
     onMemberLeft: (lobby, userId) => voice.leave(lobby.id, userId),
     onClosed: (lobby, byAdmin) => {

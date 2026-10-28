@@ -114,6 +114,24 @@ npm run typecheck
 
 **Effects:**
 - **Six streak:** the first six lights a warm amber fire along the floor under the dice queue (left side, fading out before the dice), and the second makes it a taller, deeper orange one, like a classic fire. Each has its own sound. The fire sits behind the controls without blocking taps. The cube keeps glowing in the colour of the player whose roll it is. Three sixes bring a sad face 😩 and a sad trombone.
+- **First blood:** the first capture of a game slams a red **FIRST BLOOD** banner across the board on every phone, showing who captured whom, with a drum hit.
+
+## End of game: awards and stats
+
+The results screen shows awards, everyone's match stats, and each player's award icons on the podium. The server counts the stats while the game is played, so they can't be faked, and they're saved with the game.
+
+| Stat | Award | What counts |
+|---|---|---|
+| 🏃 Cells | Most cells travelled | Every square moved; leaving base counts as 1 |
+| ⚔️ Captures | Most tokens captured | Opponent tokens sent back to base |
+| 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
+| 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
+| 🩸 First blood | First blood | The game's first capture |
+
+- **Ties:** a tied award goes to everyone tied.
+- **No score:** a stat nobody scored has no award.
+
+The lobby shows each player's lifetime wins (🏆) beside their name.
 - A token landing on a star square chimes and briefly turns into 😌 or 😎, then goes back to normal.
 - A token that captures another briefly turns into 😋 or 🤤, chewing happily with a little slurp, then fades back to the token.
 - On your move, the die your next tap will use is lifted, outlined in your colour and tagged **USE**, and dice that can't move anything are greyed out. The board marks where each glowing token would land.

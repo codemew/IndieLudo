@@ -169,6 +169,41 @@ describe('captures', () => {
     expect(s.turn.bonus).toBe(2);
   });
 
+  it('the first capture of the game is first blood, once', () => {
+    const s = withQueue(game(), [3]);
+    expect(s.firstBlood).toBe(false);
+    s.tokens.red = [2, BASE, BASE, BASE];
+    s.tokens.yellow = [31, BASE, BASE, BASE]; // absolute 5
+    const first = applyMove(s, 0, 0).filter((e) => e.type === 'capture');
+    expect(first).toEqual([expect.objectContaining({ victim: 'yellow', firstBlood: true })]);
+    expect(s.firstBlood).toBe(true);
+
+    // The bonus roll: red captures again, and it is not first blood any more.
+    s.turn = { ...s.turn, phase: 'moving', queue: [1] };
+    s.tokens.yellow = [32, BASE, BASE, BASE]; // absolute 6
+    const second = applyMove(s, 0, 0).filter((e) => e.type === 'capture');
+    expect(second).toHaveLength(1);
+    expect(second[0]).not.toHaveProperty('firstBlood');
+  });
+
+  it('a first move that captures several tokens is first blood only once', () => {
+    const s = withQueue(game(['red', 'green', 'yellow']), [3]);
+    s.tokens.red = [2, BASE, BASE, BASE];
+    s.tokens.green = [44, BASE, BASE, BASE];
+    s.tokens.yellow = [31, 31, BASE, BASE];
+    const caps = applyMove(s, 0, 0).filter((e) => e.type === 'capture');
+    expect(caps.filter((e) => 'firstBlood' in e)).toHaveLength(1);
+    expect(caps[0]).toMatchObject({ firstBlood: true });
+  });
+
+  it('a game saved before first blood existed treats its next capture as the first', () => {
+    const s = withQueue(game(), [3]);
+    delete s.firstBlood;
+    s.tokens.red = [2, BASE, BASE, BASE];
+    s.tokens.yellow = [31, BASE, BASE, BASE];
+    expect(applyMove(s, 0, 0).find((e) => e.type === 'capture')).toMatchObject({ firstBlood: true });
+  });
+
   it('does not capture tokens in a home column', () => {
     const s = withQueue(game(), [1]);
     s.tokens.red = [51, BASE, BASE, BASE];

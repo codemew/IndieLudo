@@ -4,6 +4,8 @@ export type Color = 'red' | 'green' | 'yellow' | 'blue';
 export const COLORS: readonly Color[] = ['red', 'green', 'yellow', 'blue'];
 
 /** Consecutive turns a player may miss (timer ran out) before a bot takes the seat. */
+/** How long every phone shows the "first blood" banner; the server waits this out before bots and timers carry on. */
+export const FIRST_BLOOD_MS = 1800;
 export const MAX_MISSED_TURNS = 5;
 
 export type Controller = 'human' | 'bot' | 'takeover';
@@ -48,6 +50,24 @@ export interface GameState {
   ranks: Color[];
   finished: boolean;
   createdAt: number;
+  /** True once anyone has captured: the first capture of a game is "first blood". Games saved before this existed lack it. */
+  firstBlood?: boolean;
+  /** Per-player match stats for the results screen, counted by the rules engine. */
+  stats?: Partial<Record<Color, PlayerStats>>;
+}
+
+export interface PlayerStats {
+  /** Squares moved in total (leaving base counts as one). */
+  cells: number;
+  /** Opponent tokens sent back to base. */
+  captures: number;
+  /** Sixes rolled, including ones lost to the three-sixes penalty. */
+  sixes: number;
+  /** Captures of a player who had captured you and you hadn't paid back yet. */
+  revenges: number;
+  firstBlood: boolean;
+  /** Captures each opponent has made on you that you haven't avenged yet. */
+  owed: Partial<Record<Color, number>>;
 }
 
 export interface LegalMove {
@@ -64,7 +84,7 @@ export type GameEvent =
   | { type: 'roll'; color: Color; value: number; queue: number[] }
   | { type: 'penalty'; color: Color; queue: number[] }
   | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number }
-  | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number }
+  | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true }
   | { type: 'home'; color: Color; tokenId: number }
   | { type: 'rank'; color: Color; rank: number }
   | { type: 'noMoves'; color: Color; discarded: number[] }
@@ -85,6 +105,8 @@ export interface LobbyMember {
   isBot: boolean;
   ready: boolean;
   connected: boolean;
+  /** Games this player has won (humans only), shown beside the name. Filled in when the lobby is sent. */
+  wins?: number;
 }
 
 export type LobbyStatus = 'waiting' | 'playing';

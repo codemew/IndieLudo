@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.0
+
+### Added
+- **First blood:** the game's first capture shows a **FIRST BLOOD** banner on every phone, showing who captured whom, with its own sound and vibration.
+  - The server marks the capture, so it shows correctly even after a reconnect.
+  - Bots and turn timers wait for the banner to finish.
+- **End-of-game awards and stats:** the results screen now shows awards for most cells travelled, most tokens captured, most sixes, most revenges taken, and first blood (ties are shared).
+  - It also has a stats table for every player, with the best in each column highlighted, and each player's award icons on the podium.
+  - The server counts the stats as the game is played and saves them with the game.
+  - A *revenge* is capturing a player who had captured you and whom you hadn't paid back yet.
+  - The results screen now scrolls when the content is taller than the phone.
+- **Wins in the lobby:** each player's lifetime wins (🏆) are shown beside their name and update as soon as a game ends.
+
 ## 1.4.1
 
 ### Changed

@@ -1,6 +1,7 @@
 import { BASE, HOME, absoluteSquare, isSafeSquare, pathCells, tokenCell } from '../../shared/board.js';
 import type { GameUpdate } from '../../shared/protocol.js';
 import {
+  FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
   type Color,
   type GameEvent,
@@ -281,6 +282,8 @@ export function gameScreen(root: HTMLElement): () => void {
           await slide(el, from, tokenCell(e.victim, BASE, e.tokenId), 560);
           work.tokens[e.victim][e.tokenId] = BASE;
           tokens.sync(work, new Set(), null);
+          // The game's first capture: everyone gets the "first blood" banner.
+          if (e.firstBlood) await firstBloodBanner(e.color, e.victim);
           break;
         }
         case 'home':
@@ -492,6 +495,21 @@ export function gameScreen(root: HTMLElement): () => void {
     setHtml($(root, '#hint'), hint);
 
     $(root, '#takeback').hidden = !(me && me.controller === 'takeover' && !gs.finished);
+  }
+
+  /** A red strip slams across the board: FIRST BLOOD, and who captured whom. */
+  async function firstBloodBanner(killer: Color, victim: Color): Promise<void> {
+    const name = (c: Color) => `<span class="fb-name n-${c}">${c === mySeat()?.color ? 'You' : esc(seatName(c))}</span>`;
+    const banner = el(`
+      <div class="kill-banner" role="status" style="--fb-ms:${FIRST_BLOOD_MS}ms">
+        <b>First blood</b>
+        <small>${name(killer)} <span class="fb-arrow">⚔</span> ${name(victim)}</small>
+      </div>`);
+    fx.appendChild(banner);
+    play('firstBlood');
+    vibrate([60, 40, 120]);
+    await sleep(FIRST_BLOOD_MS);
+    banner.remove();
   }
 
   function callout(title: string, sub: string): void {

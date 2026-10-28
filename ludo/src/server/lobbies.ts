@@ -35,6 +35,8 @@ export interface LobbyManagerOptions {
   onMemberLeft?: (lobby: Lobby, userId: number) => void;
   /** `admin` when an admin closed it; otherwise it emptied out or sat idle. */
   onClosed?: (lobby: Lobby, byAdmin: boolean) => void;
+  /** Lifetime wins of a player, looked up whenever the lobby is sent so it is always current. */
+  winsOf?: (userId: number) => number;
 }
 
 export const MAX_MEMBERS = 4;
@@ -117,7 +119,15 @@ export class LobbyManager {
   }
 
   toPublic(l: Lobby): PublicLobby {
-    return { id: l.id, name: l.name, hostId: l.hostId, status: l.status, members: l.members.map((m) => ({ ...m })), gameId: l.gameId };
+    const winsOf = this.opts.winsOf;
+    return {
+      id: l.id,
+      name: l.name,
+      hostId: l.hostId,
+      status: l.status,
+      members: l.members.map((m) => (m.isBot || m.userId === null || !winsOf ? { ...m } : { ...m, wins: winsOf(m.userId) })),
+      gameId: l.gameId,
+    };
   }
 
   create(user: LobbyUser, input: { createPassword: string; name: string; password: string }): Lobby {

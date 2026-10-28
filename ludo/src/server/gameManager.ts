@@ -2,11 +2,12 @@ import crypto from 'node:crypto';
 import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { RuleError, applyMove, applyRoll, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { MAX_MISSED_TURNS, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
 import type { Lobby } from './lobbies.js';
+
 
 export interface GameManagerOptions {
   db: DB;
@@ -312,7 +313,7 @@ export class GameManager {
     for (const e of events) {
       if (e.type === 'roll') ms += 1200;
       else if (e.type === 'move') ms += e.from === BASE ? 300 : (e.to - e.from) * 150;
-      else if (e.type === 'capture') ms += 600;
+      else if (e.type === 'capture') ms += e.firstBlood ? 600 + FIRST_BLOOD_MS : 600;
       else if (e.type === 'penalty') ms += 1000;
       else if (e.type === 'noMoves') ms += 650;
       else if (e.type === 'bonus') ms += 500;

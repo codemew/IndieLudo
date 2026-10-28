@@ -1720,12 +1720,18 @@ h3 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  justify-content: safe center;
   gap: 14px;
   padding: 24px 20px calc(20px + var(--sab));
   max-width: 460px;
   width: 100%;
   margin: 0 auto;
-  overflow: hidden;
+  /* The awards and stats make it taller than a phone screen: scroll. */
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.results .confetti {
+  position: fixed;
 }
 .results h2 {
   font-size: 30px;
@@ -2517,4 +2523,255 @@ button.me:active {
 }
 .pchip-ping:empty {
   display: none;
+}
+
+/* ---------- "First blood" banner (first capture of a game) ---------- */
+
+.kill-banner {
+  position: absolute;
+  left: -4%;
+  right: -4%;
+  top: 50%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 12px 0 10px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(127, 29, 29, 0.92) 10%, rgba(185, 28, 28, 0.96) 50%, rgba(127, 29, 29, 0.92) 90%, transparent);
+  box-shadow: 0 0 0 1px rgba(254, 202, 202, 0.25) inset, 0 18px 40px -16px rgba(0, 0, 0, 0.7);
+  animation: kill-strip var(--fb-ms, 1800ms) cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+.kill-banner b {
+  font-size: clamp(26px, 9vw, 40px);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 2px 0 #7f1d1d, 0 0 18px rgba(248, 113, 113, 0.8);
+  animation: kill-slam var(--fb-ms, 1800ms) cubic-bezier(0.2, 0.9, 0.3, 1.4) forwards;
+}
+.kill-banner small {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 750;
+  color: #fee2e2;
+}
+.fb-name {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 2px solid var(--c, #fff);
+}
+.fb-name.n-red {
+  --c: var(--red);
+}
+.fb-name.n-green {
+  --c: var(--green);
+}
+.fb-name.n-yellow {
+  --c: var(--yellow);
+}
+.fb-name.n-blue {
+  --c: var(--blue);
+}
+.fb-arrow {
+  opacity: 0.85;
+}
+@keyframes kill-strip {
+  0% {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0.2);
+  }
+  10% {
+    opacity: 1;
+    transform: translateY(-50%) scaleY(1);
+  }
+  85% {
+    opacity: 1;
+    transform: translateY(-50%) scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50%) scaleY(0.6);
+  }
+}
+@keyframes kill-slam {
+  0% {
+    transform: scale(1.9) skewX(-8deg);
+    opacity: 0;
+  }
+  16% {
+    transform: scale(1) skewX(-8deg);
+    opacity: 1;
+  }
+  85% {
+    transform: scale(1) skewX(-8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.05) skewX(-8deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kill-banner,
+  .kill-banner b {
+    animation-name: fade-in;
+  }
+}
+
+/* ---------- results: awards and match stats ---------- */
+
+.podium-awards {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  font-size: 16px;
+}
+.podium-awards + .crown {
+  margin-left: 4px;
+}
+.seat-wins {
+  font-size: 12px;
+  font-weight: 750;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.match-stats {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.match-stats h3 {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.awards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.award {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  animation: card-in 0.35s ease backwards;
+}
+.aw-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+.aw-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.aw-text b {
+  font-size: 14px;
+}
+.aw-who {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 750;
+  border: 2px solid var(--c, var(--border));
+}
+.aw-who em,
+.stats-table em {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.aw-who.n-red,
+.stats-table .p-red {
+  --c: var(--red);
+}
+.aw-who.n-green,
+.stats-table .p-green {
+  --c: var(--green);
+}
+.aw-who.n-yellow,
+.stats-table .p-yellow {
+  --c: var(--yellow);
+}
+.aw-who.n-blue,
+.stats-table .p-blue {
+  --c: var(--blue);
+}
+.aw-val {
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-table thead th {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.stats-table thead small {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stats-table tbody th {
+  text-align: left;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 6px 8px;
+  border-radius: 10px 0 0 10px;
+  background: var(--surface);
+}
+.stats-table td {
+  text-align: center;
+  font-weight: 700;
+  padding: 6px 4px;
+  background: var(--surface);
+}
+.stats-table td:last-child {
+  border-radius: 0 10px 10px 0;
+}
+.stats-table td.best {
+  color: var(--c);
+  font-weight: 900;
+}
+.st-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--c);
 }

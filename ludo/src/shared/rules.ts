@@ -1,5 +1,5 @@
 import { BASE, HOME, LAST_TRACK, absoluteSquare, isSafeSquare } from './board.js';
-import { COLORS, type Color, type GameEvent, type GameState, type LegalMove, type Seat } from './types.js';
+import { COLORS, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
 
 /**
  * Pure Ludo rules engine. Functions mutate the given state in place and return
@@ -41,7 +41,14 @@ export function createGameState(opts: {
     ranks: [],
     finished: false,
     createdAt: opts.now ?? Date.now(),
+    firstBlood: false,
   };
+}
+
+/** The player's match stats, created on first use (games saved before stats existed have none). */
+export function statsOf(state: GameState, color: Color): PlayerStats {
+  state.stats ??= {};
+  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, firstBlood: false, owed: {} });
 }
 
 export function currentColor(state: GameState): Color {
@@ -112,6 +119,7 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   const turn = state.turn;
   const color = currentColor(state);
   const events: GameEvent[] = [];
+  if (value === SIX) statsOf(state, color).sixes++;
   turn.queue.push(value);
   events.push({ type: 'roll', color, value, queue: [...turn.queue] });
   if (value === SIX) {
@@ -150,9 +158,22 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number): 
   state.tokens[color][tokenId] = move.to;
   turn.queue.splice(dieIndex, 1);
   events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die });
+  const mine = statsOf(state, color);
+  mine.cells += move.to - move.from; // from base (-1) to the start square counts as 1
 
   for (const c of move.captures) {
-    events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from: state.tokens[c.color][c.tokenId] });
+    const firstBlood = !state.firstBlood;
+    state.firstBlood = true;
+    const theirs = statsOf(state, c.color);
+    mine.captures++;
+    if (firstBlood) mine.firstBlood = true;
+    // Paying back a capture they made on us is a revenge; this one is now theirs to avenge.
+    if ((mine.owed[c.color] ?? 0) > 0) {
+      mine.owed[c.color]!--;
+      mine.revenges++;
+    }
+    theirs.owed[color] = (theirs.owed[color] ?? 0) + 1;
+    events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from: state.tokens[c.color][c.tokenId], ...(firstBlood && { firstBlood: true as const }) });
     state.tokens[c.color][c.tokenId] = BASE;
     turn.bonus++;
   }

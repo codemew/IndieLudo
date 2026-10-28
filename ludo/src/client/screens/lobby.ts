@@ -150,7 +150,7 @@ function seatCard(
   const card = el(`
     <div class="seat s-${color} ${isMe ? 'seat-me' : ''} ${m.connected ? '' : 'seat-offline'}"${m.isBot || m.userId === null ? '' : ` data-user="${m.userId}"`}>
       <div class="seat-token">${m.isBot ? '🤖' : esc(m.username[0]?.toUpperCase() ?? '')}</div>
-      <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}<span class="seat-vc"></span></div>
+      <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}${m.isBot ? '' : ` <span class="seat-wins" title="${m.wins ?? 0} win${m.wins === 1 ? '' : 's'}">🏆 ${m.wins ?? 0}</span>`}<span class="seat-vc"></span></div>
       ${m.isBot ? '' : `<div class="seat-net"></div>`}
       <div class="seat-tags">
         ${m.userId === ctx.hostId ? '<span class="tag">👑 host</span>' : ''}

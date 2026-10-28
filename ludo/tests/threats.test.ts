@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BASE, HOME, absoluteSquare } from '../src/shared/board.js';
+import { BASE, HOME, LAP2_FIRST, LAP2_LAST, absoluteSquare } from '../src/shared/board.js';
 import { legalMoves } from '../src/shared/rules.js';
 import { THREAT_RANGE, threatenedTokens } from '../src/shared/threats.js';
 import { COLORS, type Color } from '../src/shared/types.js';
@@ -37,14 +37,17 @@ describe('threatenedTokens', () => {
     expect(threatenedTokens(s)).toEqual(new Set());
   });
 
-  it('no threat from an opponent that turns into its own home column first', () => {
+  it('a first-lap opponent near its home turn can still reach by going round again; a second-lap one cannot', () => {
     const s = game();
-    // Yellow at progress 48 (absolute 22) has only 2 track squares left before its home column.
+    // Yellow at progress 48 (absolute 22): 3 more squares would take it past its home turn...
     s.tokens.yellow = [48, BASE, BASE, BASE];
-    s.tokens.red = [24, BASE, BASE, BASE]; // absolute 24: 2 ahead, reachable (48 + 2 = 50)
-    expect(threatenedTokens(s).has('red:0')).toBe(true);
-    s.tokens.red = [25, BASE, BASE, BASE]; // absolute 25: 3 ahead, yellow would need 51 (home column)
+    s.tokens.red = [25, BASE, BASE, BASE]; // absolute 25, 3 ahead
+    expect(threatenedTokens(s).has('red:0')).toBe(true); // ...but it may go round again and land there
+    // The same square on its second lap (progress 106 = absolute 22) turns home instead.
+    s.tokens.yellow = [106, BASE, BASE, BASE];
     expect(threatenedTokens(s).has('red:0')).toBe(false);
+    s.tokens.red = [24, BASE, BASE, BASE]; // 2 ahead: 106 + 2 = 108, its last track square
+    expect(threatenedTokens(s).has('red:0')).toBe(true);
   });
 });
 
@@ -69,8 +72,9 @@ describe('threatenedTokens agrees with the real rules, everywhere', () => {
     const gaps = new Set<number>();
     for (const [victim, hunter] of pairs) {
       const colors = [victim, hunter];
-      for (let p = BASE; p < HOME; p++) {
-        for (let q = BASE; q < HOME; q++) {
+      const all = [...Array(HOME - BASE).keys()].map((i) => i + BASE).concat([...Array(LAP2_LAST - LAP2_FIRST + 1).keys()].map((i) => i + LAP2_FIRST));
+      for (const p of all) {
+        for (const q of all) {
           const s = game(colors);
           s.tokens[victim] = [p, BASE, BASE, BASE];
           s.tokens[hunter] = [q, BASE, BASE, BASE];
@@ -85,7 +89,7 @@ describe('threatenedTokens agrees with the real rules, everywhere', () => {
         }
       }
     }
-    expect(checked).toBe(12 * 57 * 57);
+    expect(checked).toBe(12 * (57 + 52) * (57 + 52));
     expect(inDanger).toBeGreaterThan(0);
     // Danger only ever comes from 1 to 5 squares behind, and every one of those distances occurs.
     expect([...gaps].sort()).toEqual([1, 2, 3, 4, 5]);

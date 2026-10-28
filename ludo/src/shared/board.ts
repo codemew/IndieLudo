@@ -6,11 +6,20 @@ import type { Color } from './types.js';
  *   0..50     main track (0 = own start square)
  *   51..55    own home column
  *   56        home (finished)
+ *   57..108   a second lap of the main track: a token about to turn into its home column may go
+ *             round once more. 57 is the square just before its start, 108 the last square before
+ *             its home column again; from there it turns home like on the first lap.
  */
 export const BASE = -1;
 export const LAST_TRACK = 50;
 export const HOME = 56;
 export const TRACK_LENGTH = 52;
+export const LAP2_FIRST = 57;
+export const LAP2_LAST = 108;
+
+export const isSecondLap = (progress: number): boolean => progress >= LAP2_FIRST && progress <= LAP2_LAST;
+/** On the shared track (either lap), where it can capture and be captured. */
+export const onTrack = (progress: number): boolean => (progress >= 0 && progress <= LAST_TRACK) || isSecondLap(progress);
 
 export const START_INDEX: Record<Color, number> = { red: 0, green: 13, yellow: 26, blue: 39 };
 
@@ -65,8 +74,10 @@ const HOME_SPOT: Record<Color, Cell> = {
 };
 
 export function absoluteSquare(color: Color, progress: number): number | null {
-  if (progress < 0 || progress > LAST_TRACK) return null;
-  return (START_INDEX[color] + progress) % TRACK_LENGTH;
+  if (progress >= 0 && progress <= LAST_TRACK) return (START_INDEX[color] + progress) % TRACK_LENGTH;
+  // Second lap: 57 is 51 squares on from the start (the one just before it), and so on.
+  if (isSecondLap(progress)) return (START_INDEX[color] + progress - (LAP2_FIRST - LAST_TRACK - 1)) % TRACK_LENGTH;
+  return null;
 }
 
 export function isSafeSquare(abs: number): boolean {
@@ -80,15 +91,26 @@ export function tokenCell(color: Color, progress: number, tokenId: number): Cell
     const [sx, sy] = BASE_SLOTS[tokenId];
     return [ox + sx, oy + sy];
   }
+  if (onTrack(progress)) return TRACK[absoluteSquare(color, progress)!];
   if (progress >= HOME) return HOME_SPOT[color];
-  if (progress > LAST_TRACK) return HOME_COLUMN[color][progress - LAST_TRACK - 1];
-  return TRACK[absoluteSquare(color, progress)!];
+  return HOME_COLUMN[color][progress - LAST_TRACK - 1];
+}
+
+/** The next square along a token's way; `lapping` takes it round again past its home turn. */
+export function stepFrom(progress: number, lapping: boolean): number {
+  if (progress === LAST_TRACK) return lapping ? LAP2_FIRST : LAST_TRACK + 1;
+  if (progress === LAP2_LAST) return LAST_TRACK + 1;
+  return progress + 1;
 }
 
 /** Every cell a token passes through moving from `from` to `to`, excluding the start. */
 export function pathCells(color: Color, from: number, to: number, tokenId: number): Cell[] {
   if (from === BASE) return [tokenCell(color, 0, tokenId)];
+  const lapping = isSecondLap(to) && !isSecondLap(from);
   const cells: Cell[] = [];
-  for (let p = from + 1; p <= to; p++) cells.push(tokenCell(color, p, tokenId));
+  for (let p = from, i = 0; p !== to && i < 6; i++) {
+    p = stepFrom(p, lapping);
+    cells.push(tokenCell(color, p, tokenId));
+  }
   return cells;
 }

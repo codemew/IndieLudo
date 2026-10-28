@@ -5,7 +5,12 @@ import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, Swap
 export type Ack<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
 
 export interface RollIntent { gameId: string; version: number; actionId: string }
-export interface MoveIntent extends RollIntent { dieIndex: number; tokenId: number }
+export interface MoveIntent extends RollIntent {
+  dieIndex: number;
+  tokenId: number;
+  /** Go round the board again instead of into the home column; absent means head home. */
+  lap?: boolean;
+}
 
 export interface ClientToServer {
   'lobby:list': (p: Record<string, never>, ack: (r: Ack<LobbySummary[]>) => void) => void;
@@ -137,7 +142,7 @@ export interface ServerToClient {
 }
 
 type FieldType = 'string' | 'int' | 'bool' | 'color';
-export type Schema = Record<string, { type: FieldType; max?: number; min?: number }>;
+export type Schema = Record<string, { type: FieldType; max?: number; min?: number; optional?: boolean }>;
 
 const COLOR_SET = new Set(['red', 'green', 'yellow', 'blue']);
 
@@ -149,10 +154,10 @@ export function matchesSchema(payload: unknown, schema: Schema): boolean {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
   const obj = payload as Record<string, unknown>;
   const keys = Object.keys(obj);
-  if (keys.length !== Object.keys(schema).length) return false;
+  for (const [key, rule] of Object.entries(schema)) if (!rule.optional && !(key in obj)) return false;
   for (const key of keys) {
+    if (!Object.hasOwn(schema, key)) return false;
     const rule = schema[key];
-    if (!rule) return false;
     const v = obj[key];
     switch (rule.type) {
       case 'string':
@@ -187,6 +192,7 @@ export const SCHEMAS = {
     actionId: { type: 'string', min: 8, max: 64 },
     dieIndex: { type: 'int', max: 2 },
     tokenId: { type: 'int', max: 3 },
+    lap: { type: 'bool', optional: true },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },

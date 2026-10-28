@@ -118,8 +118,8 @@ export class GameManager {
 
   move(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.move)) return this.badPayload(userId, 'game:move', payload);
-    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number };
-    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId));
+    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; lap?: boolean };
+    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true));
   }
 
   private badPayload(userId: number, event: string, payload: unknown): Ack {
@@ -313,7 +313,7 @@ export class GameManager {
     let ms = 0;
     for (const e of events) {
       if (e.type === 'roll') ms += 1200;
-      else if (e.type === 'move') ms += moveMs(e.kills ?? 0, e.from === BASE ? BASE_EXIT_HOPS : e.to - e.from);
+      else if (e.type === 'move') ms += moveMs(e.kills ?? 0, e.from === BASE ? BASE_EXIT_HOPS : e.die);
       else if (e.type === 'capture') ms += e.firstBlood ? 600 + FIRST_BLOOD_MS : 600;
       else if (e.type === 'penalty') ms += 1000;
       else if (e.type === 'noMoves') ms += 650;
@@ -343,7 +343,7 @@ export class GameManager {
     } else {
       const move = chooseMove(state);
       if (!move) return;
-      events = applyMove(state, move.dieIndex, move.tokenId);
+      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true);
     }
     this.commit(game, events, seatBefore);
   }

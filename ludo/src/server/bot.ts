@@ -1,4 +1,4 @@
-import { BASE, HOME, LAST_TRACK, absoluteSquare, isSafeSquare } from '../shared/board.js';
+import { BASE, HOME, LAST_TRACK, absoluteSquare, isSafeSquare, isSecondLap, onTrack } from '../shared/board.js';
 import { currentColor, legalMoves } from '../shared/rules.js';
 import type { Color, GameState, LegalMove } from '../shared/types.js';
 
@@ -21,7 +21,9 @@ function score(state: GameState, me: Color, m: LegalMove): number {
   let s = m.captures.length * 100;
   if (m.to === HOME) s += 80;
   if (m.from === BASE) s += 60;
-  if (m.from <= LAST_TRACK && m.to > LAST_TRACK && m.to < HOME) s += 40;
+  if (onTrack(m.from) && m.to > LAST_TRACK && m.to < HOME) s += 40;
+  // Going round again only to capture someone; otherwise head home.
+  if (m.lap) s -= 50;
   const fromAbs = absoluteSquare(me, m.from);
   const toAbs = absoluteSquare(me, m.to);
   if (toAbs !== null) {
@@ -29,7 +31,9 @@ function score(state: GameState, me: Color, m: LegalMove): number {
     else if (threatened(state, me, toAbs)) s -= 25;
   }
   if (fromAbs !== null && threatened(state, me, fromAbs) && (toAbs === null || !threatened(state, me, toAbs))) s += 20;
-  return s + m.to / 10;
+  // Prefer moving tokens further along (a second-lap token counts as one lap further).
+  const along = m.to === HOME ? 56 : isSecondLap(m.to) ? m.to - 6 : m.to;
+  return s + along / 10;
 }
 
 /** Simple heuristic: capture > finish > leave base > reach safety > advance. */

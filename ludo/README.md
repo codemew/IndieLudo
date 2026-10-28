@@ -100,6 +100,10 @@ npm run typecheck
 - **Colours** belong to players. Every phone draws each player in the same colour on the same board orientation.
 - **Leaving base** takes a 6.
 - **Finishing** takes the exact roll; a die that would overshoot cannot be used.
+- **Second lap:** a token about to turn into its home stretch on its first lap may go round the whole board once more instead.
+  - **Choosing:** the board shows a branching path, a gold trail into the home stretch and a blue one round again. Tapping the token asks **🏠 Head home** or **↻ Go round again**.
+  - **On the second lap:** the token moves, captures and can be captured like any other, and wears a dashed white ring. At the end of that lap it turns home; it can't go round a third time.
+  - **Bots and the timer:** they head home, unless going round would capture someone.
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
 - **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base, and earns a **bonus roll**.
 - **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
@@ -139,7 +143,7 @@ Every capture grows the capturing token's moustache a level, and makes it heavie
   - **Hops:** they crouch and squash more, hop lower, flap their moustache on every hop, and jiggle to a stop.
   - **Board shake:** from the first kill, harder with each level.
   - **Dust:** kicked up from 2 kills.
-- **Moustache:** it twitches now and then, puffing up and bouncing once as it does (the "pump"). After a capture, it waits until the token is still, with no reaction face and no hop, then pauses 3 more seconds. The old moustache fades as the new one slowly grows in over 2 seconds, so the growth is always visible.
+- **Moustache:** it twitches now and then, puffing up and bouncing once as it does (the "pump"). After a capture, it waits until the token is still, with no reaction face and no hop, then pauses 2 more seconds. The old moustache fades as the new one grows in over 1.4 seconds, pumping up to twice its size first, so the growth is always visible.
 - **Losing it:** a captured token goes home clean‑shaven, back to 0 kills.
 - **Same on every phone:** the server counts kills per token, so every phone shows the same moustache. Bots and turn timers wait for the slower moves.
 

@@ -1,4 +1,4 @@
-import { LAST_TRACK, TRACK_LENGTH, absoluteSquare, isSafeSquare } from './board.js';
+import { LAP2_LAST, TRACK_LENGTH, absoluteSquare, isSafeSquare, isSecondLap } from './board.js';
 import type { Color, GameState } from './types.js';
 
 /**
@@ -10,8 +10,9 @@ export const THREAT_RANGE = 5;
 
 /**
  * Tokens an opponent could capture with one roll: "color:tokenId" keys. Not on safe squares
- * (stars and start squares), not in a home column, and only if the opponent's own path really
- * passes that square (it would turn off into its home column first otherwise).
+ * (stars and start squares), not in a home column, and only if the opponent's own path can pass
+ * that square: on its first lap it can always go round again instead of turning home, while on
+ * its second lap it turns home after its last track square.
  */
 export function threatenedTokens(state: Pick<GameState, 'seats' | 'tokens'>): Set<string> {
   const out = new Set<string>();
@@ -27,7 +28,7 @@ export function threatenedTokens(state: Pick<GameState, 'seats' | 'tokens'>): Se
             const from = absoluteSquare(other, q);
             if (from === null) return false;
             const gap = (abs - from + TRACK_LENGTH) % TRACK_LENGTH;
-            return gap >= 1 && gap <= THREAT_RANGE && q + gap <= LAST_TRACK;
+            return gap >= 1 && gap <= THREAT_RANGE && (!isSecondLap(q) || q + gap <= LAP2_LAST);
           }),
       );
       if (hunted) out.add(`${color}:${tokenId}`);

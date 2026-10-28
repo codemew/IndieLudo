@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+- **Second lap:** a token about to turn into its home stretch on its first lap can go round the board once more instead.
+  - **Choosing:** the board shows a branching path (a gold trail into the home stretch, a blue one round again with a ↻ marker). Tapping the token asks **🏠 Head home** or **↻ Go round again**.
+  - **On the second lap:** the token moves, captures and can be captured like any other, wears a dashed white ring, and turns home at the end. It can only go round once.
+  - **Bots and the timer's auto-play:** they head home, unless going round would capture someone.
+  - **Enforced by the server:** older phones that don't send a choice always head home.
+
+### Changed
+- **The moustache grows sooner and with more punch:** it waits 2 seconds (was 3) once the token is still, then grows in over 1.4 seconds (was 2) with a big first pump up to twice its size before it settles.
+- **"In danger" now counts second laps:** an opponent about to turn home can still threaten tokens past its turn, because it may go round again.
+
+### Fixed
+- **Stricter message checks:** the server's check of incoming messages no longer treats built-in object names (such as `toString`) as allowed fields.
+
 ## 2.0.1
 
 ### Changed

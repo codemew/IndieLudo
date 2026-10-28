@@ -1,4 +1,4 @@
-import { BASE, HOME, LAST_TRACK, absoluteSquare, isSafeSquare } from './board.js';
+import { BASE, HOME, LAP2_FIRST, LAP2_LAST, LAST_TRACK, absoluteSquare, isSafeSquare, isSecondLap } from './board.js';
 import { COLORS, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
 
 /**
@@ -69,12 +69,26 @@ function allHome(state: GameState, color: Color): boolean {
   return state.tokens[color].every((p) => p === HOME);
 }
 
-/** Where a token would end up with the given die, or null if it cannot move. */
+/**
+ * Where a token could end up with this die. Usually one place; a token about to turn into its
+ * home column on its first lap may instead go round the board once more (`lap`).
+ */
+export function targetsFor(progress: number, die: number): { to: number; lap?: true }[] {
+  if (progress === BASE) return die === SIX ? [{ to: 0 }] : [];
+  const t = progress + die;
+  if (isSecondLap(progress)) {
+    if (t <= LAP2_LAST) return [{ to: t }];
+    const column = t - LAP2_LAST - 1 + LAST_TRACK + 1; // past its last track square: into the home column
+    return column <= HOME ? [{ to: column }] : [];
+  }
+  if (progress >= HOME) return [];
+  if (progress <= LAST_TRACK && t > LAST_TRACK) return [{ to: t }, { to: t - LAST_TRACK - 1 + LAP2_FIRST, lap: true }];
+  return t <= HOME ? [{ to: t }] : [];
+}
+
+/** Where a token would end up with the given die heading home, or null if it cannot move. */
 export function targetProgress(progress: number, die: number): number | null {
-  if (progress === BASE) return die === SIX ? 0 : null;
-  if (progress >= HOME) return null;
-  const to = progress + die;
-  return to <= HOME ? to : null;
+  return targetsFor(progress, die)[0]?.to ?? null;
 }
 
 function capturesAt(state: GameState, mover: Color, to: number): LegalMove['captures'] {
@@ -97,9 +111,9 @@ export function legalMoves(state: GameState): LegalMove[] {
   const moves: LegalMove[] = [];
   state.turn.queue.forEach((die, dieIndex) => {
     state.tokens[color].forEach((from, tokenId) => {
-      const to = targetProgress(from, die);
-      if (to === null) return;
-      moves.push({ dieIndex, die, tokenId, from, to, captures: capturesAt(state, color, to) });
+      for (const { to, lap } of targetsFor(from, die)) {
+        moves.push({ dieIndex, die, tokenId, from, to, captures: capturesAt(state, color, to), ...(lap && { lap }) });
+      }
     });
   });
   return moves;
@@ -112,7 +126,7 @@ export function legalMoves(state: GameState): LegalMove[] {
 export function distinctChoices(moves: LegalMove[]): LegalMove[] {
   const seen = new Map<string, LegalMove>();
   for (const m of moves) {
-    const key = `${m.die}:${m.from}`;
+    const key = `${m.die}:${m.from}:${m.lap ? 'lap' : ''}`;
     if (!seen.has(key)) seen.set(key, m);
   }
   return [...seen.values()];
@@ -152,10 +166,11 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   return events;
 }
 
-export function applyMove(state: GameState, dieIndex: number, tokenId: number): GameEvent[] {
+/** `lap`: take the token round the board again instead of into its home column (when it may). */
+export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false): GameEvent[] {
   if (state.finished) throw new RuleError('GAME_OVER');
   if (state.turn.phase !== 'moving') throw new RuleError('WRONG_PHASE');
-  const move = legalMoves(state).find((m) => m.dieIndex === dieIndex && m.tokenId === tokenId);
+  const move = legalMoves(state).find((m) => m.dieIndex === dieIndex && m.tokenId === tokenId && Boolean(m.lap) === lap);
   if (!move) throw new RuleError('ILLEGAL_MOVE');
   const turn = state.turn;
   const color = currentColor(state);
@@ -166,7 +181,7 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number): 
   const kills = killsOf(state, color);
   events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die, kills: kills[tokenId] });
   const mine = statsOf(state, color);
-  mine.cells += move.to - move.from; // from base (-1) to the start square counts as 1
+  mine.cells += move.from === BASE ? 1 : move.die; // leaving base counts as 1
 
   for (const c of move.captures) {
     const firstBlood = !state.firstBlood;

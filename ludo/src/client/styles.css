@@ -3179,3 +3179,73 @@ button.me:active {
   height: 14px;
   vertical-align: -2px;
 }
+
+/* ---------- second lap: branching path, choice, lapping tokens ---------- */
+
+.trail {
+  position: absolute;
+  width: calc(100% / 15 * 0.28);
+  height: calc(100% / 15 * 0.28);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 6px 1px var(--tc);
+  background: var(--tc);
+  animation: target-pulse 1.1s ease-in-out infinite;
+}
+.trail.home,
+.target.home,
+.lap-dot.home {
+  --tc: #f5b400;
+}
+.trail.round,
+.target.round,
+.lap-dot.round {
+  --tc: #00c2e0;
+}
+.target.home,
+.target.round {
+  --c: var(--tc);
+}
+.target.round span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 900;
+  font-size: calc(100% / 15 * 0.5);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.lap-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lap-catch {
+  font-weight: 750;
+}
+.lap-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+.lap-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tc);
+  margin-left: 6px;
+}
+.lap-dot:first-child {
+  margin-left: 0;
+}
+/* A token on its second lap wears a dashed white ring. */
+.token.lap2 .tok-body {
+  outline: 2px dashed #fff;
+  outline-offset: 1.5px;
+}

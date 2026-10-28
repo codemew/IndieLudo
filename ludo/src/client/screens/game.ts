@@ -163,8 +163,29 @@ export function gameScreen(root: HTMLElement): () => void {
       $(root, '#queue').animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 300 });
       return;
     }
+    // At its home turn on the first lap the token may go round again: ask which way.
+    const lap = candidates.find((m) => m.dieIndex === pick.dieIndex && m.lap);
+    if (lap) return chooseLap(pick.dieIndex, pick.tokenId, lap);
     play('tap');
     void send('game:move', { dieIndex: pick.dieIndex, tokenId: pick.tokenId });
+  }
+
+  /** The small confirm for a token at its home turn: into the home stretch, or round once more. */
+  function chooseLap(dieIndex: number, tokenId: number, lap: LegalMove): void {
+    play('tap');
+    const catches = lap.captures.length ? `<p class="lap-catch">Going round lands on ${lap.captures.length === 1 ? 'a token' : `${lap.captures.length} tokens`} and captures ${lap.captures.length === 1 ? 'it' : 'them'}.</p>` : '';
+    modal({
+      title: 'Home stretch or another lap?',
+      body: el(`<div class="lap-choice">
+        <p>This token can turn into its home stretch, or go round the whole board once more. It can only go round once.</p>
+        ${catches}
+        <p class="lap-legend"><span class="lap-dot home"></span> heads home <span class="lap-dot round"></span> goes round again</p>
+      </div>`),
+      actions: [
+        { label: '↻ Go round again', onClick: () => void send('game:move', { dieIndex, tokenId, lap: true }) },
+        { label: '🏠 Head home', kind: 'primary', onClick: () => void send('game:move', { dieIndex, tokenId, lap: false }) },
+      ],
+    });
   }
 
   // ---------- updates from the server ----------
@@ -581,17 +602,26 @@ export function gameScreen(root: HTMLElement): () => void {
     warned = now;
   }
 
-  /** Where each glowing token would land with the selected die. */
+  /**
+   * Where each glowing token would land with the selected die. A token at its home turn gets a
+   * branching path: a gold trail into the home stretch and a blue one round the board again.
+   */
   function renderTargets(moves: LegalMove[]): void {
     const color = mySeat()?.color;
     let html = '';
     const seen = new Set<string>();
+    const at = (c: readonly [number, number]) => `left:${((c[0] + 0.5) / 15) * 100}%;top:${((c[1] + 0.5) / 15) * 100}%`;
     for (const m of color ? moves : []) {
+      const branches = moves.some((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && o.lap);
+      if (branches) {
+        const trail = pathCells(color!, m.from, m.to, m.tokenId).slice(0, -1);
+        html += trail.map((c) => `<div class="trail ${m.lap ? 'round' : 'home'}" style="${at(c)}"></div>`).join('');
+      }
       const [x, y] = tokenCell(color!, m.to, m.tokenId);
       const key = m.to === HOME ? 'home' : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      html += `<div class="target t-${color}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%"></div>`;
+      html += `<div class="target t-${color}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}">${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.
     setHtml(targets, html);

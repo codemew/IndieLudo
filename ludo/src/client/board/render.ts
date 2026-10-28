@@ -1,13 +1,13 @@
-import { BASE, BASE_ORIGIN, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, tokenCell, type Cell } from '../../shared/board.js';
+import { BASE, BASE_ORIGIN, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, isSecondLap, tokenCell, type Cell } from '../../shared/board.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { COLORS, type Color, type GameState } from '../../shared/types.js';
 import { moustacheSvg } from '../moustache.js';
 import { reducedMotion } from './animate.js';
 
 /** After a capture, how long the token must sit still before its moustache grows, so the growth is seen. */
-const GROW_DELAY_MS = 3000;
+const GROW_DELAY_MS = 2000;
 /** How long the moustache takes to grow into its new size. */
-const GROW_ANIM_MS = 2000;
+const GROW_ANIM_MS = 1400;
 
 function starPoints(cx: number, cy: number, outer: number, inner: number): string {
   const pts: string[] = [];
@@ -187,11 +187,13 @@ export class TokenLayer {
       { duration: GROW_ANIM_MS * 0.8, easing: 'ease-in-out' },
     );
     squash.querySelector<SVGSVGElement>('.tok-stache:last-of-type .stache')?.animate(
+      // A big pump first (up to twice its size), then it settles with a couple of smaller bounces.
       [
-        { transform: 'scale(0.55)', opacity: 0 },
-        { transform: 'scale(0.7)', opacity: 1, offset: 0.2 },
-        { transform: 'scale(1.12) rotate(-3deg)', offset: 0.65 },
-        { transform: 'scale(0.97) rotate(1.5deg)', offset: 0.85 },
+        { transform: 'scale(0.6)', opacity: 0 },
+        { transform: 'scale(2) rotate(-4deg)', opacity: 1, offset: 0.3 },
+        { transform: 'scale(0.85) rotate(2deg)', offset: 0.55 },
+        { transform: 'scale(1.12) rotate(-1deg)', offset: 0.75 },
+        { transform: 'scale(0.97) rotate(0.5deg)', offset: 0.9 },
         { transform: 'scale(1) rotate(0deg)', opacity: 1 },
       ],
       { duration: GROW_ANIM_MS, easing: 'ease-in-out' },
@@ -215,6 +217,7 @@ export class TokenLayer {
         b.getAnimations().forEach((a) => a.cancel());
         b.style.transform = tf(pl.x, pl.y, pl.scale);
         b.classList.toggle('legal', tappable.has(key));
+        b.classList.toggle('lap2', isSecondLap(state.tokens[seat.color][id]));
         this.setMoustache(b, moustacheLevel(state.kills?.[seat.color]?.[id] ?? 0));
         b.classList.toggle('active', seat.color === activeColor);
         b.disabled = !tappable.has(key);

@@ -80,6 +80,8 @@ export interface LegalMove {
   to: number;
   /** Opponent tokens this move would send back to base. */
   captures: { color: Color; tokenId: number }[];
+  /** Goes round the board a second time instead of turning into the home column. */
+  lap?: true;
 }
 
 export type GameEvent =

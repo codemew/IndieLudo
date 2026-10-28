@@ -13,7 +13,8 @@ const bob = { id: 2, username: 'bob' };
 const carol = { id: 3, username: 'carol' };
 
 function make(maxLobbies = 50): LobbyManager {
-  return new LobbyManager({ db, lobbyCreatePassword: 'secret', maxLobbies, lobbyIdleCloseSec: 600, now: () => now, onLeaveGame, onClosed });
+  // randomInt 0: the first free colour, so these tests know who gets which seat.
+  return new LobbyManager({ db, lobbyCreatePassword: 'secret', maxLobbies, lobbyIdleCloseSec: 600, now: () => now, onLeaveGame, onClosed, randomInt: () => 0 });
 }
 
 function create(user = alice, password = 'pw') {
@@ -214,5 +215,28 @@ describe('after a game and idle cleanup', () => {
     expect(loaded.members.every((m) => !m.connected)).toBe(true);
     expect(again.forUser(bob.id)?.id).toBe(l.id);
     expect(verifyLobbyPassword('pw', loaded.passwordHash)).toBe(true);
+  });
+});
+
+describe('random colours', () => {
+  it('the host and joiners get a random free colour, never one that is taken', () => {
+    const picks = [2, 0, 1]; // indexes into whatever colours are still free
+    const lm2 = new LobbyManager({ db, lobbyCreatePassword: 'secret', maxLobbies: 9, lobbyIdleCloseSec: 600, randomInt: (_min, max) => Math.min(picks.shift() ?? 0, max - 1) });
+    const l = lm2.create(alice, { createPassword: 'secret', name: 'Room', password: 'pw' });
+    lm2.join(bob, l.id, 'pw');
+    lm2.join(carol, l.id, 'pw');
+    lm2.addBot(alice.id);
+    // red green yellow blue → index 2 = yellow; then [red green blue] → 0 = red; then [green blue] → 1 = blue; the bot gets green.
+    expect(lm2.get(l.id)!.members.map((m) => m.color)).toEqual(['yellow', 'red', 'blue', 'green']);
+  });
+
+  it('with real randomness the host is not always red', () => {
+    const lm2 = new LobbyManager({ db, lobbyCreatePassword: 'secret', maxLobbies: 500, lobbyIdleCloseSec: 600 });
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const l = lm2.create({ id: 100 + i, username: `p${i}` }, { createPassword: 'secret', name: 'Room', password: 'pw' });
+      seen.add(l.members[0].color);
+    }
+    expect(seen).toEqual(new Set(['red', 'green', 'yellow', 'blue']));
   });
 });

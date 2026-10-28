@@ -6,6 +6,7 @@ import { currentScreen, go } from './router.js';
 import { state, subscribe, update } from './store.js';
 import { KEYS, storage } from './storage.js';
 import { errorText, toast } from './ui.js';
+import { onSwapEnded, onSwapRequest } from './swapUi.js';
 import { voice } from './voice.js';
 
 /** The game screen registers itself here while mounted so it can animate updates. */
@@ -74,6 +75,8 @@ function connectSocket(token: string): void {
       s.on('lobby:list', (l) => update({ lobbies: l }));
       s.on('lobby:state', (l) => onLobbyState(l));
       s.on('lobby:closed', (info) => (closedByAdmin = info.byAdmin));
+      s.on('lobby:swapRequest', (r) => onSwapRequest(r));
+      s.on('lobby:swapEnded', (e) => onSwapEnded(e));
       s.on('game:state', (u) => onGameUpdate(u));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
       s.on('voice:state', (v) => {
@@ -119,7 +122,7 @@ async function onHello(h: Hello): Promise<void> {
 let closedByAdmin = false;
 
 function onLobbyState(l: PublicLobby | null): void {
-  update({ lobby: l });
+  update(l ? { lobby: l } : { lobby: l, swapOut: null });
   const byAdmin = closedByAdmin;
   closedByAdmin = false;
   // Leaving on purpose navigates home first, so still being on the lobby (or a running game's)

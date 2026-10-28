@@ -1,5 +1,5 @@
 import type { NetStats } from '../shared/net.js';
-import type { LobbySummary, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
+import type { Color, LobbySummary, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
 
 export interface AppState {
   user: { id: number; username: string; gamesPlayed?: number; wins?: number } | null;
@@ -11,6 +11,8 @@ export interface AppState {
   voice: VoiceState | null;
   /** Ping and signal bars of the current lobby's players, refreshed every few seconds. */
   net: NetStats | null;
+  /** Our pending colour-swap request in the lobby, if any. */
+  swapOut: { to: number; color: Color } | null;
   online: boolean;
 }
 
@@ -22,6 +24,7 @@ export const state: AppState = {
   game: null,
   voice: null,
   net: null,
+  swapOut: null,
   online: false,
 };
 

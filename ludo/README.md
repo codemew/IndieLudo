@@ -81,7 +81,13 @@ npm run typecheck
    - **Changing it later:** tap your name or avatar at the top of the home screen. Your seat in the lobby, and in a game in progress, shows the new name to everyone at once.
 4. **Lobby:**
    - Creating a lobby needs the `lobbyCreatePassword` from `config.json` and a lobby password of the creator's choosing. Friends join with that lobby password.
-   - Players pick colours and tap ready. The host can add bots to empty seats and then start the game.
+   - Everyone, the host included, starts on a random free colour, picked by the server. Players can then move or swap, and tap ready. The host can add bots to empty seats, which also get a random free colour, and then start the game.
+   - **Swapping colours:** tap an open seat to move there, or **⇄ Swap** on another player's seat to ask them to swap.
+     - **Asking:** they get a prompt showing who becomes which colour, with 20 seconds to answer. You can cancel while you wait.
+     - **Accepting:** both colours swap at once for everyone, and ready status is kept.
+     - **Bots:** swapping with a bot happens immediately.
+     - **Both asking:** if two players ask each other, they just swap.
+     - **When a request lapses:** if either player leaves, moves to another seat, or the game starts.
 5. **Admin:** tap *Admin login* and enter `adminPassword`. The admin panel can:
    - list, search, rename and delete users
    - list open lobbies and **close** any of them, even mid‑game. Everyone in it goes back home with a notice, and a game in progress ends without a result.
@@ -167,16 +173,37 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
   - **Watchdog:** every 2 seconds each phone checks its links. It redials a link that broke, or hasn't connected within 12 seconds. If the phone took the microphone away (iOS does this when it's locked or another app is opened), it gets a fresh one. It also starts any incoming audio the browser refused to play.
   - **Reconnects:** after a dropped connection, the phone rejoins on its own.
   - **Earphones:** connecting or removing Bluetooth or wired earphones during a call moves voice to them, or back to the phone, without reconnecting. Phones pick the audio route when the mic is opened, so the app opens a fresh mic on the new device and swaps it into every call.
-- **Playing across networks:** on one Wi‑Fi network, voice works without any setup. When players are on different networks (mobile data, other houses), phones use the STUN server in `voice.iceServers` to find each other. Some mobile networks also need a TURN relay. Add one like this:
-
-  ```json
-  "voice": { "iceServers": [
-    { "urls": "stun:stun.l.google.com:19302" },
-    { "urls": "turn:turn.example.com:3478", "username": "ludo", "credential": "secret" }
-  ] }
-  ```
-
-  For a LAN-only setup, `"iceServers": []` avoids contacting Google's STUN server at all.
+- **Playing across networks:** on one Wi‑Fi network, voice works without any setup. When players are on different networks (mobile data, other houses), phones use the STUN server in `voice.iceServers` to find each other. For a LAN‑only setup, `"iceServers": []` avoids contacting Google's STUN server at all.
+- **Cellular players (Jio, Airtel…) need a relay:** carrier networks usually can't connect directly to a phone on home Wi‑Fi. A TURN relay carries the audio for those links.
+  - **Symptoms:** a player's mic badge keeps pulsing for some players, and the voice **Details** shows "routes exchanged but none got through", or that phone with no "internet" route.
+  - **Only failing links use it:** phones that can connect directly still do.
+  - **Option A, your own relay (coturn):**
+    1. Install it: `sudo apt install coturn`.
+    2. In `/etc/turnserver.conf` set:
+       ```
+       listening-port=3478
+       fingerprint
+       use-auth-secret
+       static-auth-secret=<a long random secret>
+       realm=ludo
+       min-port=49160
+       max-port=49200
+       external-ip=<your public IP>   # when the host is behind a router
+       ```
+    3. Forward **UDP and TCP 3478** and **UDP 49160–49200** from your router to the host.
+    4. Add the relay to `config.json`. The server gives each player a login that expires after 12 hours (`ttlSec` changes this), and the secret never reaches the phones:
+       ```json
+       "voice": {
+         "iceServers": [{ "urls": "stun:stun.l.google.com:19302" }],
+         "turn": { "urls": ["turn:<your public IP>:3478", "turn:<your public IP>:3478?transport=tcp"], "secret": "<the same secret>" }
+       }
+       ```
+       The env vars `LUDO_TURN_URLS` (comma‑separated) and `LUDO_TURN_SECRET` work too.
+  - **Option B, a hosted relay:** Metered, Twilio, Cloudflare Realtime and others offer one. Add the URL and login they give you to `iceServers`:
+    ```json
+    { "urls": "turn:relay.example.com:3478", "username": "…", "credential": "…" }
+    ```
+- **Slow networks:** a phone sends the routes it finds within 3 seconds with its call, and any found later (a relay often takes longer on cellular) follow on their own.
 
 ## Signal and ping
 

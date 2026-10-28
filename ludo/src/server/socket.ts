@@ -5,6 +5,7 @@ import type { Ctx } from './context.js';
 import type { Lobby } from './lobbies.js';
 import { AppError } from './errors.js';
 import { TokenBucket } from './rateLimit.js';
+import { iceServersFor } from './turn.js';
 
 interface SocketData {
   userId: number;
@@ -152,6 +153,13 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
 
     on('lobby:ready', SCHEMAS.lobbyReady, (p) => void ctx.lobbies.setReady(userId, p.ready));
     on('lobby:color', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.setColor(userId, p.color as Color));
+    on('lobby:swapAsk', SCHEMAS.lobbyColor, (p) => {
+      const r = ctx.lobbies.askSwap(userId, p.color as Color);
+      if (!r.swapped) io.to(rooms.user(r.req.to)).emit('lobby:swapRequest', r.req);
+      return { ok: true, data: { swapped: r.swapped } };
+    });
+    on('lobby:swapAnswer', SCHEMAS.swapAnswer, (p) => void ctx.lobbies.answerSwap(userId, p.from, p.accept));
+    on('lobby:swapCancel', SCHEMAS.empty, () => void ctx.lobbies.cancelSwap(userId));
     on('lobby:addBot', SCHEMAS.empty, () => void ctx.lobbies.addBot(userId));
     on('lobby:removeBot', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.removeBot(userId, p.color as Color));
 
@@ -195,7 +203,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('voice:get', SCHEMAS.voiceRef, (p) => ({ ok: true, data: ctx.voice.stateFor(p.lobbyId, userId) }));
     on('voice:join', SCHEMAS.voiceRef, (p) => ({
       ok: true,
-      data: { state: ctx.voice.join(p.lobbyId, userId, socket.id), iceServers: ctx.config.voice.iceServers },
+      data: { state: ctx.voice.join(p.lobbyId, userId, socket.id), iceServers: iceServersFor(ctx.config.voice, userId) },
     }));
     on('voice:leave', SCHEMAS.voiceRef, (p) => void ctx.voice.leave(p.lobbyId, userId));
     on('voice:mute', SCHEMAS.voiceMute, (p) => void ctx.voice.setMuted(p.lobbyId, userId, p.muted));
@@ -204,8 +212,8 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('voice:reboot', SCHEMAS.voiceRef, (p) => void ctx.voice.reboot(p.lobbyId, userId));
     on('voice:signal', SCHEMAS.voiceSignal, (p) => {
       const kind = p.kind as VoiceSignalKind;
-      if (kind !== 'offer' && kind !== 'answer' && kind !== 'ring') return { ok: false, error: 'BAD_PAYLOAD' };
-      // Offers and answers carry an SDP; a ring carries none.
+      if (kind !== 'offer' && kind !== 'answer' && kind !== 'ring' && kind !== 'cand') return { ok: false, error: 'BAD_PAYLOAD' };
+      // Offers and answers carry an SDP, late candidates their JSON; a ring carries none.
       if ((kind === 'ring') !== (p.sdp.length === 0)) return { ok: false, error: 'BAD_PAYLOAD' };
       const target = ctx.voice.relayTarget(p.lobbyId, userId, p.to);
       io.to(target).emit('voice:signal', { lobbyId: p.lobbyId, from: userId, kind, call: p.call, sdp: p.sdp });

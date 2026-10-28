@@ -7,6 +7,7 @@ import { state, subscribe } from '../store.js';
 import { $, COLOR_NAME, confirmDialog, el, esc } from '../ui.js';
 import { voice } from '../voice.js';
 import { pingText, signalBars } from '../netUi.js';
+import { askSwap, cancelSwap } from '../swapUi.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
 /** Seats laid out like the board: red top-left, green top-right, blue bottom-left, yellow bottom-right. */
@@ -58,7 +59,9 @@ export function lobbyScreen(root: HTMLElement): () => void {
     const isHost = lobby.hostId === me;
     const mine = lobby.members.find((m) => m.userId === me);
     $(root, '#lobby-name').textContent = lobby.name;
-    $(root, '#lobby-hint').textContent = isHost ? 'Tap an open seat to switch colour or add a bot.' : 'Tap an open seat to switch colour.';
+    $(root, '#lobby-hint').textContent = isHost
+      ? 'Tap an open seat to move or add a bot, or ⇄ to swap colours with a player.'
+      : 'Tap an open seat to move, or ⇄ to swap colours with a player.';
 
     const seats = $(root, '#seats');
     seats.innerHTML = '';
@@ -110,7 +113,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
   const panel = voicePanel();
   $(root, '#lobby-voice').appendChild(panel.el);
   const offStore = subscribe((changed) => {
-    if (changed.includes('lobby')) render();
+    if (changed.includes('lobby') || changed.includes('swapOut')) render();
     else if (changed.includes('voice') || changed.includes('net')) paintLive();
   });
   // Peer connection changes only affect the "connecting" pulse on the badges.
@@ -159,6 +162,13 @@ function seatCard(
       </div>
       <div class="seat-actions"></div>
     </div>`);
+  if (!isMe) {
+    // Swap colours: a bot swaps at once; a player is asked.
+    const asked = state.swapOut?.to === m.userId && m.userId !== null;
+    const swap = el<HTMLButtonElement>(`<button class="chip${asked ? ' chip-wait' : ''}">${asked ? 'Asked · Cancel' : '⇄ Swap'}</button>`);
+    swap.onclick = () => void (asked ? cancelSwap() : askSwap(color, m.userId));
+    $(card, '.seat-actions').appendChild(swap);
+  }
   if (ctx.isHost && !isMe) {
     const b = el<HTMLButtonElement>(`<button class="chip chip-danger">${m.isBot ? 'Remove' : 'Kick'}</button>`);
     b.onclick = async () => {

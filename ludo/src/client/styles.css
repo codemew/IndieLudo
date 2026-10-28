@@ -2997,3 +2997,66 @@ button.me:active {
   font-style: normal;
   font-size: 12px;
 }
+
+/* ---------- colour swap requests (swapUi.ts) ---------- */
+
+.swap-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.swap-ask p {
+  margin: 0;
+}
+.swap-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.swap-dot {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  vertical-align: -2px;
+  background: var(--c);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.swap-dot.s-red {
+  --c: var(--red);
+}
+.swap-dot.s-green {
+  --c: var(--green);
+}
+.swap-dot.s-yellow {
+  --c: var(--yellow);
+}
+.swap-dot.s-blue {
+  --c: var(--blue);
+}
+/* Time left to answer. */
+.swap-timer {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.swap-timer i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  animation: swap-countdown linear forwards;
+}
+@keyframes swap-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+.chip.chip-wait {
+  animation: pulse-soft 1.2s ease-in-out infinite;
+}

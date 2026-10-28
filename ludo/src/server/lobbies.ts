@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { COLORS, type AdminLobby, type Color, type LobbyMember, type LobbyStatus, type LobbySummary, type PublicLobby } from '../shared/types.js';
+import { COLORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 
@@ -35,6 +35,10 @@ export interface LobbyManagerOptions {
   onMemberLeft?: (lobby: Lobby, userId: number) => void;
   /** `admin` when an admin closed it; otherwise it emptied out or sat idle. */
   onClosed?: (lobby: Lobby, byAdmin: boolean) => void;
+  /** A colour-swap request ended (answered, cancelled, expired, or a player left). */
+  onSwapEnded?: (req: SwapRequest, how: SwapEnd) => void;
+  /** Picks seat colours; crypto.randomInt by default, injectable so tests get fixed colours. */
+  randomInt?: (min: number, max: number) => number;
   /** Lifetime wins of a player, looked up whenever the lobby is sent so it is always current. */
   winsOf?: (userId: number) => number;
 }
@@ -64,6 +68,8 @@ export function safeEqual(a: string, b: string): boolean {
 export class LobbyManager {
   private lobbies = new Map<string, Lobby>();
   private byUser = new Map<number, string>();
+  /** Pending colour-swap requests by asker (one each), with their expiry timers. */
+  private swaps = new Map<number, { req: SwapRequest; timer: ReturnType<typeof setTimeout> }>();
   private readonly now: () => number;
 
   constructor(private opts: LobbyManagerOptions) {
@@ -142,7 +148,7 @@ export class LobbyManager {
       name,
       hostId: user.id,
       passwordHash: hashLobbyPassword(input.password),
-      members: [{ color: COLORS[0], userId: user.id, username: user.username, isBot: false, ready: false, connected: true }],
+      members: [{ color: this.randomColor(COLORS), userId: user.id, username: user.username, isBot: false, ready: false, connected: true }],
       status: 'waiting',
       gameId: null,
       createdAt: this.now(),
@@ -179,6 +185,7 @@ export class LobbyManager {
   leave(userId: number): void {
     const lobby = this.forUser(userId);
     if (!lobby) return;
+    this.dropSwaps((r) => r.from === userId || r.to === userId, 'cancelled');
     lobby.members = lobby.members.filter((m) => m.userId !== userId);
     this.byUser.delete(userId);
     if (lobby.status === 'playing') this.opts.onLeaveGame?.(lobby, userId);
@@ -198,9 +205,83 @@ export class LobbyManager {
     if (!COLORS.includes(color)) throw new AppError('INVALID_COLOR');
     if (member.color === color) return lobby;
     if (lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
+    // Any swap request involving this player was about the old colour.
+    this.dropSwaps((r) => r.from === userId || r.to === userId, 'cancelled');
     member.color = color;
     this.changed(lobby);
     return lobby;
+  }
+
+  /**
+   * Ask the player on `color` to swap colours. A bot can't answer, so swapping with a bot
+   * happens at once; so does asking someone who is already asking you. Otherwise the request
+   * waits SWAP_REQUEST_MS for an answer.
+   */
+  askSwap(userId: number, color: Color): { swapped: true; lobby: Lobby } | { swapped: false; req: SwapRequest } {
+    const { lobby, member } = this.memberOf(userId);
+    if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
+    const other = lobby.members.find((m) => m.color === color);
+    if (!other) throw new AppError('SEAT_EMPTY', 409);
+    if (other === member) throw new AppError('SAME_SEAT');
+    if (other.isBot || this.swaps.get(other.userId!)?.req.to === userId) {
+      if (!other.isBot) this.dropSwaps((r) => r.from === other.userId, 'accepted');
+      this.dropSwaps((r) => r.from === userId, 'cancelled');
+      [member.color, other.color] = [other.color, member.color];
+      this.changed(lobby);
+      return { swapped: true, lobby };
+    }
+    this.dropSwaps((r) => r.from === userId, 'cancelled');
+    const req: SwapRequest = {
+      lobbyId: lobby.id,
+      from: userId,
+      fromName: member.username,
+      to: other.userId!,
+      fromColor: member.color,
+      toColor: other.color,
+      expiresAt: this.now() + SWAP_REQUEST_MS,
+    };
+    const timer = setTimeout(() => this.dropSwaps((r) => r === req, 'expired'), SWAP_REQUEST_MS);
+    timer.unref?.();
+    this.swaps.set(userId, { req, timer });
+    return { swapped: false, req };
+  }
+
+  /** The asked player's answer. Fails if the request lapsed or either colour changed since. */
+  answerSwap(userId: number, from: number, accept: boolean): Lobby {
+    const entry = this.swaps.get(from);
+    if (!entry || entry.req.to !== userId) throw new AppError('SWAP_EXPIRED', 409);
+    const { req } = entry;
+    const lobby = this.lobbies.get(req.lobbyId);
+    const asker = lobby?.members.find((m) => m.userId === from);
+    const me = lobby?.members.find((m) => m.userId === userId);
+    if (!lobby || lobby.status !== 'waiting' || asker?.color !== req.fromColor || me?.color !== req.toColor) {
+      this.dropSwaps((r) => r === req, 'expired');
+      throw new AppError('SWAP_EXPIRED', 409);
+    }
+    this.dropSwaps((r) => r === req, accept ? 'accepted' : 'declined');
+    if (accept) {
+      [asker.color, me.color] = [me.color, asker.color];
+      this.changed(lobby);
+    }
+    return lobby;
+  }
+
+  /** The asker changed their mind. */
+  cancelSwap(userId: number): void {
+    this.dropSwaps((r) => r.from === userId, 'cancelled');
+  }
+
+  pendingSwaps(lobbyId: string): SwapRequest[] {
+    return [...this.swaps.values()].map((e) => e.req).filter((r) => r.lobbyId === lobbyId);
+  }
+
+  private dropSwaps(match: (r: SwapRequest) => boolean, how: SwapEnd): void {
+    for (const [from, e] of this.swaps) {
+      if (!match(e.req)) continue;
+      clearTimeout(e.timer);
+      this.swaps.delete(from);
+      this.opts.onSwapEnded?.(e.req, how);
+    }
   }
 
   setReady(userId: number, ready: boolean): Lobby {
@@ -249,6 +330,7 @@ export class LobbyManager {
   markPlaying(lobbyId: string, gameId: string): void {
     const lobby = this.lobbies.get(lobbyId);
     if (!lobby) return;
+    this.dropSwaps((r) => r.lobbyId === lobbyId, 'cancelled');
     lobby.status = 'playing';
     lobby.gameId = gameId;
     this.changed(lobby);
@@ -319,6 +401,7 @@ export class LobbyManager {
   }
 
   private close(lobby: Lobby, byAdmin = false): void {
+    this.dropSwaps((r) => r.lobbyId === lobby.id, 'cancelled');
     this.lobbies.delete(lobby.id);
     for (const m of lobby.members) if (m.userId !== null && this.byUser.get(m.userId) === lobby.id) this.byUser.delete(m.userId);
     this.opts.db.prepare('DELETE FROM lobbies WHERE id = ?').run(lobby.id);
@@ -333,10 +416,15 @@ export class LobbyManager {
     this.opts.onChange?.(lobby.id, lobby);
   }
 
+  /** A random colour nobody in the lobby has: the host isn't always red, nor joiners green. */
   private freeColor(lobby: Lobby): Color {
-    const color = COLORS.find((c) => !lobby.members.some((m) => m.color === c));
-    if (!color) throw new AppError('LOBBY_FULL', 409);
-    return color;
+    const free = COLORS.filter((c) => !lobby.members.some((m) => m.color === c));
+    if (!free.length) throw new AppError('LOBBY_FULL', 409);
+    return this.randomColor(free);
+  }
+
+  private randomColor(options: readonly Color[]): Color {
+    return options[(this.opts.randomInt ?? crypto.randomInt)(0, options.length)];
   }
 
   private memberOf(userId: number): { lobby: Lobby; member: LobbyMember } {

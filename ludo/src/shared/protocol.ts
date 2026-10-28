@@ -1,5 +1,5 @@
 import type { NetStats } from './net.js';
-import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, VoiceState } from './types.js';
+import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, VoiceState } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
 export type Ack<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
@@ -14,6 +14,10 @@ export interface ClientToServer {
   'lobby:leave': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:ready': (p: { ready: boolean }, ack: (r: Ack) => void) => void;
   'lobby:color': (p: { color: Color }, ack: (r: Ack) => void) => void;
+  /** Ask whoever is on `color` to swap colours (a bot swaps at once). */
+  'lobby:swapAsk': (p: { color: Color }, ack: (r: Ack<{ swapped: boolean }>) => void) => void;
+  'lobby:swapAnswer': (p: { from: number; accept: boolean }, ack: (r: Ack) => void) => void;
+  'lobby:swapCancel': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:addBot': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:removeBot': (p: { color: Color }, ack: (r: Ack) => void) => void;
   'lobby:kick': (p: { userId: number }, ack: (r: Ack) => void) => void;
@@ -48,9 +52,10 @@ export interface RTCIceServerConfig {
  * WebRTC signalling relayed through the server. Of each pair of phones only the one with the
  * lower user id sends offers; the other sends a `ring` (no SDP) to ask for one. `call` ties an
  * answer to the offer it answers, so a late answer to an abandoned offer is ignored.
- * `sdp` carries the full description (ICE gathered).
+ * `sdp` carries the description with the candidates gathered so far; candidates found later
+ * (slow STUN on cellular, a relay) follow as `cand`, a JSON list of RTCIceCandidateInit.
  */
-export type VoiceSignalKind = 'offer' | 'answer' | 'ring';
+export type VoiceSignalKind = 'offer' | 'answer' | 'ring' | 'cand';
 
 export interface VoiceSignalOut {
   lobbyId: string;
@@ -84,6 +89,10 @@ export interface ServerToClient {
   hello: (h: Hello) => void;
   'lobby:list': (l: LobbySummary[]) => void;
   'lobby:state': (l: PublicLobby | null) => void;
+  /** Someone asks you to swap colours. */
+  'lobby:swapRequest': (r: SwapRequest) => void;
+  /** A swap request you made or received is over. */
+  'lobby:swapEnded': (e: { from: number; to: number; how: SwapEnd }) => void;
   /** The lobby you are in was closed by an admin; a `lobby:state` null follows. */
   'lobby:closed': (info: { byAdmin: boolean }) => void;
   'game:state': (u: GameUpdate) => void;
@@ -139,6 +148,7 @@ export const SCHEMAS = {
   lobbyReady: { ready: { type: 'bool' } },
   lobbyColor: { color: { type: 'color' } },
   lobbyKick: { userId: { type: 'int', min: 1 } },
+  swapAnswer: { from: { type: 'int', min: 1 }, accept: { type: 'bool' } },
   roll: { gameId: { type: 'string', max: 64 }, version: { type: 'int' }, actionId: { type: 'string', min: 8, max: 64 } },
   move: {
     gameId: { type: 'string', max: 64 },

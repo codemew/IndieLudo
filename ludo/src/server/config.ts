@@ -21,10 +21,22 @@ export interface Config {
   };
   trustProxy: boolean;
   gate: { maxFailsPerIp: number; globalFailRotateThreshold: number };
-  /** STUN/TURN servers handed to browsers for voice chat. LAN-only play needs none. */
-  voice: { iceServers: RTCIceServerConfig[] };
+  /**
+   * STUN/TURN servers handed to browsers for voice chat. LAN-only play needs none.
+   * `turn` is a TURN relay using a shared secret (coturn's use-auth-secret, and most hosted
+   * TURN services): each player gets a login that expires, and the secret never leaves the server.
+   */
+  voice: { iceServers: RTCIceServerConfig[]; turn?: TurnConfig | null };
   /** Not in config.json: directory for generated certificates. */
   certDir: string;
+}
+
+export interface TurnConfig {
+  /** e.g. ["turn:203.0.113.5:3478", "turn:203.0.113.5:3478?transport=tcp"] */
+  urls: string | string[];
+  secret: string;
+  /** How long a login stays valid; default 12 hours. */
+  ttlSec?: number;
 }
 
 export const DEFAULT_PASSWORDS = ['change-me', 'change-me-too'];
@@ -71,6 +83,8 @@ const ENV_MAP: [string, (c: ConfigOverrides, v: string) => void][] = [
   ['LUDO_CERT_PATH', (c, v) => (c.https = { ...c.https, certPath: v })],
   ['LUDO_KEY_PATH', (c, v) => (c.https = { ...c.https, keyPath: v })],
   ['LUDO_TRUST_PROXY', (c, v) => (c.trustProxy = v === 'true' || v === '1')],
+  ['LUDO_TURN_URLS', (c, v) => (c.voice = { ...c.voice, turn: { secret: '', ...c.voice?.turn, urls: v.split(',').map((u) => u.trim()) } })],
+  ['LUDO_TURN_SECRET', (c, v) => (c.voice = { ...c.voice, turn: { urls: [], ...c.voice?.turn, secret: v } })],
 ];
 
 export function validateConfig(c: Config): string[] {
@@ -95,6 +109,13 @@ export function validateConfig(c: Config): string[] {
   const validUrls = (u: unknown) => typeof u === 'string' || (Array.isArray(u) && u.every((x) => typeof x === 'string'));
   if (!Array.isArray(ice) || !ice.every((s) => s && typeof s === 'object' && validUrls(s.urls))) {
     errors.push('voice.iceServers must be a list of { "urls": "stun:…" } objects');
+  }
+  const turn = c.voice.turn;
+  if (turn) {
+    const urls = Array.isArray(turn.urls) ? turn.urls : [turn.urls];
+    if (!urls.length || !urls.every((u) => typeof u === 'string' && /^turns?:/.test(u))) errors.push('voice.turn.urls must be turn: or turns: URLs');
+    if (typeof turn.secret !== 'string' || turn.secret.length < 8) errors.push('voice.turn.secret must be at least 8 characters');
+    if (turn.ttlSec !== undefined && !(Number.isFinite(turn.ttlSec) && turn.ttlSec >= 60)) errors.push('voice.turn.ttlSec must be at least 60');
   }
   return errors;
 }

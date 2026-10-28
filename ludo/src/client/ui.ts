@@ -79,6 +79,9 @@ const ERRORS: Record<string, string> = {
   NOT_IN_GAME: 'Only players in this game can use its voice chat.',
   INVALID_BITRATE: 'Pick 6, 12, 24 or 48 kbps.',
   VOICE_DISABLED: 'The host turned voice chat off.',
+  SEAT_EMPTY: 'That seat is free now: just tap it to move there.',
+  SAME_SEAT: "That's your own seat.",
+  SWAP_EXPIRED: 'That swap request is no longer valid.',
 };
 
 export function errorText(code: string): string {

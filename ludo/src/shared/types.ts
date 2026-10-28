@@ -129,6 +129,24 @@ export interface VoiceState {
   participants: { userId: number; muted: boolean }[];
 }
 
+/** How long a colour-swap request waits for an answer. */
+export const SWAP_REQUEST_MS = 20_000;
+
+/** One player asking another to swap seat colours in the lobby. */
+export interface SwapRequest {
+  lobbyId: string;
+  from: number;
+  fromName: string;
+  to: number;
+  /** The asker's colour now; the one the other player would get. */
+  fromColor: Color;
+  /** The other player's colour now; the one the asker wants. */
+  toColor: Color;
+  expiresAt: number;
+}
+
+export type SwapEnd = 'accepted' | 'declined' | 'cancelled' | 'expired';
+
 export interface PublicLobby {
   id: string;
   name: string;

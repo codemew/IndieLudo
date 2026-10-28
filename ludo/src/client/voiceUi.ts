@@ -251,7 +251,7 @@ function linkDetails(): { el: HTMLElement; stop: () => void } {
         (l) => `
         <li class="vd-link vd-${l.status}">
           <div><b>${esc(nameOf(l.userId))}</b> · ${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`} · ${l.role === 'dial' ? 'we call them' : 'they call us'}</div>
-          <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}</span>
+          <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}${l.late.sent || l.late.got ? ` · late routes ↑${l.late.sent} ↓${l.late.got}` : ''}</span>
           <em>${explain(l)}</em>
         </li>`,
       )

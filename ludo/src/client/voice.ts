@@ -91,6 +91,8 @@ export interface LinkReport {
   ice: string;
   /** Their offer or answer arrived. */
   gotReply: boolean;
+  /** Candidates sent / received after the first offer or answer. */
+  late: { sent: number; got: number };
   mine: RouteSummary;
   theirs: RouteSummary;
   /** Route types of the working connection, e.g. "host → host". */
@@ -121,7 +123,17 @@ interface Peer {
   call: number;
   /** When the link last stopped being connected (or was created). */
   since: number;
+  /** Our offer/answer went out; candidates found after that are sent on as `cand`. */
+  sentSdp: boolean;
+  late: RTCIceCandidateInit[];
+  lateTimer: ReturnType<typeof setTimeout> | null;
+  /** Their late candidates that came before their description did. */
+  queued: RTCIceCandidateInit[];
+  trickled: { sent: number; got: number };
 }
+
+/** Late candidates are batched for this long, so a burst is one message. */
+const LATE_BATCH_MS = 250;
 
 /**
  * Voice chat for one lobby: a full mesh of audio-only WebRTC connections (at most 3 peers).
@@ -232,6 +244,7 @@ class VoiceClient {
         role: this.myId < userId ? 'dial' : 'answer',
         ice: peer ? `${peer.pc.iceConnectionState}/${peer.pc.iceGatheringState}` : '-',
         gotReply: Boolean(peer?.pc.remoteDescription),
+        late: peer ? { ...peer.trickled } : { sent: 0, got: 0 },
         mine: routesIn(peer?.pc.localDescription?.sdp),
         theirs: routesIn(peer?.pc.remoteDescription?.sdp),
         via,
@@ -469,7 +482,9 @@ class VoiceClient {
 
   async onSignal(sig: VoiceSignalIn): Promise<void> {
     if (!this.joined || sig.lobbyId !== this.lobbyId) return;
-    if (sig.kind === 'ring') {
+    if (sig.kind === 'cand') {
+      this.onLateCandidates(sig);
+    } else if (sig.kind === 'ring') {
       // They (re)joined or lost us: dial them afresh. Only the lower id dials.
       if (this.myId < sig.from) {
         this.closePeer(sig.from);
@@ -484,8 +499,9 @@ class VoiceClient {
         await peer.pc.setRemoteDescription({ type: 'offer', sdp: sig.sdp });
         const answer = await peer.pc.createAnswer();
         await peer.pc.setLocalDescription({ type: 'answer', sdp: setOpusBitrate(answer.sdp ?? '', MAX_KBPS) });
+        this.applyQueued(peer);
         await iceGathered(peer.pc);
-        if (this.peers.get(sig.from) === peer) this.signal(sig.from, 'answer', sig.call, peer.pc.localDescription!.sdp);
+        if (this.peers.get(sig.from) === peer) this.sendDescription(sig.from, peer, 'answer');
       } catch {
         this.markFailed(sig.from, peer);
       }
@@ -495,10 +511,40 @@ class VoiceClient {
       if (!peer || peer.call !== sig.call || peer.pc.signalingState !== 'have-local-offer') return;
       try {
         await peer.pc.setRemoteDescription({ type: 'answer', sdp: sig.sdp });
+        this.applyQueued(peer);
       } catch {
         this.markFailed(sig.from, peer);
       }
     }
+  }
+
+  /** Their candidates found after their offer/answer (a slow STUN reply, a relay). */
+  private onLateCandidates(sig: VoiceSignalIn): void {
+    const peer = this.peers.get(sig.from);
+    if (!peer || peer.call !== sig.call) return;
+    let list: unknown;
+    try {
+      list = JSON.parse(sig.sdp);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(list)) return;
+    for (const c of list as RTCIceCandidateInit[]) {
+      if (!c || typeof c.candidate !== 'string') continue;
+      peer.trickled.got++;
+      if (peer.pc.remoteDescription) void peer.pc.addIceCandidate(c).catch(() => {});
+      else peer.queued.push(c);
+    }
+  }
+
+  private applyQueued(peer: Peer): void {
+    for (const c of peer.queued.splice(0)) void peer.pc.addIceCandidate(c).catch(() => {});
+  }
+
+  /** Sends our offer/answer with every candidate found so far; later ones follow as `cand`. */
+  private sendDescription(to: number, peer: Peer, kind: 'offer' | 'answer'): void {
+    peer.sentSdp = true;
+    this.signal(to, kind, peer.call, peer.pc.localDescription!.sdp);
   }
 
   /** After a socket reconnect the server has dropped us from the channel: rejoin and re-call. */
@@ -533,7 +579,7 @@ class VoiceClient {
       const offer = await peer.pc.createOffer();
       await peer.pc.setLocalDescription({ type: 'offer', sdp: setOpusBitrate(offer.sdp ?? '', MAX_KBPS) });
       await iceGathered(peer.pc);
-      if (this.peers.get(userId) === peer) this.signal(userId, 'offer', peer.call, peer.pc.localDescription!.sdp);
+      if (this.peers.get(userId) === peer) this.sendDescription(userId, peer, 'offer');
     } catch {
       this.markFailed(userId, peer);
     }
@@ -547,7 +593,7 @@ class VoiceClient {
       // can't come; the watchdog redials.
       this.signalError = `${kind} to ${to}: ${r.error}`;
       const peer = this.peers.get(to);
-      if (peer && kind !== 'ring') this.markFailed(to, peer);
+      if (peer && (kind === 'offer' || kind === 'answer')) this.markFailed(to, peer);
     });
   }
 
@@ -558,7 +604,18 @@ class VoiceClient {
     audio.autoplay = true;
     audio.setAttribute('playsinline', '');
     this.box().appendChild(audio);
-    const peer: Peer = { pc, audio, status: 'connecting', call, since: Date.now() };
+    const peer: Peer = { pc, audio, status: 'connecting', call, since: Date.now(), sentSdp: false, late: [], lateTimer: null, queued: [], trickled: { sent: 0, got: 0 } };
+    // Candidates found after our offer/answer went out: pass them on in small batches.
+    pc.onicecandidate = (e) => {
+      if (!e.candidate || !peer.sentSdp || this.peers.get(userId) !== peer) return;
+      peer.late.push(e.candidate.toJSON());
+      peer.lateTimer ??= setTimeout(() => {
+        peer.lateTimer = null;
+        if (this.peers.get(userId) !== peer || !peer.late.length) return;
+        peer.trickled.sent += peer.late.length;
+        this.signal(userId, 'cand', peer.call, JSON.stringify(peer.late.splice(0)));
+      }, LATE_BATCH_MS);
+    };
     pc.ontrack = (e) => {
       audio.srcObject = e.streams[0] ?? new MediaStream([e.track]);
       void audio.play().catch(() => {});
@@ -667,6 +724,8 @@ class VoiceClient {
     this.peers.delete(userId);
     peer.pc.ontrack = null;
     peer.pc.onconnectionstatechange = null;
+    peer.pc.onicecandidate = null;
+    if (peer.lateTimer) clearTimeout(peer.lateTimer);
     peer.pc.close();
     peer.audio.srcObject = null;
     peer.audio.remove();

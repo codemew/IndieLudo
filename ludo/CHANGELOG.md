@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.0
+
+### Changed
+- **Random colours in the lobby:** the host is no longer always red, and joiners no longer get the next colour in order. Everyone, and every bot, starts on a random free colour picked by the server with `crypto`.
+
+### Added
+- **Swap colours in the lobby:** tap **⇄ Swap** on another player's seat to ask them to trade colours, with no need to leave and rejoin.
+  - **The prompt:** the other player sees who would become which colour, with a 20-second countdown, and can answer **Swap** or **No thanks**.
+  - **The swap:** both colours change at once for everyone, and ready status is kept.
+  - **Results:** the asker sees the result (swapped, declined, or no answer) and can cancel while waiting.
+  - **Bots:** swapping with a bot happens immediately.
+  - **Both asking:** two players asking each other just swap.
+  - **Checked on the server:** a request is refused if either colour changed since it was made, and it ends if either player leaves, moves seat, or the game starts.
+
 ## 1.5.1
 
 ### Added
@@ -10,16 +24,15 @@
   - **In danger** (new): when an opponent gets 1–5 squares behind a token, the token reacts once: 🏃 😰 🥶. It isn't in danger on safe squares, in its home column, or when the opponent would turn off into its own home column first.
   - **Slower:** all reactions play 5% slower (1.7 s to 1.785 s).
 - **No repeated faces:** every reaction face is used for only one moment. The "Most cells travelled" award is now 👣, so 🏃 only means running away.
-
-
-### Fixed
-- **Voice signalling errors are no longer silent:** if the server refuses a voice offer or answer, the phone now marks that link failed and redials, instead of waiting forever.
-
-### Added
+- **Voice over cellular, using a TURN relay:** set `voice.turn` (relay URLs plus a shared secret, as used by coturn and most hosted relays) and the server gives each player a short-lived relay login when they join voice. The secret never reaches the phones. See README → Voice chat.
+- **Late routes are passed on:** a phone's network routes found after its offer or answer went out (often relay routes on cellular) are now sent to the other phone in small batches, instead of being lost.
 - **Voice "Details":** a button in the voice section on the lobby screen and in the game's ☰ menu.
   - **Per player:** the link's state and for how long, who calls whom, and the network routes each phone offered (local, hidden local, internet, relay).
   - **Explanation:** which route worked, and what is most likely wrong, in plain words.
   - **Copy report:** copies all of it for troubleshooting.
+
+### Fixed
+- **Voice signalling errors are no longer silent:** if the server refuses a voice offer or answer, the phone now marks that link failed and redials, instead of waiting forever.
 
 ## 1.5.0
 

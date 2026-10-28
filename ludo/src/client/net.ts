@@ -24,7 +24,10 @@ export function connect(token: string, h: NetHandlers): void {
   let everConnected = false;
   const s: ClientSocket = io({
     auth: { token },
+    // WebSocket first (lowest latency); if a network blocks it, fall back to plain HTTP
+    // requests instead of failing to connect at all.
     transports: ['websocket', 'polling'],
+    tryAllTransports: true,
     reconnection: true,
     reconnectionDelay: 500,
     reconnectionDelayMax: 4000,

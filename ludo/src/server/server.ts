@@ -8,13 +8,14 @@ import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { NET_PING_INTERVAL_MS, NET_PING_TIMEOUT_MS } from '../shared/net.js';
 import { apiRouter } from './api.js';
+import { compressedAssets } from './assets.js';
 import type { Config } from './config.js';
 import type { Ctx } from './context.js';
 import { openDb, type DB } from './db.js';
 import { cryptoDice, type DiceFn } from './dice.js';
 import { GameManager } from './gameManager.js';
 import { Gate } from './gate.js';
-import { LobbyManager } from './lobbies.js';
+import { LobbyManager, humanIds } from './lobbies.js';
 import { NetStatsTracker } from './netStats.js';
 import { DeviceService, SessionService } from './sessions.js';
 import { attachSocketHandlers, lobbyBroadcaster, rooms, type LudoServerIO } from './socket.js';
@@ -24,6 +25,8 @@ import { VoiceManager } from './voice.js';
 
 /** The package.json version (same path from src/server and dist/server). */
 const APP_VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
+/** Ping stats are only sent when they change, but at least this often. */
+const NET_RESEND_MS = 15_000;
 
 export interface StartOptions {
   db?: DB;
@@ -100,7 +103,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       for (const seat of state.seats) {
         if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, state.ranks[0] === seat.color);
       }
-      lobbies.finishGame(state.lobbyId);
+      lobbies.finishGame(state.lobbyId, state.botBattle === true);
     },
   });
 
@@ -125,7 +128,10 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   });
 
   const voice: VoiceManager = new VoiceManager({
-    isMember: (lobbyId, userId) => Boolean(lobbies.get(lobbyId)?.members.some((m) => m.userId === userId && !m.isBot)),
+    isMember: (lobbyId, userId) => {
+      const lobby = lobbies.get(lobbyId);
+      return Boolean(lobby && humanIds(lobby).includes(userId));
+    },
     isHost: (lobbyId, userId) => lobbies.get(lobbyId)?.hostId === userId,
     onChange: (state) => io?.to(rooms.lobby(state.lobbyId)).emit('voice:state', state),
   });
@@ -215,7 +221,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     const revalidate = (res: express.Response, path: string) => {
       if (/\.(html|webmanifest)$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
     };
-    app.use('/assets', express.static(join(staticDir, 'assets'), { immutable: true, maxAge: '1y' }));
+    app.use('/assets', compressedAssets(resolve(staticDir, 'assets')), express.static(join(staticDir, 'assets'), { immutable: true, maxAge: '1y' }));
     app.use(express.static(staticDir, { index: 'index.html', maxAge: 0, setHeaders: revalidate }));
     app.use((req, res, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
@@ -231,6 +237,10 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     connectTimeout: 10_000,
     pingInterval: 10_000,
     pingTimeout: 8_000,
+    // Compress WebSocket messages. Each game update repeats most of the one before, so with the
+    // compressor's memory of earlier messages a 1.5 KB update shrinks to about 50 bytes (about
+    // 28× less data over a game). Tiny messages, like pings and voice frames, aren't worth it.
+    perMessageDeflate: { threshold: 128 },
     // Re-run auth on recovery so revoked sessions cannot slip back in.
     connectionStateRecovery: { maxDisconnectionDuration: 2 * 60_000, skipMiddlewares: false },
   }) as LudoServerIO;
@@ -242,6 +252,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   // Players' pings: one tiny ping per phone in a lobby, then one update per lobby, every 3 s.
   const netInterval = opts.netIntervalMs ?? NET_PING_INTERVAL_MS;
   const pingTimeout = Math.min(NET_PING_TIMEOUT_MS, Math.round(netInterval * 0.8));
+  const lastNet = new Map<string, { key: string; at: number }>();
   const pinger = setInterval(() => {
     for (const [socketId, userId] of net.sockets()) {
       if (!lobbies.forUser(userId)) continue;
@@ -251,10 +262,20 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       socket.timeout(pingTimeout).emit('net:ping', (err: Error | null) => net.record(socketId, err ? null : performance.now() - t0));
     }
     setTimeout(() => {
+      const live = new Set<string>();
       for (const lobby of lobbies.all()) {
-        const players = lobby.members.filter((m) => !m.isBot && m.userId !== null).map((m) => net.forUser(m.userId!));
-        if (players.length) io!.to(rooms.lobby(lobby.id)).emit('net:stats', { lobbyId: lobby.id, players });
+        live.add(lobby.id);
+        const players = humanIds(lobby).map((id) => net.forUser(id));
+        // Unchanged since the last send (a steady connection): nothing to send.
+        // A refresh every NET_RESEND_MS anyway, in case a phone missed one.
+        const key = JSON.stringify(players);
+        const last = lastNet.get(lobby.id);
+        const now = Date.now();
+        if (!players.length || (last?.key === key && now - last.at < NET_RESEND_MS)) continue;
+        lastNet.set(lobby.id, { key, at: now });
+        io!.to(rooms.lobby(lobby.id)).emit('net:stats', { lobbyId: lobby.id, players });
       }
+      for (const id of lastNet.keys()) if (!live.has(id)) lastNet.delete(id);
     }, pingTimeout + 20).unref();
   }, netInterval);
   pinger.unref();

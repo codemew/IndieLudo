@@ -1,4 +1,4 @@
-import type { LobbySummary, PublicLobby } from '../../shared/types.js';
+import { MAX_SPECTATORS, type LobbySummary, type PublicLobby } from '../../shared/types.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
 import { canInstall, promptInstall } from '../install.js';
@@ -102,20 +102,24 @@ function renderList(list: HTMLElement, lobbies: LobbySummary[], mine: PublicLobb
       <button class="lobby-card" style="animation-delay:${i * 40}ms">
         <div class="lobby-main">
           <div class="lobby-name">🔒 ${esc(l.name)}</div>
-          <div class="lobby-sub">Host ${esc(l.hostName)}</div>
+          <div class="lobby-sub">Host ${esc(l.hostName)}${l.watching ? ` · 👀 ${l.watching} watching` : ''}</div>
         </div>
         <div class="lobby-meta">
           <span class="seats">${'<i class="on"></i>'.repeat(l.players)}${'<i></i>'.repeat(Math.max(0, 4 - l.players))}</span>
-          ${l.status === 'playing' ? '<span class="badge badge-live">In game</span>' : `<span class="badge">${l.players}/4</span>`}
+          ${l.status === 'playing' ? '<span class="badge badge-live">In game · 👀 Watch</span>' : `<span class="badge">${l.players}/4</span>`}
         </div>
       </button>`);
-    card.disabled = !isMine && (l.status === 'playing' || l.players >= 4);
+    // A running game or a full lobby can still be watched, while there's room on the side.
+    card.disabled = !isMine && (l.watching ?? 0) >= MAX_SPECTATORS && (l.status === 'playing' || l.players >= 4);
     card.onclick = () => (isMine ? go('lobby') : joinLobbyDialog(l));
     list.appendChild(card);
   });
 }
 
+/** Join with the password: on a free seat, or to watch (the only choice once a game runs or the seats are full). */
 function joinLobbyDialog(l: LobbySummary): void {
+  const canSit = l.status === 'waiting' && l.players < 4;
+  const canWatch = (l.watching ?? 0) < MAX_SPECTATORS;
   const body = el(`
     <form class="form" autocomplete="off">
       <input class="input" type="password" name="password" placeholder="Lobby password" maxlength="64" enterkeyhint="go" />
@@ -123,10 +127,10 @@ function joinLobbyDialog(l: LobbySummary): void {
     </form>`);
   const input = $<HTMLInputElement>(body, 'input');
   const errEl = $(body, '.form-error');
-  const submit = async () => {
-    const r = await emit<PublicLobby>('lobby:join', { lobbyId: l.id, password: input.value });
+  const submit = async (watch = !canSit) => {
+    const r = await emit<PublicLobby>('lobby:join', { lobbyId: l.id, password: input.value, watch });
     if (!r.ok) {
-      errEl.textContent = r.error === 'WRONG_LOBBY_PASSWORD' ? 'Wrong password.' : r.error;
+      errEl.textContent = r.error === 'WRONG_LOBBY_PASSWORD' ? 'Wrong password.' : errorText(r.error);
       play('error');
       return false;
     }
@@ -135,7 +139,12 @@ function joinLobbyDialog(l: LobbySummary): void {
     go('lobby');
     return true;
   };
-  const m = modal({ title: `Join ${l.name}`, body, actions: [{ label: 'Cancel' }, { label: 'Join', kind: 'primary', onClick: submit }] });
+  const watchAction = { label: '👀 Watch', kind: canSit ? undefined : ('primary' as const), onClick: () => submit(true) };
+  const m = modal({
+    title: canSit ? `Join ${l.name}` : `Watch ${l.name}`,
+    body,
+    actions: [{ label: 'Cancel' }, ...(canWatch ? [watchAction] : []), ...(canSit ? [{ label: 'Join', kind: 'primary' as const, onClick: () => submit(false) }] : [])],
+  });
   body.addEventListener('submit', (e) => {
     e.preventDefault();
     void submit().then((ok) => ok && m.close());

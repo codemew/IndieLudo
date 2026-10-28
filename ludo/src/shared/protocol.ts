@@ -15,7 +15,8 @@ export interface MoveIntent extends RollIntent {
 export interface ClientToServer {
   'lobby:list': (p: Record<string, never>, ack: (r: Ack<LobbySummary[]>) => void) => void;
   'lobby:create': (p: { createPassword: string; name: string; password: string }, ack: (r: Ack<PublicLobby>) => void) => void;
-  'lobby:join': (p: { lobbyId: string; password: string }, ack: (r: Ack<PublicLobby>) => void) => void;
+  /** `watch`: join without a seat, to watch (the only way into a lobby whose game is running, or whose seats are full). */
+  'lobby:join': (p: { lobbyId: string; password: string; watch?: boolean }, ack: (r: Ack<PublicLobby>) => void) => void;
   'lobby:leave': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:ready': (p: { ready: boolean }, ack: (r: Ack) => void) => void;
   'lobby:color': (p: { color: Color }, ack: (r: Ack) => void) => void;
@@ -26,6 +27,12 @@ export interface ClientToServer {
   /** Adds a bot on the seat tapped (`color`); without one, on a random free seat. */
   'lobby:addBot': (p: { color?: Color }, ack: (r: Ack) => void) => void;
   'lobby:removeBot': (p: { color: Color }, ack: (r: Ack) => void) => void;
+  /** Host: a bot on every open seat. */
+  'lobby:fillBots': (p: Record<string, never>, ack: (r: Ack) => void) => void;
+  /** Give up your seat and watch instead. */
+  'lobby:spectate': (p: Record<string, never>, ack: (r: Ack) => void) => void;
+  /** A spectator takes an open seat. */
+  'lobby:sit': (p: { color: Color }, ack: (r: Ack) => void) => void;
   'lobby:kick': (p: { userId: number }, ack: (r: Ack) => void) => void;
   'lobby:start': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'game:roll': (p: RollIntent, ack: (r: Ack) => void) => void;
@@ -181,7 +188,7 @@ export function matchesSchema(payload: unknown, schema: Schema): boolean {
 export const SCHEMAS = {
   empty: {},
   lobbyCreate: { createPassword: { type: 'string', max: 128 }, name: { type: 'string', min: 1, max: 32 }, password: { type: 'string', min: 1, max: 64 } },
-  lobbyJoin: { lobbyId: { type: 'string', max: 64 }, password: { type: 'string', max: 64 } },
+  lobbyJoin: { lobbyId: { type: 'string', max: 64 }, password: { type: 'string', max: 64 }, watch: { type: 'bool', optional: true } },
   lobbyReady: { ready: { type: 'bool' } },
   lobbyColor: { color: { type: 'color' } },
   lobbyAddBot: { color: { type: 'color', optional: true } },

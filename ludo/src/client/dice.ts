@@ -1,4 +1,4 @@
-import { reducedMotion } from './board/animate.js';
+import { atTempo, reducedMotion } from './board/animate.js';
 
 const PIPS: Record<number, number[]> = {
   1: [5],
@@ -72,7 +72,7 @@ export class Dice {
         { transform: `rotateX(${380}deg) rotateY(${520}deg) rotateZ(40deg)`, offset: 0.45 },
         { transform: to },
       ],
-      { duration: 720, easing: 'cubic-bezier(.15,.7,.25,1)' },
+      { duration: atTempo(720), easing: 'cubic-bezier(.15,.7,.25,1)' },
     );
     const bounce = this.el.animate(
       [
@@ -82,7 +82,7 @@ export class Dice {
         { transform: 'translateY(-6%) scale(1.02)', offset: 0.82 },
         { transform: 'translateY(0) scale(1)' },
       ],
-      { duration: 720, easing: 'ease-out' },
+      { duration: atTempo(720), easing: 'ease-out' },
     );
     try {
       await Promise.all([spin.finished, bounce.finished]);
@@ -96,7 +96,7 @@ export class Dice {
   shake(): void {
     this.el.animate(
       [{ transform: 'translateX(0)' }, { transform: 'translateX(-10%) rotate(-8deg)' }, { transform: 'translateX(10%) rotate(8deg)' }, { transform: 'translateX(-6%)' }, { transform: 'translateX(0)' }],
-      { duration: 420 },
+      { duration: atTempo(420) },
     );
   }
 }

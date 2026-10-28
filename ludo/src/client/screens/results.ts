@@ -39,8 +39,8 @@ export function resultsScreen(root: HTMLElement): void {
   root.innerHTML = `
     <div class="results">
       ${iWon ? `<div class="confetti">${Array.from({ length: 28 }, (_, i) => `<i style="--i:${i}"></i>`).join('')}</div>` : ''}
-      <div class="big-emoji">${iWon ? '🏆' : '🎲'}</div>
-      <h2>${iWon ? 'You won!' : `${esc(winner?.username ?? 'Someone')} wins`}</h2>
+      <div class="big-emoji">${iWon ? '🏆' : g.botBattle ? '🤖' : '🎲'}</div>
+      <h2>${iWon ? 'You won!' : `${esc(winner?.username ?? 'Someone')} wins${g.botBattle ? ' the bot battle' : ''}`}</h2>
       <ol class="podium">${rows}</ol>
       ${matchStats(g.ranks, awards, nameOf, (c) => playerStats(g, c))}
       <div class="results-actions">

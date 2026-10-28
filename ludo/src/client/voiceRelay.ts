@@ -15,6 +15,14 @@ const MAX_AHEAD_S = 0.6;
 /** A player counts as heard through the relay if their audio arrived this recently. */
 const HEARD_MS = 2500;
 
+/** Opus packets this small carry no sound, only "still silent". */
+const DTX_BYTES = 2;
+
+/** Speech-tuned Opus with DTX, so a quiet microphone sends (almost) nothing. */
+function opusConfig(kbps: number): AudioEncoderConfig {
+  return { codec: 'opus', sampleRate: RATE, numberOfChannels: 1, bitrate: Math.max(6, kbps) * 1000, opus: { usedtx: true, useinbandfec: true } };
+}
+
 export function relaySupport(): { send: boolean; receive: boolean } {
   return {
     send: typeof AudioEncoder !== 'undefined' && typeof AudioData !== 'undefined' && typeof AudioContext !== 'undefined',
@@ -47,7 +55,7 @@ export class RelaySender {
     try {
       const ctx = new AudioContext({ sampleRate: RATE });
       const encoder = new AudioEncoder({ output: (chunk) => this.onChunk(chunk), error: () => this.stop() });
-      encoder.configure({ codec: 'opus', sampleRate: RATE, numberOfChannels: 1, bitrate: Math.max(6, kbps) * 1000 });
+      encoder.configure(opusConfig(kbps));
       const source = ctx.createMediaStreamSource(stream);
       // ScriptProcessor is old but works everywhere without loading a worklet module.
       const proc = ctx.createScriptProcessor(2048, 1, 1);
@@ -72,7 +80,7 @@ export class RelaySender {
   }
 
   setBitrate(kbps: number): void {
-    if (this.encoder?.state === 'configured') this.encoder.configure({ codec: 'opus', sampleRate: RATE, numberOfChannels: 1, bitrate: Math.max(6, kbps) * 1000 });
+    if (this.encoder?.state === 'configured') this.encoder.configure(opusConfig(kbps));
   }
 
   resume(): void {
@@ -80,6 +88,8 @@ export class RelaySender {
   }
 
   private onChunk(chunk: EncodedAudioChunk): void {
+    // Silence (DTX): nothing worth sending; the listener's buffer simply runs dry until speech.
+    if (chunk.byteLength <= DTX_BYTES) return;
     const buf = new ArrayBuffer(chunk.byteLength);
     chunk.copyTo(buf);
     this.batch.push(buf);

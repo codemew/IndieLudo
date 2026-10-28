@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { BASE, HOME } from '../src/shared/board.js';
-import { MAX_MISSED_TURNS, type GameEvent, type GameState, type PublicGameState } from '../src/shared/types.js';
+import { BOT_BATTLE_TEMPO, MAX_MISSED_TURNS, tempoOf, type GameEvent, type GameState, type PublicGameState } from '../src/shared/types.js';
 import { openDb, type DB } from '../src/server/db.js';
 import { GameManager } from '../src/server/gameManager.js';
 import type { Lobby } from '../src/server/lobbies.js';
@@ -19,6 +19,7 @@ function lobby(members: Partial<Lobby['members'][number]>[]): Lobby {
     gameId: null,
     createdAt: 0,
     allOfflineSince: null,
+    spectators: [],
     members: members.map((m, i) => ({
       color: (['red', 'green', 'yellow', 'blue'] as const)[i],
       userId: null,
@@ -368,5 +369,39 @@ describe('a full bot game', () => {
     expect(new Set(s.ranks)).toEqual(new Set(['red', 'green', 'yellow', 'blue']));
     expect(s.tokens.red.every((p) => p === HOME || p === BASE || p >= 0)).toBe(true);
     expect(gameOver).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bot battles (every seat a bot)', () => {
+  const bots = () => lobby([{ isBot: true }, { isBot: true }, { isBot: true }, { isBot: true }]);
+
+  it('only a game with no person seated is a bot battle', () => {
+    const gm = manager([]);
+    expect(gm.create(bots()).botBattle).toBe(true);
+    expect(gm.create(lobby([{ userId: A, username: 'alice' }, { isBot: true }])).botBattle).toBeUndefined();
+    expect(tempoOf({ botBattle: true })).toBe(BOT_BATTLE_TEMPO);
+    expect(tempoOf({})).toBe(1);
+  });
+
+  it('bots play at full speed: no thinking pause, animations waited out at the bot battle tempo', () => {
+    const gm = manager([4, 4], { botDelayMs: 1400, animScale: 1 });
+    const g = gm.create(bots());
+    vi.advanceTimersByTime(100); // a short beat instead of 1.4 s of "thinking"
+    expect(gm.get(g.id)!.version).toBe(2);
+    // Red rolled a 4 with every token in base: dice + "no moves" ≈ 1850 ms normally.
+    const wait = Math.round(1850 * BOT_BATTLE_TEMPO) + 100;
+    vi.advanceTimersByTime(wait - 1);
+    expect(gm.get(g.id)!.version).toBe(2);
+    vi.advanceTimersByTime(1);
+    expect(gm.get(g.id)!.version).toBe(3);
+  });
+
+  it('a bot in a game with people keeps the normal pace', () => {
+    const gm = manager([4, 4], { botDelayMs: 1400, animScale: 1 });
+    const g = gm.create(lobby([{ isBot: true }, { userId: A, username: 'alice' }]));
+    vi.advanceTimersByTime(1399);
+    expect(gm.get(g.id)!.version).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(gm.get(g.id)!.version).toBe(2);
   });
 });

@@ -137,9 +137,14 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     });
 
     on('lobby:join', SCHEMAS.lobbyJoin, (p) => {
-      const l = ctx.lobbies.join(me(), p.lobbyId, p.password);
+      const l = ctx.lobbies.join(me(), p.lobbyId, p.password, p.watch === true);
       joinLobbyRoom(l);
-      if (l.gameId) io.in(rooms.user(userId)).socketsJoin(rooms.game(l.gameId));
+      const game = l.gameId ? ctx.games.get(l.gameId) : undefined;
+      if (game) {
+        // Watching a game already under way: straight to the board.
+        io.in(rooms.user(userId)).socketsJoin(rooms.game(game.id));
+        io.to(rooms.user(userId)).emit('game:state', { state: ctx.games.publicState(game) });
+      }
       return { ok: true, data: ctx.lobbies.toPublic(l) };
     });
 
@@ -163,6 +168,9 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('lobby:swapCancel', SCHEMAS.empty, () => void ctx.lobbies.cancelSwap(userId));
     on('lobby:addBot', SCHEMAS.lobbyAddBot, (p) => void ctx.lobbies.addBot(userId, p.color as Color | undefined));
     on('lobby:removeBot', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.removeBot(userId, p.color as Color));
+    on('lobby:fillBots', SCHEMAS.empty, () => void ctx.lobbies.fillBots(userId));
+    on('lobby:spectate', SCHEMAS.empty, () => void ctx.lobbies.spectate(userId));
+    on('lobby:sit', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.sit(userId, p.color as Color));
 
     on('lobby:kick', SCHEMAS.lobbyKick, (p) => {
       const l = ctx.lobbies.kick(userId, p.userId);
@@ -192,7 +200,8 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
 
     on('game:resume', SCHEMAS.gameRef, (p) => {
       const state = ctx.games.find(p.gameId);
-      if (!state || !state.seats.some((s) => s.userId === userId)) return { ok: false, error: 'NO_GAME' };
+      const watching = state && ctx.lobbies.get(state.lobbyId)?.spectators.some((s) => s.userId === userId);
+      if (!state || !(watching || state.seats.some((s) => s.userId === userId))) return { ok: false, error: 'NO_GAME' };
       if (!state.finished) socket.join(rooms.game(state.id));
       return { ok: true, data: ctx.games.publicState(state) };
     });
@@ -254,8 +263,13 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
   });
 }
 
-/** Wiring for lobby broadcasts; kept separate so the LobbyManager can be built first. */
+/**
+ * Wiring for lobby broadcasts; kept separate so the LobbyManager can be built first. The lobby
+ * list goes to every phone, so it is only sent when it changed: someone getting ready or a
+ * phone dropping offline changes the lobby, not the list.
+ */
 export function lobbyBroadcaster(getIo: () => LudoServerIO | undefined, getCtx: () => Ctx | undefined) {
+  let lastList = '';
   return (lobbyId: string) => {
     const io = getIo();
     const ctx = getCtx();
@@ -263,6 +277,10 @@ export function lobbyBroadcaster(getIo: () => LudoServerIO | undefined, getCtx: 
     const lobby = ctx.lobbies.get(lobbyId);
     io.to(rooms.lobby(lobbyId)).emit('lobby:state', lobby ? ctx.lobbies.toPublic(lobby) : null);
     if (!lobby) io.in(rooms.lobby(lobbyId)).socketsLeave(rooms.lobby(lobbyId));
-    io.emit('lobby:list', ctx.lobbies.summaries());
+    const list = ctx.lobbies.summaries();
+    const key = JSON.stringify(list);
+    if (key === lastList) return;
+    lastList = key;
+    io.emit('lobby:list', list);
   };
 }

@@ -89,6 +89,14 @@ npm run typecheck
      - **Bots:** swapping with a bot happens immediately.
      - **Both asking:** if two players ask each other, they just swap.
      - **When a request lapses:** if either player leaves, moves to another seat, or the game starts.
+   - **Watching:** up to 4 people per lobby can watch without a seat, and they're in its voice chat too.
+     - **Joining to watch:** tap a lobby card and choose **👀 Watch**. That's the only way into a lobby whose game is already running (its card says *In game · 👀 Watch*) or whose seats are all taken. Watching still needs the lobby password.
+     - **From a seat:** tap **👀 Watch instead** between games; **Sit here** on an open seat takes one again.
+     - **In a game:** spectators see every move live, with *👀 Watching* in the hint line, and can't roll or move anything; the server refuses it. **Stop watching** in the game menu leaves the lobby.
+     - **The host can watch too**, and still adds bots, kicks and starts the game.
+   - **Bot battle:** the host taps **👀 Watch instead**, then **🤖 Fill open seats with bots**, then **🤖 Start bot battle**.
+     - **Speed:** with no person seated, the bots play at full speed. They don't pause to "think", and every animation and pause runs at 0.4× its normal length (`BOT_BATTLE_TEMPO` in `src/shared/types.ts`). The server waits out the same shortened animations, so every phone keeps up.
+     - **Afterwards:** the bots stay seated, so the next battle is one tap away. After a normal game the bots leave as before.
 5. **Admin:** tap *Admin login* and enter `adminPassword`. The admin panel can:
    - list, search, rename and delete users
    - list open lobbies and **close** any of them, even mid‑game. Everyone in it goes back home with a notice, and a game in progress ends without a result.
@@ -255,8 +263,8 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
 - **What you see:** every player in the lobby or a game shows **signal bars** next to their name and their **ping in ms** beside their icon. The server measures these itself, so a phone can't fake its own numbers or anyone else's.
 - **How it's measured:**
   - Every 3 seconds the server sends a tiny ping to each phone that's in a lobby, and times the reply.
-  - It then sends each lobby one update with everyone's results. That's about one small message per phone every 3 seconds.
-  - The ms figure is smoothed, so one slow reply doesn't make it jump.
+  - It then sends each lobby an update with everyone's results, but only when something shown changed (at least every 15 s anyway).
+  - The ms figure is smoothed, so one slow reply doesn't make it jump. It's shown exactly below 50 ms, to the nearest 5 ms up to 200 ms, and to the nearest 10 ms above that.
 - **Bars:**
 
   | Ping | Bars |
@@ -269,6 +277,19 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
 
   Each ping lost among the last 5 costs one bar, but a phone that still replies never drops below 1.
 - **Colours:** green, lime, amber, red.
+
+## Data use and connection
+
+- **Compressed messages:** game messages over the WebSocket are compressed, and the compressor remembers earlier messages. Each game update repeats most of the one before, so a 1.5 KB update costs about 50 bytes. A phone watching a whole 4‑bot game receives about 50 KB instead of about 1.5 MB.
+- **Nothing sent twice:**
+  - The lobby list on the home screen goes out only when it changes, not when someone gets ready or a phone drops offline.
+  - Ping stats go out only when they change.
+- **Voice:**
+  - **Silence suppression (DTX):** while someone isn't talking, their phone sends a tiny packet every 400 ms instead of audio every 20 ms, which cuts most voice data in a game.
+  - **Error correction (FEC):** in-band error correction rides out lost packets on patchy mobile data.
+  - **Server relay:** voice relayed through the game server skips silent packets entirely.
+- **App download:** the built JavaScript and CSS are sent brotli-compressed (gzip for older browsers): about 53 KB instead of 201 KB, once per update, because they're cached for a year.
+- **Networks that block WebSockets:** the app falls back to plain HTTP requests instead of failing to connect.
 
 ## Reconnecting
 

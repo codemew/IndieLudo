@@ -3,7 +3,7 @@ import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
 import { RuleError, applyMove, applyRoll, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
@@ -38,6 +38,8 @@ interface LiveGame {
 }
 
 const SEEN_LIMIT = 500;
+/** A bot battle's bots don't stop to "think": they act as soon as the phones finish animating. */
+const BOT_BATTLE_THINK_MS = 100;
 const FINISHED_RETENTION_MS = 10 * 60_000;
 
 export class GameManager {
@@ -84,6 +86,7 @@ export class GameManager {
       seats,
       firstSeat: this.randomInt(0, seats.length),
     });
+    if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
     const game: LiveGame = { state, graceTimers: new Map(), seen: new Set(), lastEvents: [] };
     this.games.set(state.id, game);
     for (const seat of state.seats) if (seat.controller === 'human' && !seat.connected) this.startGrace(game, seat);
@@ -291,12 +294,13 @@ export class GameManager {
     const { state } = game;
     if (state.finished) return;
     // Clients are still animating the last change; nobody should act before they finish.
-    const pace = this.animationMs(game.lastEvents);
+    const pace = this.animationMs(game.lastEvents) * tempoOf(state);
     game.lastEvents = [];
     const seat = state.seats[state.turn.seat];
     if (seat.controller !== 'human' || state.turn.auto) {
       state.turn.deadline = 0;
-      game.timer = setTimeout(() => this.act(game, false), this.botDelayMs + pace);
+      const think = state.botBattle ? Math.min(this.botDelayMs, BOT_BATTLE_THINK_MS) : this.botDelayMs;
+      game.timer = setTimeout(() => this.act(game, false), think + pace);
       return;
     }
     const timeoutMs = this.opts.turnTimeoutSec * 1000 + pace;

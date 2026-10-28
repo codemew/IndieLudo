@@ -30,7 +30,9 @@ export function pickMicAfterChange(before: readonly string[], now: readonly { de
 }
 
 /**
- * Lets the remote Opus encoder go up to `kbps` and turns on in-band FEC. The live quality
+ * Lets the remote Opus encoder go up to `kbps`, turns on in-band FEC (rides out lost packets on
+ * patchy mobile data) and DTX: while someone isn't talking their phone sends a tiny packet every
+ * 400 ms instead of full audio every 20 ms, which saves most of the data in a game. The live quality
  * setting is applied separately per sender (setParameters), so it can change without
  * renegotiating; this only sets the ceiling.
  */
@@ -50,10 +52,11 @@ export function setOpusBitrate(sdp: string, kbps: number): string {
     );
     params.set('maxaveragebitrate', String(bps));
     params.set('useinbandfec', '1');
+    params.set('usedtx', '1');
     lines[fmtpIdx] = `a=fmtp:${pt} ${[...params].map(([k, v]) => `${k}=${v}`).join(';')}`;
   } else {
     const rtpIdx = lines.findIndex((l) => l.startsWith(`a=rtpmap:${pt} `));
-    lines.splice(rtpIdx + 1, 0, `a=fmtp:${pt} maxaveragebitrate=${bps};useinbandfec=1`);
+    lines.splice(rtpIdx + 1, 0, `a=fmtp:${pt} maxaveragebitrate=${bps};useinbandfec=1;usedtx=1`);
   }
   return lines.join('\r\n');
 }

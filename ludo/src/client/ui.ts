@@ -1,4 +1,4 @@
-import type { Color } from '../shared/types.js';
+import { MAX_SPECTATORS, type Color } from '../shared/types.js';
 import { play } from './sound.js';
 
 export function esc(s: unknown): string {
@@ -60,6 +60,9 @@ const ERRORS: Record<string, string> = {
   WRONG_LOBBY_PASSWORD: 'Wrong lobby password.',
   LOBBY_NOT_FOUND: 'That lobby no longer exists.',
   LOBBY_FULL: 'The lobby is full.',
+  TOO_MANY_WATCHING: `Already ${MAX_SPECTATORS} people watching.`,
+  NOT_SEATED: 'Take a seat first.',
+  NOT_WATCHING: 'You already have a seat.',
   GAME_IN_PROGRESS: 'The game has already started.',
   ALREADY_IN_GAME: 'Finish or leave your current game first.',
   TOO_MANY_LOBBIES: 'Too many lobbies right now. Try later.',

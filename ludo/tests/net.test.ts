@@ -32,10 +32,10 @@ describe('NetStatsTracker', () => {
     expect(t.forUser(1)).toEqual({ userId: 1, pingMs: null, bars: 0 });
     t.record('a', 100);
     t.record('a', 20); // one fast sample only pulls the average part way
-    expect(t.forUser(1)).toEqual({ userId: 1, pingMs: 68, bars: 4 });
+    expect(t.forUser(1)).toEqual({ userId: 1, pingMs: 70, bars: 4 }); // 68, shown to the nearest 5
     t.add('b', 1); // a second tab that never answers
     t.record('b', null);
-    expect(t.forUser(1).pingMs).toBe(68);
+    expect(t.forUser(1).pingMs).toBe(70);
     t.remove('a');
     expect(t.forUser(1)).toEqual({ userId: 1, pingMs: null, bars: 0 });
     expect(t.forUser(2)).toEqual({ userId: 2, pingMs: null, bars: 0 });

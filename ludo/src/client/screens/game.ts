@@ -9,9 +9,10 @@ import {
   type LegalMove,
   type PublicGameState,
   type Seat,
+  tempoOf,
 } from '../../shared/types.js';
 import { setGameHandler, showError } from '../app.js';
-import { hop, reducedMotion, sleep, slide } from '../board/animate.js';
+import { atTempo, hop, reducedMotion, setTempo, sleep, slide } from '../board/animate.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { installMoustacheDefs } from '../moustache.js';
 import { TokenLayer, boardSvg } from '../board/render.js';
@@ -44,6 +45,8 @@ export function gameScreen(root: HTMLElement): () => void {
     return () => {};
   }
   const myId = state.user?.id;
+  // A bot battle plays at full speed; everything else at the normal pace.
+  setTempo(tempoOf(gs));
   let clockOffset = gs.serverNow - Date.now();
   let awaitingAck = false;
   let animating = false;
@@ -231,6 +234,7 @@ export function gameScreen(root: HTMLElement): () => void {
     }
     if (!gs || u.state.id !== gs.id) {
       gs = u.state;
+      setTempo(tempoOf(gs));
       update({ game: gs });
       renderAll();
       warnThreatened(false);
@@ -570,7 +574,10 @@ export function gameScreen(root: HTMLElement): () => void {
     else if (gs.turn.auto) hint = `Time's up for ${esc(seat.username)} — auto-playing…`;
     else if (isMyTurn() && gs.turn.phase === 'rolling') hint = gs.turn.sixes > 0 ? `Rolled ${gs.turn.sixes === 1 ? 'a 6' : 'two 6s'}! Roll again` : 'Tap the dice to roll';
     else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Moving with the highlighted die · tap another die to switch' : 'Tap a glowing token';
+    else if (gs.botBattle) hint = `🤖 Bot battle at full speed · ${esc(seat.username)} to play`;
     else hint = seat.controller === 'human' ? `Waiting for ${esc(seat.username)}…` : `${esc(seat.username)} (bot) is playing…`;
+    // Watching from the side: say so, since nothing on the board is yours to tap.
+    if (!me && !gs.finished) hint = `<span class="watch-tag">👀 Watching</span> ${hint}`;
     setHtml($(root, '#hint'), hint);
 
     $(root, '#takeback').hidden = !(me && me.controller === 'takeover' && !gs.finished);
@@ -580,7 +587,7 @@ export function gameScreen(root: HTMLElement): () => void {
   async function firstBloodBanner(killer: Color, victim: Color): Promise<void> {
     const name = (c: Color) => `<span class="fb-name n-${c}">${c === mySeat()?.color ? 'You' : esc(seatName(c))}</span>`;
     const banner = el(`
-      <div class="kill-banner" role="status" style="--fb-ms:${FIRST_BLOOD_MS}ms">
+      <div class="kill-banner" role="status" style="--fb-ms:${atTempo(FIRST_BLOOD_MS)}ms">
         <b>First blood</b>
         <small>${name(killer)} <span class="fb-arrow">⚔</span> ${name(victim)}</small>
       </div>`);
@@ -713,7 +720,14 @@ export function gameScreen(root: HTMLElement): () => void {
     if (state.lobby) voiceMenu(body, m.close);
     if (canFullscreen() && !isFullscreen()) item('⛶ Fullscreen', () => void enterFullscreen());
     item('🏠 Back to home (game keeps running)', () => go('home'));
-    if (mySeat() && !gs!.finished) {
+    if (!mySeat()) {
+      item('🚪 Stop watching (leave the lobby)', async () => {
+        const r = await emit('lobby:leave', {});
+        if (!r.ok) showError(r.error);
+        update({ game: null });
+        go('home');
+      });
+    } else if (!gs!.finished) {
       item('🚪 Leave game for good', async () => {
         if (!(await confirmDialog('Leave the game?', 'A bot will play your seat until the end. You cannot come back to this game.', 'Leave', true))) return;
         const r = await emit('lobby:leave', {});
@@ -739,6 +753,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
   return () => {
     destroyed = true;
+    setTempo(1);
     setGameHandler(null);
     ro.disconnect();
     offVoice();

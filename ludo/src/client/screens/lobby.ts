@@ -1,4 +1,4 @@
-import type { Color, LobbyMember } from '../../shared/types.js';
+import { MAX_SPECTATORS, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
 import { showError } from '../app.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
@@ -26,6 +26,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
     <section class="lobby-body">
       <p class="muted center" id="lobby-hint"></p>
       <div class="seat-grid" id="seats"></div>
+      <div class="watchers" id="watchers"></div>
       <div class="lobby-voice" id="lobby-voice">
         <div class="menu-heading">🎙 Voice chat</div>
         <p class="muted small">Everyone in the lobby is in it, during matches too. Use the mic button to mute yourself. Can't hear someone? Tap Rejoin.</p>
@@ -58,31 +59,58 @@ export function lobbyScreen(root: HTMLElement): () => void {
     const me = state.user!.id;
     const isHost = lobby.hostId === me;
     const mine = lobby.members.find((m) => m.userId === me);
+    const watching = !mine;
     $(root, '#lobby-name').textContent = lobby.name;
-    $(root, '#lobby-hint').textContent = isHost
-      ? 'Tap an open seat to move or add a bot, or ⇄ to swap colours with a player.'
-      : 'Tap an open seat to move, or ⇄ to swap colours with a player.';
+    $(root, '#lobby-hint').textContent = watching
+      ? 'You are watching. Tap Sit here on an open seat to play.'
+      : isHost
+        ? 'Tap an open seat to move or add a bot, or ⇄ to swap colours with a player.'
+        : 'Tap an open seat to move, or ⇄ to swap colours with a player.';
 
     const seats = $(root, '#seats');
     seats.innerHTML = '';
     for (const color of SEAT_ORDER) {
       const m = lobby.members.find((x) => x.color === color);
-      seats.appendChild(seatCard(color, m, { me, isHost, hostId: lobby.hostId, act }));
+      seats.appendChild(seatCard(color, m, { me, isHost, watching, hostId: lobby.hostId, act }));
     }
+    renderWatchers($(root, '#watchers'), lobby, { me, isHost, act });
     paintLive();
     // Cards animate in on the first paint only, not every time the lobby changes.
     requestAnimationFrame(() => root.classList.add('settled'));
 
     const actions = $(root, '#actions');
     actions.innerHTML = '';
+    const free = 4 - lobby.members.length;
+    const extras = el(`<div class="lobby-extras"></div>`);
+    if (mine && lobby.spectators.length < MAX_SPECTATORS) {
+      const b = el<HTMLButtonElement>(`<button class="chip" id="spectate">👀 Watch instead</button>`);
+      b.onclick = () => act('lobby:spectate');
+      extras.appendChild(b);
+    }
+    if (isHost && free > 0) {
+      const b = el<HTMLButtonElement>(`<button class="chip" id="fill-bots">🤖 Fill open seats with bots</button>`);
+      b.onclick = () => act('lobby:fillBots');
+      extras.appendChild(b);
+    }
+    if (extras.childElementCount) actions.appendChild(extras);
     if (isHost) {
       const notReady = lobby.members.filter((m) => !m.isBot && m.userId !== me && !m.ready).length;
       const enough = lobby.members.length >= 2;
-      const btn = el<HTMLButtonElement>(`<button class="btn btn-primary btn-xl">Start game</button>`);
+      const botBattle = enough && lobby.members.every((m) => m.isBot);
+      const btn = el<HTMLButtonElement>(`<button class="btn btn-primary btn-xl" id="start">${botBattle ? '🤖 Start bot battle' : 'Start game'}</button>`);
       btn.disabled = !enough || notReady > 0;
       btn.onclick = () => act('lobby:start');
-      actions.appendChild(el(`<p class="action-hint">${!enough ? 'Need at least 2 players — add a bot?' : notReady ? `Waiting for ${notReady} player${notReady > 1 ? 's' : ''} to get ready` : 'Everyone is ready!'}</p>`));
+      const hint = !enough
+        ? `Need at least 2 ${watching ? 'bots or players' : 'players'} — add a bot?`
+        : notReady
+          ? `Waiting for ${notReady} player${notReady > 1 ? 's' : ''} to get ready`
+          : botBattle
+            ? 'Only bots playing: they battle at full speed while you watch.'
+            : 'Everyone is ready!';
+      actions.appendChild(el(`<p class="action-hint">${hint}</p>`));
       actions.appendChild(btn);
+    } else if (watching) {
+      actions.appendChild(el(`<p class="action-hint">👀 Watching · the next game starts when the host is ready</p>`));
     } else if (mine) {
       const btn = el<HTMLButtonElement>(`<button class="btn btn-xl ${mine.ready ? 'btn-ghost' : 'btn-primary'}">${mine.ready ? 'Not ready' : "I'm ready"}</button>`);
       btn.onclick = () => act('lobby:ready', { ready: !mine.ready });
@@ -97,7 +125,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
    * swallow a tap on a button that gets replaced mid-press.
    */
   const paintLive = () => {
-    root.querySelectorAll<HTMLElement>('.seat[data-user]').forEach((card) => {
+    root.querySelectorAll<HTMLElement>('.seat[data-user], .watcher[data-user]').forEach((card) => {
       const userId = Number(card.dataset.user);
       const vc = card.querySelector('.seat-vc');
       const net = card.querySelector('.seat-net');
@@ -129,7 +157,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
 function seatCard(
   color: Color,
   m: LobbyMember | undefined,
-  ctx: { me: number; isHost: boolean; hostId: number; act: (e: any, p?: object) => Promise<void> },
+  ctx: { me: number; isHost: boolean; watching: boolean; hostId: number; act: (e: any, p?: object) => Promise<void> },
 ): HTMLElement {
   if (!m) {
     const card = el(`
@@ -140,7 +168,8 @@ function seatCard(
       </div>`);
     const actions = $(card, '.seat-actions');
     const sit = el<HTMLButtonElement>(`<button class="chip">Sit here</button>`);
-    sit.onclick = () => ctx.act('lobby:color', { color });
+    // From a seat that's a move; from the side it's sitting down.
+    sit.onclick = () => ctx.act(ctx.watching ? 'lobby:sit' : 'lobby:color', { color });
     actions.appendChild(sit);
     if (ctx.isHost) {
       const bot = el<HTMLButtonElement>(`<button class="chip">＋ Bot</button>`);
@@ -162,7 +191,7 @@ function seatCard(
       </div>
       <div class="seat-actions"></div>
     </div>`);
-  if (!isMe) {
+  if (!isMe && !ctx.watching) {
     // Swap colours: a bot swaps at once; a player is asked.
     const asked = state.swapOut?.to === m.userId && m.userId !== null;
     const swap = el<HTMLButtonElement>(`<button class="chip${asked ? ' chip-wait' : ''}">${asked ? 'Asked · Cancel' : '⇄ Swap'}</button>`);
@@ -180,3 +209,27 @@ function seatCard(
   return card;
 }
 
+
+/** The people watching without a seat, with their mic badge and signal like the seats have. */
+function renderWatchers(box: HTMLElement, lobby: PublicLobby, ctx: { me: number; isHost: boolean; act: (e: any, p?: object) => Promise<void> }): void {
+  box.innerHTML = '';
+  if (!lobby.spectators.length) return;
+  box.appendChild(el(`<div class="menu-heading">👀 Watching (${lobby.spectators.length}/${MAX_SPECTATORS})</div>`));
+  for (const s of lobby.spectators) {
+    const isMe = s.userId === ctx.me;
+    const row = el(`
+      <div class="watcher ${isMe ? 'watcher-me' : ''} ${s.connected ? '' : 'seat-offline'}" data-user="${s.userId}">
+        <span class="watcher-dot">${esc(s.username[0]?.toUpperCase() ?? '')}</span>
+        <span class="watcher-name">${esc(s.username)}${isMe ? ' <span class="you">you</span>' : ''}${s.userId === lobby.hostId ? ' <span class="tag">👑 host</span>' : ''}<span class="seat-vc"></span></span>
+        <span class="seat-net"></span>
+      </div>`);
+    if (ctx.isHost && !isMe) {
+      const b = el<HTMLButtonElement>(`<button class="chip chip-danger">Kick</button>`);
+      b.onclick = async () => {
+        if (await confirmDialog(`Kick ${s.username}?`, 'They can rejoin with the password.', 'Kick', true)) await ctx.act('lobby:kick', { userId: s.userId });
+      };
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  }
+}

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { COLORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
+import { COLORS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 
@@ -8,7 +8,10 @@ export interface Lobby {
   name: string;
   hostId: number;
   passwordHash: string;
+  /** The seats: players and bots. */
   members: LobbyMember[];
+  /** People without a seat, watching. Lobbies saved before spectators existed lack it. */
+  spectators: LobbySpectator[];
   status: LobbyStatus;
   gameId: string | null;
   createdAt: number;
@@ -65,6 +68,11 @@ export function safeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ha, hb) && a.length === b.length;
 }
 
+/** Every person in the lobby, seated players first, then spectators. */
+export function humanIds(lobby: Pick<Lobby, 'members' | 'spectators'>): number[] {
+  return [...lobby.members.filter((m) => !m.isBot && m.userId !== null).map((m) => m.userId!), ...lobby.spectators.map((s) => s.userId)];
+}
+
 /** A bot is named after the seat it sits on: "Bot Red", "Bot Green"… */
 export function botName(color: Color): string {
   return `Bot ${color[0].toUpperCase()}${color.slice(1)}`;
@@ -86,6 +94,8 @@ export class LobbyManager {
     const rows = this.opts.db.prepare('SELECT data FROM lobbies').all() as { data: string }[];
     for (const row of rows) {
       const lobby = JSON.parse(row.data) as Lobby;
+      lobby.spectators ??= [];
+      for (const s of lobby.spectators) s.connected = false;
       for (const m of lobby.members) {
         m.connected = m.isBot;
         // Lobbies saved before bots were renamed on a swap may hold a "Bot Red" on the green seat.
@@ -93,7 +103,7 @@ export class LobbyManager {
       }
       lobby.allOfflineSince = this.now();
       this.lobbies.set(lobby.id, lobby);
-      for (const m of lobby.members) if (m.userId !== null) this.byUser.set(m.userId, lobby.id);
+      for (const id of humanIds(lobby)) this.byUser.set(id, lobby.id);
     }
   }
 
@@ -116,9 +126,10 @@ export class LobbyManager {
       .map((l) => ({
         id: l.id,
         name: l.name,
-        hostName: l.members.find((m) => m.userId === l.hostId)?.username ?? '?',
+        hostName: [...l.members, ...l.spectators].find((m) => m.userId === l.hostId)?.username ?? '?',
         status: l.status,
         players: l.members.length,
+        watching: l.spectators.length,
       }));
   }
 
@@ -129,7 +140,10 @@ export class LobbyManager {
       .map((l) => ({
         ...byId.get(l.id)!,
         createdAt: l.createdAt,
-        members: l.members.map((m) => ({ username: m.username, isBot: m.isBot, connected: m.connected })),
+        members: [
+          ...l.members.map((m) => ({ username: m.username, isBot: m.isBot, connected: m.connected })),
+          ...l.spectators.map((s) => ({ username: s.username, isBot: false, connected: s.connected, watching: true })),
+        ],
       }));
   }
 
@@ -141,6 +155,7 @@ export class LobbyManager {
       hostId: l.hostId,
       status: l.status,
       members: l.members.map((m) => (m.isBot || m.userId === null || !winsOf ? { ...m } : { ...m, wins: winsOf(m.userId) })),
+      spectators: l.spectators.map((s) => (winsOf ? { ...s, wins: winsOf(s.userId) } : { ...s })),
       gameId: l.gameId,
     };
   }
@@ -158,6 +173,7 @@ export class LobbyManager {
       hostId: user.id,
       passwordHash: hashLobbyPassword(input.password),
       members: [{ color: this.randomColor(COLORS), userId: user.id, username: user.username, isBot: false, ready: false, connected: true }],
+      spectators: [],
       status: 'waiting',
       gameId: null,
       createdAt: this.now(),
@@ -169,25 +185,34 @@ export class LobbyManager {
     return lobby;
   }
 
-  join(user: LobbyUser, lobbyId: string, password: string): Lobby {
+  /**
+   * Joins on a free seat, or with `watch` as a spectator. Watching is the only way into a
+   * lobby whose game is running or whose seats are all taken.
+   */
+  join(user: LobbyUser, lobbyId: string, password: string, watch = false): Lobby {
     const lobby = this.lobbies.get(lobbyId);
     if (!lobby) throw new AppError('LOBBY_NOT_FOUND', 404);
-    if (lobby.members.some((m) => m.userId === user.id)) return lobby;
+    if (humanIds(lobby).includes(user.id)) return lobby;
     if (!verifyLobbyPassword(password, lobby.passwordHash)) throw new AppError('WRONG_LOBBY_PASSWORD', 403);
-    if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
-    if (lobby.members.length >= MAX_MEMBERS) throw new AppError('LOBBY_FULL', 409);
+    if (watch) {
+      if (lobby.spectators.length >= MAX_SPECTATORS) throw new AppError('TOO_MANY_WATCHING', 409);
+    } else {
+      if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
+      if (lobby.members.length >= MAX_MEMBERS) throw new AppError('LOBBY_FULL', 409);
+    }
     this.leaveWaitingLobby(user.id);
-    lobby.members.push({ color: this.freeColor(lobby), userId: user.id, username: user.username, isBot: false, ready: false, connected: true });
+    if (watch) lobby.spectators.push({ userId: user.id, username: user.username, connected: true });
+    else lobby.members.push({ color: this.freeColor(lobby), userId: user.id, username: user.username, isBot: false, ready: false, connected: true });
     this.byUser.set(user.id, lobby.id);
     this.changed(lobby);
     return lobby;
   }
 
-  /** A user may only sit in one lobby; switching away from a running game is refused. */
+  /** A user may only be in one lobby; leaving a seat in a running game this way is refused. */
   private leaveWaitingLobby(userId: number): void {
     const current = this.forUser(userId);
     if (!current) return;
-    if (current.status === 'playing') throw new AppError('ALREADY_IN_GAME', 409);
+    if (current.status === 'playing' && current.members.some((m) => m.userId === userId)) throw new AppError('ALREADY_IN_GAME', 409);
     this.leave(userId);
   }
 
@@ -195,17 +220,45 @@ export class LobbyManager {
     const lobby = this.forUser(userId);
     if (!lobby) return;
     this.dropSwaps((r) => r.from === userId || r.to === userId, 'cancelled');
+    const seated = lobby.members.some((m) => m.userId === userId);
     lobby.members = lobby.members.filter((m) => m.userId !== userId);
+    lobby.spectators = lobby.spectators.filter((s) => s.userId !== userId);
     this.byUser.delete(userId);
-    if (lobby.status === 'playing') this.opts.onLeaveGame?.(lobby, userId);
+    if (seated && lobby.status === 'playing') this.opts.onLeaveGame?.(lobby, userId);
     this.opts.onMemberLeft?.(lobby, userId);
-    const humans = lobby.members.filter((m) => !m.isBot);
+    const humans = humanIds(lobby);
     if (humans.length === 0) {
       this.close(lobby);
       return;
     }
-    if (lobby.hostId === userId) lobby.hostId = humans[0].userId!;
+    if (lobby.hostId === userId) lobby.hostId = humans[0];
     this.changed(lobby);
+  }
+
+  /** Gives up your seat to watch instead (between games). */
+  spectate(userId: number): Lobby {
+    const { lobby, member } = this.memberOf(userId);
+    if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
+    if (lobby.spectators.length >= MAX_SPECTATORS) throw new AppError('TOO_MANY_WATCHING', 409);
+    this.dropSwaps((r) => r.from === userId || r.to === userId, 'cancelled');
+    lobby.members = lobby.members.filter((m) => m !== member);
+    lobby.spectators.push({ userId, username: member.username, connected: member.connected });
+    this.changed(lobby);
+    return lobby;
+  }
+
+  /** A spectator takes the open seat `color` (between games). */
+  sit(userId: number, color: Color): Lobby {
+    const lobby = this.forUser(userId);
+    const spectator = lobby?.spectators.find((s) => s.userId === userId);
+    if (!lobby || !spectator) throw new AppError('NOT_WATCHING', 409);
+    if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
+    if (!COLORS.includes(color)) throw new AppError('INVALID_COLOR');
+    if (lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
+    lobby.spectators = lobby.spectators.filter((s) => s !== spectator);
+    lobby.members.push({ color, userId, username: spectator.username, isBot: false, ready: false, connected: spectator.connected });
+    this.changed(lobby);
+    return lobby;
   }
 
   setColor(userId: number, color: Color): Lobby {
@@ -314,6 +367,16 @@ export class LobbyManager {
     return lobby;
   }
 
+  /** A bot on every open seat: with the host watching, that's a bot battle. */
+  fillBots(userId: number): Lobby {
+    const lobby = this.hostLobby(userId);
+    for (const seat of COLORS) {
+      if (!lobby.members.some((m) => m.color === seat)) lobby.members.push({ color: seat, userId: null, username: botName(seat), isBot: true, ready: true, connected: true });
+    }
+    this.changed(lobby);
+    return lobby;
+  }
+
   removeBot(userId: number, color: Color): Lobby {
     const lobby = this.hostLobby(userId);
     const idx = lobby.members.findIndex((m) => m.isBot && m.color === color);
@@ -326,7 +389,7 @@ export class LobbyManager {
   kick(hostId: number, targetId: number): Lobby {
     const lobby = this.hostLobby(hostId);
     if (targetId === hostId) throw new AppError('CANNOT_KICK_SELF');
-    if (!lobby.members.some((m) => m.userId === targetId)) throw new AppError('NOT_FOUND', 404);
+    if (!humanIds(lobby).includes(targetId)) throw new AppError('NOT_FOUND', 404);
     this.leave(targetId);
     return lobby;
   }
@@ -350,44 +413,46 @@ export class LobbyManager {
   }
 
   /**
-   * After a game: drop bots and humans who are still offline (so no ghost seats linger),
-   * reset readiness and reopen the lobby, or close it if no connected human is left.
+   * After a game: drop bots and people who are still offline (so no ghost seats linger),
+   * reset readiness and reopen the lobby, or close it if no connected human is left. After a
+   * bot battle the bots stay seated, so the spectators can start another right away.
    */
-  finishGame(lobbyId: string): void {
+  finishGame(lobbyId: string, keepBots = false): void {
     const lobby = this.lobbies.get(lobbyId);
     if (!lobby) return;
-    for (const m of lobby.members) {
-      if (!m.isBot && !m.connected && m.userId !== null) {
-        this.byUser.delete(m.userId);
-        this.opts.onMemberLeft?.(lobby, m.userId);
-      }
+    const gone = [...lobby.members.filter((m) => !m.isBot && !m.connected && m.userId !== null).map((m) => m.userId!), ...lobby.spectators.filter((s) => !s.connected).map((s) => s.userId)];
+    for (const id of gone) {
+      this.byUser.delete(id);
+      this.opts.onMemberLeft?.(lobby, id);
     }
-    lobby.members = lobby.members.filter((m) => !m.isBot && m.connected);
-    for (const m of lobby.members) m.ready = false;
+    lobby.members = lobby.members.filter((m) => (m.isBot ? keepBots : m.connected));
+    lobby.spectators = lobby.spectators.filter((s) => s.connected);
+    for (const m of lobby.members) m.ready = m.isBot;
     lobby.status = 'waiting';
     lobby.gameId = null;
-    if (lobby.members.length === 0) {
+    const humans = humanIds(lobby);
+    if (humans.length === 0) {
       this.close(lobby);
       return;
     }
-    if (!lobby.members.some((m) => m.userId === lobby.hostId)) lobby.hostId = lobby.members[0].userId!;
+    if (!humans.includes(lobby.hostId)) lobby.hostId = humans[0];
     this.changed(lobby);
   }
 
   setConnected(userId: number, connected: boolean): void {
     const lobby = this.forUser(userId);
     if (!lobby) return;
-    const member = lobby.members.find((m) => m.userId === userId);
+    const member = lobby.members.find((m) => m.userId === userId) ?? lobby.spectators.find((s) => s.userId === userId);
     if (!member || member.connected === connected) return;
     member.connected = connected;
-    const anyoneOnline = lobby.members.some((m) => !m.isBot && m.connected);
+    const anyoneOnline = lobby.members.some((m) => !m.isBot && m.connected) || lobby.spectators.some((s) => s.connected);
     lobby.allOfflineSince = anyoneOnline ? null : (lobby.allOfflineSince ?? this.now());
     this.changed(lobby);
   }
 
   renameUser(userId: number, username: string): void {
     const lobby = this.forUser(userId);
-    const member = lobby?.members.find((m) => m.userId === userId);
+    const member = lobby?.members.find((m) => m.userId === userId) ?? lobby?.spectators.find((s) => s.userId === userId);
     if (!lobby || !member) return;
     member.username = username;
     this.changed(lobby);
@@ -416,7 +481,7 @@ export class LobbyManager {
   private close(lobby: Lobby, byAdmin = false): void {
     this.dropSwaps((r) => r.lobbyId === lobby.id, 'cancelled');
     this.lobbies.delete(lobby.id);
-    for (const m of lobby.members) if (m.userId !== null && this.byUser.get(m.userId) === lobby.id) this.byUser.delete(m.userId);
+    for (const id of humanIds(lobby)) if (this.byUser.get(id) === lobby.id) this.byUser.delete(id);
     this.opts.db.prepare('DELETE FROM lobbies WHERE id = ?').run(lobby.id);
     this.opts.onClosed?.(lobby, byAdmin);
     this.opts.onChange?.(lobby.id, null);
@@ -443,12 +508,15 @@ export class LobbyManager {
   private memberOf(userId: number): { lobby: Lobby; member: LobbyMember } {
     const lobby = this.forUser(userId);
     const member = lobby?.members.find((m) => m.userId === userId);
-    if (!lobby || !member) throw new AppError('NOT_IN_LOBBY', 404);
+    if (!lobby) throw new AppError('NOT_IN_LOBBY', 404);
+    if (!member) throw new AppError('NOT_SEATED', 409); // watching
     return { lobby, member };
   }
 
+  /** The host's lobby, between games. The host may be seated or watching. */
   private hostLobby(userId: number): Lobby {
-    const { lobby } = this.memberOf(userId);
+    const lobby = this.forUser(userId);
+    if (!lobby) throw new AppError('NOT_IN_LOBBY', 404);
     if (lobby.hostId !== userId) throw new AppError('NOT_HOST', 403);
     if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
     return lobby;

@@ -17,7 +17,7 @@ const SDP = [
 describe('setOpusBitrate', () => {
   it('adds maxaveragebitrate to the opus fmtp line and keeps other params', () => {
     const out = setOpusBitrate(SDP, 64);
-    expect(out).toContain('a=fmtp:111 minptime=10;useinbandfec=1;maxaveragebitrate=64000');
+    expect(out).toContain('a=fmtp:111 minptime=10;useinbandfec=1;maxaveragebitrate=64000;usedtx=1');
     // Other codecs are untouched.
     expect(out).toContain('a=fmtp:63 111/111');
     expect(out.split('\r\n')).toHaveLength(SDP.split('\r\n').length);
@@ -33,7 +33,7 @@ describe('setOpusBitrate', () => {
     const bare = SDP.replace('a=fmtp:111 minptime=10;useinbandfec=1\r\n', '');
     const lines = setOpusBitrate(bare, 32).split('\r\n');
     const rtp = lines.indexOf('a=rtpmap:111 opus/48000/2');
-    expect(lines[rtp + 1]).toBe('a=fmtp:111 maxaveragebitrate=32000;useinbandfec=1');
+    expect(lines[rtp + 1]).toBe('a=fmtp:111 maxaveragebitrate=32000;useinbandfec=1;usedtx=1');
   });
 
   it('leaves an SDP without opus alone', () => {

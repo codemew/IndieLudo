@@ -3,10 +3,19 @@ export type Color = 'red' | 'green' | 'yellow' | 'blue';
 /** Clockwise turn order; also the order seats are stored in a game. */
 export const COLORS: readonly Color[] = ['red', 'green', 'yellow', 'blue'];
 
-/** Consecutive turns a player may miss (timer ran out) before a bot takes the seat. */
 /** How long every phone shows the "first blood" banner; the server waits this out before bots and timers carry on. */
 export const FIRST_BLOOD_MS = 1800;
+/** Consecutive turns a player may miss (timer ran out) before a bot takes the seat. */
 export const MAX_MISSED_TURNS = 5;
+
+/**
+ * A bot battle (every seat a bot, people only watching) runs at full speed: no "thinking"
+ * pause, and every animation and pause plays at this fraction of its normal length.
+ */
+export const BOT_BATTLE_TEMPO = 0.4;
+
+/** How many people can watch a lobby's games without a seat. */
+export const MAX_SPECTATORS = 4;
 
 export type Controller = 'human' | 'bot' | 'takeover';
 
@@ -56,6 +65,13 @@ export interface GameState {
   stats?: Partial<Record<Color, PlayerStats>>;
   /** Captures made by each token since it last left base; its moustache grows with them (heft.ts). */
   kills?: Partial<Record<Color, number[]>>;
+  /** Every seat was a bot when the game started: it plays at BOT_BATTLE_TEMPO. */
+  botBattle?: boolean;
+}
+
+/** How fast a game's animations and pauses run: 1 normally, faster in a bot battle. */
+export function tempoOf(state: Pick<GameState, 'botBattle'>): number {
+  return state.botBattle ? BOT_BATTLE_TEMPO : 1;
 }
 
 export interface PlayerStats {
@@ -116,6 +132,14 @@ export interface LobbyMember {
   wins?: number;
 }
 
+/** Someone in a lobby without a seat: they watch its games (and are in its voice chat). */
+export interface LobbySpectator {
+  userId: number;
+  username: string;
+  connected: boolean;
+  wins?: number;
+}
+
 export type LobbyStatus = 'waiting' | 'playing';
 
 /**
@@ -160,6 +184,7 @@ export interface PublicLobby {
   hostId: number;
   status: LobbyStatus;
   members: LobbyMember[];
+  spectators: LobbySpectator[];
   gameId: string | null;
 }
 
@@ -168,11 +193,14 @@ export interface LobbySummary {
   name: string;
   hostName: string;
   status: LobbyStatus;
+  /** Seats taken (players and bots). */
   players: number;
+  /** People watching without a seat. */
+  watching: number;
 }
 
 /** What the admin panel shows per lobby. */
 export interface AdminLobby extends LobbySummary {
   createdAt: number;
-  members: { username: string; isBot: boolean; connected: boolean }[];
+  members: { username: string; isBot: boolean; connected: boolean; watching?: boolean }[];
 }

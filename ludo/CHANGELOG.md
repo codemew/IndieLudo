@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.3.0
+
+### Added
+- **Watching (spectators).**
+  - **Who:** up to 4 people per lobby can watch without a seat, and they're in the lobby's voice chat.
+  - **Joining to watch:** tap a lobby card and choose **👀 Watch**. That works even when its game is running or its seats are full. It needs the lobby password.
+  - **From a seat:** **👀 Watch instead** gives up your seat between games; **Sit here** takes one again.
+  - **Watching a game:** spectators see it live with a *👀 Watching* tag and can't roll or move; the server refuses it. **Stop watching** in the game menu leaves the lobby.
+  - **The host can watch** and still runs the lobby.
+- **Bot battles:** the host watches, taps **🤖 Fill open seats with bots** and **🤖 Start bot battle**.
+  - **Full speed:** with no person seated the bots don't pause to "think", and everything on the board runs at 0.4× its normal length. Early on, when most turns are a roll with nothing to move, that's about 0.8 s per turn instead of 3.3 s.
+  - **Afterwards:** the bots stay seated for the next round, and the results say "Bot Blue wins the bot battle".
+
+### Changed
+- **Much less data:**
+  - **Game messages are compressed:** a phone watching a whole 4‑bot game now receives about 51 KB instead of about 1.4 MB, roughly 28× less.
+  - **Voice:** uses silence suppression (DTX) and error correction (FEC). Relayed voice skips silent packets.
+  - **App files are sent brotli-compressed:** 53 KB instead of 201 KB per update.
+- **Fewer repeated messages:**
+  - The lobby list goes out only when it changes; before, every phone got it again whenever anyone got ready or went offline.
+  - Ping stats go out only when they change (at least every 15 s). Pings are shown to the nearest 5 ms between 50 and 200 ms, and to the nearest 10 ms above that.
+- **Connects on more networks:** if a network blocks WebSockets, the app falls back to plain HTTP requests instead of failing.
+
+### Tests
+- **New:** tests for spectators (joining, sitting, hosts, cleanup, restarts), the speed of bot battles, watching over real sockets, a whole bot battle, compression being negotiated, the lobby list and ping stats not being re-sent, compressed app files (including path escapes), silent voice packets, and a browser run of watching and a bot battle.
+
 ## 2.2.0
 
 ### Added

@@ -4,6 +4,18 @@ import { tf } from './render.js';
 
 export const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+let tempo = 1;
+/**
+ * How fast the board plays: 1 normally; a bot battle plays faster (tempoOf in shared/types.ts).
+ * Every hop, slide, dice roll and pause between events takes this fraction of its usual time,
+ * matching what the server waits out.
+ */
+export function setTempo(t: number): void {
+  tempo = t;
+}
+/** A duration at the current tempo. */
+export const atTempo = (ms: number): number => ms * tempo;
+
 export interface HopOptions {
   /** The moving token's captures: more makes it slower and heavier (shared/heft.ts). */
   kills?: number;
@@ -29,7 +41,7 @@ export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopO
   try {
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i];
-      const ms = reducedMotion() ? 30 : hopMs(k) * (opts.fromBase && i === 0 ? BASE_EXIT_HOPS : 1);
+      const ms = reducedMotion() ? 30 : atTempo(hopMs(k) * (opts.fromBase && i === 0 ? BASE_EXIT_HOPS : 1));
       const land = setTimeout(() => opts.onStep?.(i, c), ms * 0.8);
       try {
         await hopOnce(el, squash, shadow, prev, c, ms, k, i);
@@ -131,7 +143,7 @@ function settle(squash: HTMLElement, k: number): Promise<unknown> {
       { transform: `scale(${1 - c * 0.12}, ${1 + c * 0.12})` },
       { transform: 'scale(1, 1)' },
     ],
-    { duration: settleMs(k), easing: 'ease-out' },
+    { duration: atTempo(settleMs(k)), easing: 'ease-out' },
   ).finished;
 }
 
@@ -143,7 +155,7 @@ export async function slide(el: HTMLElement, from: Cell, to: Cell, ms: number): 
       { transform: tf((from[0] + to[0]) / 2, (from[1] + to[1]) / 2, 1.4), offset: 0.4 },
       { transform: tf(to[0], to[1], 1) },
     ],
-    { duration: reducedMotion() ? 40 : ms, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' },
+    { duration: reducedMotion() ? 40 : atTempo(ms), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' },
   );
   el.style.zIndex = '31';
   try {
@@ -157,4 +169,5 @@ export async function slide(el: HTMLElement, from: Cell, to: Cell, ms: number): 
   }
 }
 
-export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, reducedMotion() ? Math.min(ms, 60) : ms));
+/** A pause between events on the board (at the current tempo). */
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, reducedMotion() ? Math.min(ms, 60) : atTempo(ms)));

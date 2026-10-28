@@ -79,7 +79,7 @@ async function setup() {
     await server.close();
     rmSync(dir, { recursive: true, force: true });
   };
-  return { server, dice, errors, lobby, close };
+  return { server, dice, errors, phone, lobby, close };
 }
 
 async function tap(p: Page, sel: string): Promise<void> {
@@ -238,6 +238,84 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     }
     expect(await alice.$$eval('.stats-table th, .stats-table thead *', (h) => h.map((x) => x.textContent).join(' '))).toContain('Macho');
     await shot(alice, 'results-macho');
+    expect(t.errors).toEqual([]);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT)('watching and bot battles', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let alice: Page;
+  let bob: Page;
+  let carol: Page;
+  let game: GameState;
+  /** Joins from the home screen's lobby card with the password, choosing 👀 Watch. */
+  const watchFromHome = async (p: Page) => {
+    await p.waitForSelector('.lobby-card:not(:disabled)');
+    await tap(p, '.lobby-card');
+    await p.waitForSelector('.modal input');
+    await p.type('.modal input', 'pw');
+    await p.$$eval('.modal .btn', (bs) => (bs.find((x) => x.textContent!.includes('Watch')) as HTMLElement).click());
+  };
+
+  beforeAll(async () => {
+    t = await setup();
+    [alice] = await t.lobby(['alice']);
+    bob = await t.phone('bob');
+    carol = await t.phone('carol');
+  });
+  afterAll(() => t?.close());
+
+  it('the host watches instead and fills every seat with bots: the start button becomes a bot battle', async () => {
+    await tap(alice, '#spectate');
+    await alice.waitForSelector('.watcher-me');
+    await tap(alice, '#fill-bots');
+    await until('4 bots', async () => (await seats(alice)).filter((x) => x.includes('Bot')).length === 4);
+    expect(await alice.$eval('#start', (b) => b.textContent)).toContain('Start bot battle');
+    expect(await alice.$('#start:disabled')).toBeNull();
+  });
+
+  it('someone else can join a full lobby to watch, and is listed with the host under Watching', async () => {
+    await watchFromHome(bob);
+    await bob.waitForSelector('.screen-lobby .watcher-me');
+    await until('two watchers', async () => (await alice.$$('.watcher')).length === 2);
+    expect(await bob.$$('.seat .chip')).toHaveLength(0); // nothing to swap or kick from the side
+    expect(await bob.$('#start')).toBeNull();
+    await shot(alice, 'lobby-watching');
+  });
+
+  it('the bots battle at full speed while everyone watches', async () => {
+    await tap(alice, '#start');
+    await Promise.all([alice.waitForSelector('.screen-game'), bob.waitForSelector('.screen-game')]);
+    game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+    expect(game.botBattle).toBe(true);
+    const v0 = game.version;
+    await sleep(5000);
+    // Early on most turns are a roll with nothing to move: about 3.25 s each at the normal pace
+    // (1.4 s "thinking" + dice + "no moves"), so fewer than 2 changes in 5 s. A bot battle does 5+.
+    expect(game.version - v0).toBeGreaterThanOrEqual(5);
+    const hint = await alice.$eval('#hint', (h) => h.textContent!);
+    expect(hint).toMatch(/Watching/);
+    expect(hint).toMatch(/Bot battle at full speed/);
+    expect(await alice.$('.dice.can-roll')).toBeNull();
+    await shot(alice, 'bot-battle');
+  });
+
+  it('a latecomer can watch the running battle from the home screen', async () => {
+    expect(await carol.$eval('.lobby-card .badge-live', (b) => b.textContent)).toContain('Watch');
+    await watchFromHome(carol);
+    await carol.waitForSelector('.screen-game', { timeout: 10_000 });
+    expect(await carol.$eval('#hint', (h) => h.textContent!)).toMatch(/Watching/);
+  });
+
+  it('the battle ends on the results screen for everyone watching, and the bots stay for another round', async () => {
+    for (const c of ['red', 'green', 'yellow', 'blue'] as const) game.tokens[c] = [55, HOME, HOME, HOME]; // a 1 finishes each
+    await Promise.all([alice, bob, carol].map((p) => p.waitForSelector('.results', { timeout: 30_000 })));
+    expect(await alice.$eval('.results h2', (h) => h.textContent)).toMatch(/Bot \w+ wins the bot battle/);
+    await sleep(2500); // the screen fades over from the board, and the finish toasts clear
+    await shot(carol, 'bot-battle-results');
+    await tap(alice, '#lobby');
+    await alice.waitForSelector('#start');
+    expect((await seats(alice)).filter((x) => x.includes('Bot'))).toHaveLength(4);
     expect(t.errors).toEqual([]);
   });
 });

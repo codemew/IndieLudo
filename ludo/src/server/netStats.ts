@@ -1,4 +1,4 @@
-import { NET_HISTORY, signalBars, type PlayerNet } from '../shared/net.js';
+import { NET_HISTORY, roundPing, signalBars, type PlayerNet } from '../shared/net.js';
 
 interface Link {
   userId: number;
@@ -44,7 +44,7 @@ export class NetStatsTracker {
     let best: PlayerNet = { userId, pingMs: null, bars: 0 };
     for (const l of this.links.values()) {
       if (l.userId !== userId) continue;
-      const cand: PlayerNet = { userId, pingMs: l.rtt === null ? null : Math.round(l.rtt), bars: signalBars(l.rtt, l.recent) };
+      const cand: PlayerNet = { userId, pingMs: l.rtt === null ? null : roundPing(l.rtt), bars: signalBars(l.rtt, l.recent) };
       if (cand.bars > best.bars || (cand.bars === best.bars && (cand.pingMs ?? Infinity) < (best.pingMs ?? Infinity))) best = cand;
     }
     return best;

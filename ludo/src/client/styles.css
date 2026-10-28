@@ -2038,6 +2038,64 @@ h3 {
   border-color: rgba(245, 158, 11, 0.6);
   color: #fbbf24;
 }
+/* People watching without a seat, under the seats. */
+.watchers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.watchers:empty {
+  display: none;
+}
+.watcher {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.watcher-me {
+  border-color: rgba(167, 139, 250, 0.6);
+}
+.watcher-dot {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  font-weight: 800;
+  background: var(--bg-2);
+  border: 2px solid var(--muted);
+}
+.watcher-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.watcher .seat-net {
+  justify-content: flex-end;
+}
+.lobby-extras {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.watch-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  background: rgba(167, 139, 250, 0.35);
+}
 .lobby-voice {
   margin-top: 16px;
   display: flex;

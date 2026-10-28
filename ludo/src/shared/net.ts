@@ -7,6 +7,16 @@ export const NET_HISTORY = 5;
 
 export type SignalBars = 0 | 1 | 2 | 3 | 4;
 
+/**
+ * The ping shown beside a name: exact below 50 ms, then to the nearest 5 ms, and 10 ms from
+ * 200 ms. Nobody can tell 143 from 145 ms, and a steadier number means the server can skip
+ * sending an update when nothing visible changed.
+ */
+export function roundPing(ms: number): number {
+  const step = ms < 50 ? 1 : ms < 200 ? 5 : 10;
+  return Math.round(ms / step) * step;
+}
+
 export interface PlayerNet {
   userId: number;
   /** Smoothed round trip to the server, or null before the first reply / while unreachable. */

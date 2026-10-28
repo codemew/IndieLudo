@@ -1210,9 +1210,41 @@ h3 {
   border-radius: 8px;
 }
 .token-layer,
+.flag-layer,
 .fx-layer {
   position: absolute;
   inset: 0;
+}
+/* A white flag over the base of a player who surrendered (renderFlags in game.ts). */
+.flag-layer {
+  pointer-events: none;
+  z-index: 35;
+}
+.surrender-flag {
+  position: absolute;
+  width: calc(100% / 15 * 3.1);
+  transform: translate(-25%, -70%);
+  transform-origin: 20% 100%;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35));
+  animation: flag-raise 0.7s cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+.surrender-flag svg {
+  display: block;
+  width: 100%;
+}
+@keyframes flag-raise {
+  from {
+    transform: translate(-30%, -40%) scale(0.2) rotate(-20deg);
+    opacity: 0;
+  }
+}
+/* That player's tokens, all back in base, greyed out. */
+.board.out-red .token.t-red,
+.board.out-green .token.t-green,
+.board.out-yellow .token.t-yellow,
+.board.out-blue .token.t-blue {
+  opacity: 0.45;
+  filter: grayscale(0.7);
 }
 .fx-layer {
   pointer-events: none;
@@ -1274,6 +1306,19 @@ h3 {
   fill: none;
   stroke: rgba(0, 0, 0, 0.1);
   stroke-width: 0.03;
+}
+.home-label rect {
+  fill: rgba(15, 23, 42, 0.72);
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 0.05;
+}
+.home-label text {
+  fill: #fff;
+  font-size: 0.36px;
+  font-weight: 900;
+  letter-spacing: 0.04px;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
 /* Tokens: one-cell buttons positioned with translate(%) in cell units. */

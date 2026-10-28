@@ -39,6 +39,8 @@ export interface ClientToServer {
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   'game:resume': (p: { gameId: string }, ack: (r: Ack<PublicGameState>) => void) => void;
   'game:takeback': (p: { gameId: string }, ack: (r: Ack) => void) => void;
+  /** Give up: you're out (ranked below everyone still playing) and watch the rest. */
+  'game:surrender': (p: { gameId: string; actionId: string }, ack: (r: Ack) => void) => void;
   'voice:get': (p: { lobbyId: string }, ack: (r: Ack<VoiceState>) => void) => void;
   'voice:join': (p: { lobbyId: string }, ack: (r: Ack<VoiceJoined>) => void) => void;
   'voice:leave': (p: { lobbyId: string }, ack: (r: Ack) => void) => void;
@@ -204,6 +206,7 @@ export const SCHEMAS = {
     lap: { type: 'bool', optional: true },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
+  surrender: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },
   voiceMute: { lobbyId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
   voiceBitrate: { lobbyId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 6, max: 48 } },

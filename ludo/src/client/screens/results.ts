@@ -29,7 +29,7 @@ export function resultsScreen(root: HTMLElement): void {
         <li class="podium-row p-${color}" style="animation-delay:${200 + i * 140}ms">
           <span class="place">${PLACES[i]}</span>
           <span class="pchip-dot">${seat.controller === 'bot' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
-          <span class="podium-name">${esc(seat.username)}${color === myColor ? ' <em>you</em>' : ''}</span>
+          <span class="podium-name">${esc(seat.username)}${color === myColor ? ' <em>you</em>' : ''}${g.surrendered?.includes(color) ? ' <span title="Surrendered">🏳️</span>' : ''}</span>
           <span class="podium-awards">${awardsOf(color).map((a) => `<span title="${a.title}">${a.icon}</span>`).join('')}</span>
           ${i === 0 ? '<span class="crown">👑</span>' : ''}
         </li>`;
@@ -70,7 +70,7 @@ const STAT_COLUMNS = [
   { key: 'sixes', icon: '🎲', label: 'Sixes' },
   { key: 'revenges', icon: '😤', label: 'Revenges' },
   { key: 'machoHome', icon: '🥸', label: 'Macho' },
-  { key: 'staches', icon: '🥚', label: 'Staches', fewest: true },
+  { key: 'staches', icon: '💈', label: 'Staches', fewest: true },
 ] as const;
 
 /** Awards (best in each stat, first blood) and everyone's numbers, best of each column highlighted. */

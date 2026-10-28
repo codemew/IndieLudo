@@ -10,7 +10,7 @@ import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEFAULTS, mergeConfig } from '../src/server/config.js';
 import { startServer, type LudoServer } from '../src/server/server.js';
-import { BASE as B, HOME } from '../src/shared/board.js';
+import { BASE as B, HOME, absoluteSquare, isSafeSquare } from '../src/shared/board.js';
 import type { Color, GameState } from '../src/shared/types.js';
 
 const CHROME = [process.env.CHROME_PATH, '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find((p) => p && existsSync(p));
@@ -228,6 +228,30 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(await alice.$('.lap-choice')).toBeNull();
   });
 
+  it('landing on two opponent tokens on an ordinary square captures both, and the moustache grows two levels', async () => {
+    await aliceTurn();
+    const land = absoluteSquare(a, 5)!;
+    expect(isSafeSquare(land)).toBe(false);
+    const q = [...Array(51).keys()].find((p) => absoluteSquare(b, p) === land)!;
+    game.kills = {};
+    t.dice.push(3);
+    game.tokens[a] = [2, HOME, HOME, B];
+    game.tokens[b] = [q, q, B, B];
+    await tap(alice, '.dice.can-roll');
+    // A single possible move plays itself.
+    await until('the double capture', () => game.tokens[b][0] === B && game.tokens[b][1] === B, 10_000);
+    expect(game.kills![a]![0]).toBe(2);
+    for (const p of [alice, bob]) {
+      await until('both back in base', async () =>
+        (await p.$$eval(`.token.t-${b}`, (ts) => ts.map((x) => (x as HTMLElement).style.transform))).filter((tf, i, all) => all.indexOf(tf) === i).length === 4,
+      10_000);
+      // The moustache grows once the token is still (2 s), straight to level 2.
+      await until('the moustache', async () => (await p.$eval(`.token.t-${a}[aria-label$="token 1"]`, (x) => (x as HTMLElement).dataset.lvl)) === '2', 10_000);
+    }
+    game.tokens[a] = [B, B, B, B];
+    game.kills = {};
+  });
+
   it('two tokens on one star with different moustaches: the game waits for the player to pick', async () => {
     await aliceTurn();
     game.kills = { [a]: [3, 0, 0, 0] }; // token 1 is macho, token 2 clean-shaven
@@ -339,6 +363,62 @@ describe.skipIf(!CHROME || !BUILT)('watching and bot battles', () => {
     await tap(alice, '#lobby');
     await alice.waitForSelector('#start');
     expect((await seats(alice)).filter((x) => x.includes('Bot'))).toHaveLength(4);
+    expect(t.errors).toEqual([]);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT)('surrendering', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let phones: Page[];
+  let game: GameState;
+  const colorOf = (name: string) => game.seats.find((s) => s.username === name)!.color;
+  const surrender = async (p: Page) => {
+    await tap(p, '#menu');
+    await p.waitForSelector('.menu-item');
+    await p.$$eval('.menu-item', (bs) => (bs.find((b) => b.textContent!.includes('Surrender')) as HTMLElement).click());
+    await p.waitForSelector('.modal .btn-danger');
+    await tap(p, '.modal .btn-danger');
+  };
+
+  beforeAll(async () => {
+    t = await setup();
+    phones = await t.lobby(['alice', 'bob', 'carol']);
+    for (const p of phones.slice(1)) await tap(p, '.bottom-bar .btn');
+    const [host] = phones;
+    await host.waitForSelector('.bottom-bar .btn-primary:not(:disabled)', { timeout: 10_000 });
+    await tap(host, '.bottom-bar .btn-primary');
+    await Promise.all(phones.map((p) => p.waitForSelector('.screen-game')));
+    game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+    await sleep(1200);
+  });
+  afterAll(() => t?.close());
+
+  it("one player gives up: a white flag waves over their base on every phone, and the rest play on", async () => {
+    const carol = phones[2];
+    const c = colorOf('carol');
+    game.tokens[c] = [12, HOME, B, B]; // one token out on the board, one home (it stays home)
+    await surrender(carol);
+    await until('the surrender', () => Boolean(game.surrendered?.includes(c)));
+    for (const p of phones) {
+      await p.waitForSelector(`.surrender-flag.f-${c}`, { timeout: 5000 });
+      await p.waitForSelector(`#board.out-${c}`);
+      await until('the chip', async () => (await p.$eval(`.pchip.p-${c} .pchip-sub`, (x) => x.textContent!)).includes('surrendered'), 5000);
+    }
+    expect(game.tokens[c]).toEqual([B, HOME, B, B]);
+    expect(game.finished).toBe(false);
+    expect(await carol.$eval('#hint', (h) => h.textContent)).toContain('You surrendered');
+    // The flag waves (its cloth path is animated) unless the phone asks for less motion.
+    expect(await carol.$(`.surrender-flag.f-${c} animate`)).not.toBeNull();
+    await sleep(800);
+    await shot(phones[0], 'surrender-flag');
+  });
+
+  it('when the second gives up, the match ends: the last one playing wins', async () => {
+    await surrender(phones[1]);
+    await Promise.all(phones.map((p) => p.waitForSelector('.results', { timeout: 15_000 })));
+    expect(game.ranks).toEqual([colorOf('alice'), colorOf('bob'), colorOf('carol')]);
+    expect(await phones[0].$eval('.results h2', (h) => h.textContent)).toBe('You won!');
+    expect(await phones[0].$$eval('.podium-row [title=Surrendered]', (f) => f.length)).toBe(2);
     expect(t.errors).toEqual([]);
   });
 });

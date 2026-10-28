@@ -48,6 +48,9 @@ export function boardSvg(): string {
     '<polygon class="c-yellow" points="9,6 9,9 7.5,7.5"/>',
     '<polygon class="c-blue" points="6,9 9,9 7.5,7.5"/>',
     '<rect class="center-line" x="6" y="6" width="3" height="3"/>',
+    // The finish, labelled: on a second lap, with the token passing its own start again, it's
+    // easy to lose track of where "home" is.
+    '<g class="home-label"><rect x="6.62" y="7.2" width="1.76" height="0.6" rx="0.3"/><text x="7.5" y="7.5" dy="0.02">HOME</text></g>',
   );
   return `<svg class="board-svg" viewBox="0 0 15 15" aria-hidden="true">${parts.join('')}</svg>`;
 }

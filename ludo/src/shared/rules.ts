@@ -61,8 +61,54 @@ export function currentColor(state: GameState): Color {
   return state.seats[state.turn.seat].color;
 }
 
+/** Finished (all home) or surrendered: no more turns. */
 export function isPlayerDone(state: GameState, color: Color): boolean {
-  return state.ranks.includes(color);
+  return state.ranks.includes(color) || Boolean(state.surrendered?.includes(color));
+}
+
+/**
+ * The last player still in takes the next place, then those who surrendered (the last to
+ * give up ranks highest), and the game is over.
+ */
+function endGame(state: GameState, events: GameEvent[]): void {
+  for (const s of state.seats.filter((x) => !isPlayerDone(state, x.color))) {
+    state.ranks.push(s.color);
+    events.push({ type: 'rank', color: s.color, rank: state.ranks.length });
+  }
+  for (const c of [...(state.surrendered ?? [])].reverse()) {
+    state.ranks.push(c);
+    events.push({ type: 'rank', color: c, rank: state.ranks.length });
+  }
+  state.finished = true;
+  state.turn.queue = [];
+  state.turn.bonus = 0;
+  events.push({ type: 'gameOver', ranks: [...state.ranks] });
+}
+
+/**
+ * A player gives up, at any point of the game (not only on their turn). Their tokens that
+ * aren't home go back to base, clean-shaven, and they take no more turns. If that leaves one
+ * player, the game ends.
+ */
+export function applySurrender(state: GameState, color: Color): GameEvent[] {
+  if (state.finished) throw new RuleError('GAME_OVER');
+  if (!state.seats.some((s) => s.color === color)) throw new RuleError('NOT_SEATED');
+  if (isPlayerDone(state, color)) throw new RuleError('ALREADY_OUT');
+  const events: GameEvent[] = [{ type: 'surrender', color, from: [...state.tokens[color]] }];
+  state.surrendered = [...(state.surrendered ?? []), color];
+  const kills = killsOf(state, color);
+  state.tokens[color] = state.tokens[color].map((p, i) => {
+    if (p === HOME) return p;
+    kills[i] = 0;
+    return BASE;
+  });
+  if (state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
+    endGame(state, events);
+    return events;
+  }
+  // Mid-turn: the turn passes on, whatever was rolled.
+  if (currentColor(state) === color) endTurn(state, events);
+  return events;
 }
 
 function allHome(state: GameState, color: Color): boolean {
@@ -215,16 +261,8 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
     if (allHome(state, color)) {
       state.ranks.push(color);
       events.push({ type: 'rank', color, rank: state.ranks.length });
-      const remaining = state.seats.filter((s) => !isPlayerDone(state, s.color));
-      if (remaining.length <= 1) {
-        for (const s of remaining) {
-          state.ranks.push(s.color);
-          events.push({ type: 'rank', color: s.color, rank: state.ranks.length });
-        }
-        state.finished = true;
-        turn.queue = [];
-        turn.bonus = 0;
-        events.push({ type: 'gameOver', ranks: [...state.ranks] });
+      if (state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
+        endGame(state, events);
         return events;
       }
       turn.queue = [];

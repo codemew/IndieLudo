@@ -3,6 +3,7 @@ import type { GameUpdate } from '../../shared/protocol.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
+  SURRENDER_MS,
   type Color,
   type GameEvent,
   type GameState,
@@ -69,6 +70,7 @@ export function gameScreen(root: HTMLElement): () => void {
         ${boardSvg()}
         <div class="target-layer" id="targets"></div>
         <div class="token-layer" id="tokens"></div>
+        <div class="flag-layer" id="flags"></div>
         <div class="fx-layer" id="fx"></div>
       </div>
     </div>
@@ -385,6 +387,29 @@ export function gameScreen(root: HTMLElement): () => void {
           callout('Bonus roll!', 'roll again');
           await sleep(500);
           break;
+        case 'surrender': {
+          // Their tokens head back to base, then a white flag goes up over it.
+          toast(e.color === me ? 'You surrendered 🏳️' : `${seatName(e.color)} surrendered 🏳️`);
+          renderTargets([]);
+          const slides = e.from.map((p, id) => {
+            const el = tokens.get(e.color, id);
+            if (!el || p === HOME || p === BASE) return undefined;
+            return slide(el, tokenCell(e.color, p, id), tokenCell(e.color, BASE, id), 700);
+          });
+          await Promise.all(slides);
+          // Back in base, clean-shaven.
+          const shaved = work.kills?.[e.color];
+          work.tokens[e.color] = work.tokens[e.color].map((p, i) => {
+            if (p === HOME) return p;
+            if (shaved) shaved[i] = 0;
+            return BASE;
+          });
+          work.surrendered = [...(work.surrendered ?? []), e.color];
+          tokens.sync(work, new Set(), null);
+          renderFlags(work);
+          await sleep(SURRENDER_MS - 700);
+          break;
+        }
         case 'turn':
           if (e.color === me) {
             play('turn');
@@ -408,8 +433,30 @@ export function gameScreen(root: HTMLElement): () => void {
     dice.el.dataset.color = color;
   }
 
+  /**
+   * A white flag waving over the base of each player who surrendered; their tokens in base are
+   * greyed out. Only touched when the set of flags changes.
+   */
+  const flagLayer = $(root, '#flags');
+  function renderFlags(s: GameState): void {
+    const out = s.surrendered ?? [];
+    for (const c of ['red', 'green', 'yellow', 'blue'] as const) board.classList.toggle(`out-${c}`, out.includes(c));
+    const key = out.join(',');
+    if (flagLayer.dataset.key === key) return;
+    flagLayer.dataset.key = key;
+    flagLayer.innerHTML = out
+      .map((c) => {
+        const slots = [0, 1, 2, 3].map((i) => tokenCell(c, BASE, i));
+        const x = slots.reduce((a, p) => a + p[0], 0) / 4;
+        const y = slots.reduce((a, p) => a + p[1], 0) / 4;
+        return `<div class="surrender-flag f-${c}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%" role="img" aria-label="${esc(seatName(c))} surrendered">${whiteFlag()}</div>`;
+      })
+      .join('');
+  }
+
   function renderAll(): void {
     if (!gs) return;
+    renderFlags(gs);
     renderChips();
     renderControls(true);
     if (gs.turn.phase === 'rolling') dice.idle();
@@ -500,6 +547,7 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   function chipStatus(seat: Seat, rank: number, homeCount: number): string {
+    if (gs!.surrendered?.includes(seat.color)) return '🏳️ surrendered';
     if (rank >= 0) return MEDALS[rank];
     if (!seat.connected) return 'offline';
     if (seat.controller === 'human' && seat.timeouts > 0) return `<b class="warn">missed ${seat.timeouts}/${MAX_MISSED_TURNS}</b>`;
@@ -576,8 +624,9 @@ export function gameScreen(root: HTMLElement): () => void {
     else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Moving with the highlighted die · tap another die to switch' : 'Tap a glowing token';
     else if (gs.botBattle) hint = `🤖 Bot battle at full speed · ${esc(seat.username)} to play`;
     else hint = seat.controller === 'human' ? `Waiting for ${esc(seat.username)}…` : `${esc(seat.username)} (bot) is playing…`;
-    // Watching from the side: say so, since nothing on the board is yours to tap.
+    // Watching from the side (or after giving up): say so, since nothing on the board is yours to tap.
     if (!me && !gs.finished) hint = `<span class="watch-tag">👀 Watching</span> ${hint}`;
+    else if (me && !gs.finished && gs.surrendered?.includes(me.color)) hint = `<span class="watch-tag">🏳️ You surrendered</span> ${hint}`;
     setHtml($(root, '#hint'), hint);
 
     // The take-back button sits where the hint goes, so the dock never grows a row.
@@ -731,6 +780,16 @@ export function gameScreen(root: HTMLElement): () => void {
         go('home');
       });
     } else if (!gs!.finished) {
+      const mine = mySeat()!;
+      if (!gs!.surrendered?.includes(mine.color) && !gs!.ranks.includes(mine.color)) {
+        item('🏳️ Surrender', async () => {
+          const others = gs!.seats.filter((s) => s.color !== mine.color && !gs!.ranks.includes(s.color) && !gs!.surrendered?.includes(s.color)).length;
+          const what = others <= 1 ? 'The match ends now and the others win.' : 'You finish below everyone still playing, your tokens go back to base, and you can watch the rest.';
+          if (!(await confirmDialog('Surrender?', what, '🏳️ Surrender', true))) return;
+          const r = await emit('game:surrender', { gameId: gs!.id, actionId: uuid() });
+          if (!r.ok) showError(r.error);
+        });
+      }
       item('🚪 Leave game for good', async () => {
         if (!(await confirmDialog('Leave the game?', 'A bot will play your seat until the end. You cannot come back to this game.', 'Leave', true))) return;
         const r = await emit('lobby:leave', {});
@@ -764,4 +823,18 @@ export function gameScreen(root: HTMLElement): () => void {
     offFs();
     offMute();
   };
+}
+
+/** A white flag on a pole, its cloth rippling (SVG path morph; still for reduced motion). */
+function whiteFlag(): string {
+  const a = 'M11 9 C20 3,29 15,40 9 C45 6,49 7,53 9 L53 35 C49 33,45 32,40 35 C29 41,20 29,11 35 Z';
+  const b = 'M11 9 C20 15,29 3,40 9 C45 12,49 11,53 8 L53 34 C49 37,45 38,40 35 C29 29,20 41,11 35 Z';
+  const wave = reducedMotion() ? '' : `<animate attributeName="d" dur="1.3s" repeatCount="indefinite" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1" values="${a};${b};${a}"/>`;
+  return `<svg viewBox="0 0 60 72" aria-hidden="true">
+    <rect x="7" y="5" width="4" height="65" rx="2" fill="#8b5a2b"/>
+    <circle cx="9" cy="5" r="4" fill="#f5b400"/>
+    <path d="${a}" fill="#fff" stroke="#cbd5e1" stroke-width="1">${wave}</path>
+    <path d="${a}" fill="url(#flag-fold)" opacity=".5">${wave.replace('dur="1.3s"', 'dur="1.3s" begin="-0.2s"')}</path>
+    <defs><linearGradient id="flag-fold" x1="0" x2="1"><stop offset="0" stop-color="#94a3b8" stop-opacity="0"/><stop offset=".35" stop-color="#94a3b8" stop-opacity=".7"/><stop offset=".6" stop-color="#94a3b8" stop-opacity="0"/><stop offset=".85" stop-color="#94a3b8" stop-opacity=".6"/><stop offset="1" stop-color="#94a3b8" stop-opacity="0"/></linearGradient></defs>
+  </svg>`;
 }

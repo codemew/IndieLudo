@@ -62,6 +62,7 @@ const ERRORS: Record<string, string> = {
   LOBBY_FULL: 'The lobby is full.',
   TOO_MANY_WATCHING: `Already ${MAX_SPECTATORS} people watching.`,
   NOT_SEATED: 'Take a seat first.',
+  ALREADY_OUT: "You're already out of this game.",
   NOT_WATCHING: 'You already have a seat.',
   GAME_IN_PROGRESS: 'The game has already started.',
   ALREADY_IN_GAME: 'Finish or leave your current game first.',

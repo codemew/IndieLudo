@@ -80,7 +80,7 @@ describe('the server waits for the choice', () => {
   });
 });
 
-describe("Barber's nightmare: tokens that grew a moustache", () => {
+describe('counting tokens that grew a moustache ("Baby face": fewest wins)', () => {
   it("counts a clean-shaven token's first capture, not its later ones; shaved and regrown counts again", () => {
     const s = withQueue(game(), [3, 1, 1]);
     s.tokens.red = [2, BASE, BASE, BASE];
@@ -94,13 +94,19 @@ describe("Barber's nightmare: tokens that grew a moustache", () => {
     expect(playerStats(s, 'red').staches).toBe(2);
   });
 
-  it('the award goes to whoever made the most, and older games count it as 0', () => {
-    const s = game(['red', 'green']);
+  it('"Baby face" goes to whoever grew the fewest moustaches, ties shared, never to everyone', () => {
+    const s = game(['red', 'green', 'yellow']);
     const base = { cells: 0, captures: 0, sixes: 0, revenges: 0, firstBlood: false, owed: {} };
-    s.stats = { red: { ...base, staches: 3 }, green: { ...base, staches: 1 } };
-    expect(gameAwards(s).find((a) => a.key === 'staches')).toEqual({ key: 'staches', icon: '💈', title: "Barber's nightmare", colors: ['red'], value: 3 });
-    s.stats = { red: base, green: base };
-    expect(gameAwards(s).find((a) => a.key === 'staches')).toBeUndefined();
-    expect(playerStats(s, 'red').staches).toBe(0);
+    s.stats = { red: { ...base, staches: 3 }, green: { ...base, staches: 0 }, yellow: { ...base, staches: 0 } };
+    expect(gameAwards(s).find((a) => a.key === 'babyFace')).toEqual({ key: 'babyFace', icon: '👶', title: 'Baby face', colors: ['green', 'yellow'], value: 0 });
+    // Everyone alike (all clean-shaven, or all with two): nothing funny to hand out.
+    s.stats = { red: base, green: base, yellow: base };
+    expect(gameAwards(s).find((a) => a.key === 'babyFace')).toBeUndefined();
+    s.stats = { red: { ...base, staches: 2 }, green: { ...base, staches: 2 }, yellow: { ...base, staches: 2 } };
+    expect(gameAwards(s).find((a) => a.key === 'babyFace')).toBeUndefined();
+    // No most-moustaches award any more.
+    s.stats = { red: { ...base, staches: 3 }, green: base, yellow: base };
+    expect(gameAwards(s).map((a) => a.key)).toEqual(['babyFace']);
+    expect(playerStats(game(), 'red').staches).toBe(0); // older games: 0
   });
 });

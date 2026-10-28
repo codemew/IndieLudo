@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
-import { RuleError, applyMove, applyRoll, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { RuleError, applyMove, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
+import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
@@ -166,6 +166,32 @@ export class GameManager {
     return { ok: true };
   }
 
+  /**
+   * A player gives up, at any time (not only on their turn). Anyone seated can, also while a
+   * takeover bot plays for them; a retry with the same action id is a no-op.
+   */
+  surrender(userId: number, payload: unknown): Ack {
+    if (!matchesSchema(payload, SCHEMAS.surrender)) return this.badPayload(userId, 'game:surrender', payload);
+    const p = payload as { gameId: string; actionId: string };
+    const game = this.games.get(p.gameId);
+    if (!game) return { ok: false, error: 'NO_GAME' };
+    if (game.seen.has(p.actionId)) return { ok: true };
+    const seat = game.state.seats.find((s) => s.userId === userId);
+    if (!seat) return { ok: false, error: 'NOT_SEATED' };
+    const seatBefore = game.state.turn.seat;
+    let events: GameEvent[];
+    try {
+      events = applySurrender(game.state, seat.color);
+    } catch (err) {
+      if (err instanceof RuleError) return { ok: false, error: err.code };
+      throw err;
+    }
+    this.opts.log?.(`[game ${game.state.id}] ${seat.username} surrendered`);
+    this.remember(game, p.actionId);
+    this.commit(game, events, seatBefore);
+    return { ok: true };
+  }
+
   /** Hand a seat back from the takeover bot without making a move. */
   takeback(userId: number, gameId: string): Ack {
     const game = this.games.get(gameId);
@@ -322,6 +348,7 @@ export class GameManager {
       else if (e.type === 'penalty') ms += 1000;
       else if (e.type === 'noMoves') ms += 650;
       else if (e.type === 'bonus') ms += 500;
+      else if (e.type === 'surrender') ms += SURRENDER_MS;
     }
     return ms * this.animScale;
   }

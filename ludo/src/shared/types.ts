@@ -5,6 +5,8 @@ export const COLORS: readonly Color[] = ['red', 'green', 'yellow', 'blue'];
 
 /** How long every phone shows the "first blood" banner; the server waits this out before bots and timers carry on. */
 export const FIRST_BLOOD_MS = 1800;
+/** How long the phones show a surrender (tokens sliding home, the white flag going up). */
+export const SURRENDER_MS = 1400;
 /** Consecutive turns a player may miss (timer ran out) before a bot takes the seat. */
 export const MAX_MISSED_TURNS = 5;
 
@@ -67,6 +69,8 @@ export interface GameState {
   kills?: Partial<Record<Color, number[]>>;
   /** Every seat was a bot when the game started: it plays at BOT_BATTLE_TEMPO. */
   botBattle?: boolean;
+  /** Players who gave up, in the order they did. They're skipped, and rank below everyone still playing. */
+  surrendered?: Color[];
 }
 
 /** How fast a game's animations and pauses run: 1 normally, faster in a bot battle. */
@@ -115,6 +119,8 @@ export type GameEvent =
   | { type: 'noMoves'; color: Color; discarded: number[] }
   | { type: 'bonus'; color: Color }
   | { type: 'turn'; color: Color }
+  /** `from`: where each of their tokens was; the ones not home go back to base under a white flag. */
+  | { type: 'surrender'; color: Color; from: number[] }
   | { type: 'gameOver'; ranks: Color[] };
 
 /** Snapshot sent to clients: the full public state plus the server's legal moves. */

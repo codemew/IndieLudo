@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.5.1
+
+### Added
+- **The finish is labelled HOME** in the centre of the board, so it's easy to see where a token is headed, especially on a second lap when it passes its own start again.
+
+### Tests
+- **Two tokens on one ordinary square:** a token landing there captures both. The checks cover:
+  - both go home clean-shaven
+  - the capturer's moustache grows two levels and its hops get heavier
+  - two captures but one moustache grown (for Baby face), and first blood once
+  - revenge paid per token, and a bonus roll per token
+  - pairs of different colours, and a second-lap token in the pair
+  - a pair on a star stays safe
+  - the double-moustached token counts once for Most macho
+- **In the browser:** both tokens slide back to base on both phones, and the moustache grows straight to level 2.
+
+## 2.5.0
+
+### Added
+- **🏳️ Surrender:** a player can give up at any time from the game menu, with a confirm.
+  - **Their tokens:** any not yet home go back to base, greyed out under an animated white flag that waves over their base on every phone.
+  - **The game:** they take no more turns and can watch the rest. When only one player is left, the match ends and that player wins.
+  - **Final places:** finishers, then the last one playing, then those who surrendered (the last to give up ranks highest), marked 🏳️ on the podium.
+
+### Changed
+- **"Barber's nightmare" is now 👶 Baby face, a comedy trophy for the fewest moustaches grown.** It's only given when someone else grew more, so it never goes to everyone. The **Staches** column highlights the fewest.
+
+### Tests
+- **New:** tests for surrendering (rules, places, turns, retries and outsiders, the winner's win, and three phones in the browser) and for the Baby face rules.
+
 ## 2.4.0
 
 ### Added

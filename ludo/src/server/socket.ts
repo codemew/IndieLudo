@@ -213,6 +213,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     });
 
     on('game:takeback', SCHEMAS.gameRef, (p) => ctx.games.takeback(userId, p.gameId));
+    on('game:surrender', null, (p) => ctx.games.surrender(userId, p));
 
     // ---- Lobby voice chat: membership and relaying only; audio goes peer to peer. ----
 

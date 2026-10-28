@@ -114,8 +114,12 @@ npm run typecheck
   - **On the second lap:** the token moves, captures and can be captured like any other, and wears a dashed white ring. At the end of that lap it turns home; it can't go round a third time.
   - **Bots and the timer:** they head home, unless going round would capture someone.
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
+- **Surrender:** a player can give up at any time, not just on their turn, from the game menu (**🏳️ Surrender**, with a confirm).
+  - **Their tokens:** any not yet home go back to base, clean-shaven and greyed out, and a white flag waves over that base on every phone. Nobody can capture them any more.
+  - **The game:** the player takes no more turns and can watch the rest. If only one player is left, the match ends there.
+  - **Final places:** players who finished, then the last one still playing, then those who surrendered (the last to give up ranks highest). The podium marks them with 🏳️.
 - **Your tokens sharing a square:** tap the one you want to move. When they wear different moustaches, the game always waits for your pick, so you can send a clean-shaven token forward and keep the macho one safe. Bots and the timer do the same: they move the smaller moustache.
-- **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base, and earns a **bonus roll**.
+- **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base (two stacked tokens are both captured), and earns a **bonus roll** for each token captured. Each captured token also grows the capturer's moustache a level.
 - **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
 - **A useless six ends the turn:** when every token a player has left is in the home lane, a 6 can never be used, because even the first lane square plus 6 overshoots home. The 6 then ends the turn at once instead of giving another roll.
 - **Queued rolls and the three‑sixes penalty:**
@@ -168,7 +172,7 @@ The results screen shows awards, everyone's match stats, and each player's award
 | 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
 | 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
-| 💈 Staches | Barber's nightmare | Clean-shaven tokens that grew a moustache: a token's first capture since it last left base. A token that is captured, shaved and grows one again counts again. |
+| 💈 Staches | 👶 Baby face (the comedy trophy) | The **fewest** clean-shaven tokens that grew a moustache (a token's first capture since it last left base). It's only given when someone else grew more, so it never goes to everyone. |
 | 🩸 First blood | First blood | The game's first capture |
 
 - **Ties:** a tied award goes to everyone tied.

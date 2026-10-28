@@ -11,6 +11,8 @@ export interface AppState {
   voice: VoiceState | null;
   /** Ping and signal bars of the current lobby's players, refreshed every few seconds. */
   net: NetStats | null;
+  /** The version the server runs (from hello); differs from __APP_VERSION__ when an update is ready. */
+  serverVersion: string | null;
   /** Our pending colour-swap request in the lobby, if any. */
   swapOut: { to: number; color: Color } | null;
   online: boolean;
@@ -25,6 +27,7 @@ export const state: AppState = {
   voice: null,
   net: null,
   swapOut: null,
+  serverVersion: null,
   online: false,
 };
 

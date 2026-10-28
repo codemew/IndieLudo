@@ -74,6 +74,8 @@ export interface VoiceSignalIn {
 }
 
 export interface Hello {
+  /** The version the server is running, so a phone on an older build can offer to update. */
+  appVersion: string;
   user: { id: number; username: string };
   lobby: PublicLobby | null;
   game: PublicGameState | null;

@@ -3,6 +3,7 @@ import { installInstallPrompt } from './install.js';
 import { installKeyboardAvoidance } from './keyboard.js';
 import { installNetworkListeners } from './net.js';
 import { installRotateHint } from './rotateHint.js';
+import { tidyUpdateUrl } from './update.js';
 import { register, go } from './router.js';
 import { adminScreen } from './screens/admin.js';
 import { gameScreen } from './screens/game.js';
@@ -31,6 +32,7 @@ installWakeLock();
 installKeyboardAvoidance();
 installInstallPrompt();
 installRotateHint();
+tidyUpdateUrl();
 installNetworkListeners(() => void resyncGame());
 
 // Block pinch/double-tap zoom gestures that slip past the viewport meta on iOS.

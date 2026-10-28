@@ -1,33 +1,136 @@
 import type { Cell } from '../../shared/board.js';
+import { BASE_EXIT_HOPS, hopMs, moustacheLevel, settleMs } from '../../shared/heft.js';
 import { tf } from './render.js';
 
 export const reducedMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** Hops a token square by square along `cells`, calling onStep as it lands on each. */
-export async function hop(el: HTMLElement, from: Cell, cells: Cell[], msPerStep: number, onStep?: (i: number) => void): Promise<void> {
+export interface HopOptions {
+  /** The moving token's captures: more makes it slower and heavier (shared/heft.ts). */
+  kills?: number;
+  /** Leaving base is one longer jump. */
+  fromBase?: boolean;
+  /** Called as it lands on each square. */
+  onStep?: (i: number, cell: Cell) => void;
+}
+
+/**
+ * Hops a token square by square along `cells`, approved on the review page: it crouches, springs
+ * up stretched, lands squashed flat and rebounds, rocking side to side; a heavy token (one with
+ * captures) crouches and squashes more, hops lower, flaps its moustache and jiggles to a stop.
+ */
+export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopOptions = {}): Promise<void> {
   if (cells.length === 0) return;
-  const step = reducedMotion() ? 30 : msPerStep;
-  const n = cells.length;
-  const frames: Keyframe[] = [{ transform: tf(from[0], from[1], 1), offset: 0 }];
-  let prev = from;
-  cells.forEach((c, i) => {
-    const mid: Cell = [(prev[0] + c[0]) / 2, (prev[1] + c[1]) / 2];
-    frames.push({ transform: tf(mid[0], mid[1], 1.28), offset: (i + 0.5) / n, easing: 'ease-in' });
-    frames.push({ transform: tf(c[0], c[1], 1), offset: (i + 1) / n, easing: 'ease-out' });
-    prev = c;
-  });
+  const k = moustacheLevel(opts.kills ?? 0);
+  const squash = el.querySelector<HTMLElement>('.tok-squash');
+  const shadow = el.querySelector<HTMLElement>('.tok-shadow');
   el.style.zIndex = '30';
-  const timers = cells.map((_, i) => setTimeout(() => onStep?.(i), (i + 1) * step - 10));
-  const anim = el.animate(frames, { duration: n * step, fill: 'forwards' });
+  let prev = from;
   try {
-    await anim.finished;
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      const ms = reducedMotion() ? 30 : hopMs(k) * (opts.fromBase && i === 0 ? BASE_EXIT_HOPS : 1);
+      const land = setTimeout(() => opts.onStep?.(i, c), ms * 0.8);
+      try {
+        await hopOnce(el, squash, shadow, prev, c, ms, k, i);
+      } catch {
+        clearTimeout(land);
+        throw new Error('cancelled');
+      }
+      prev = c;
+    }
+    if (squash && k && !reducedMotion()) await settle(squash, k);
   } catch {
-    timers.forEach(clearTimeout);
+    /* cancelled by a resync */
   } finally {
     el.style.transform = tf(prev[0], prev[1], 1);
-    anim.cancel();
+    el.getAnimations().forEach((a) => a.cancel());
+    squash?.getAnimations().forEach((a) => a.cancel());
+    shadow?.getAnimations().forEach((a) => a.cancel());
     el.style.zIndex = '';
   }
+}
+
+function hopOnce(el: HTMLElement, squash: HTMLElement | null, shadow: HTMLElement | null, a: Cell, b: Cell, ms: number, k: number, n: number): Promise<unknown> {
+  const opts: KeyframeAnimationOptions = { duration: ms, fill: 'forwards' };
+  const mid: Cell = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  if (reducedMotion() || !squash) {
+    return el.animate([{ transform: tf(a[0], a[1], 1) }, { transform: tf(b[0], b[1], 1) }], opts).finished;
+  }
+  // Across the board: hold during the crouch, travel in the air, arrive on landing.
+  el.animate(
+    [
+      { transform: tf(a[0], a[1], 1), offset: 0 },
+      { transform: tf(a[0], a[1], 1), offset: 0.2, easing: 'cubic-bezier(.3,.1,.5,1)' },
+      { transform: tf(mid[0], mid[1], 1.12), offset: 0.5 },
+      { transform: tf(b[0], b[1], 1), offset: 0.8 },
+      { transform: tf(b[0], b[1], 1), offset: 1 },
+    ],
+    opts,
+  );
+  const crouch = 0.08 + 0.035 * k;
+  const thump = 0.12 + 0.05 * k;
+  const lift = Math.max(14, 38 - 4.5 * k); // % of the token: heavier tokens hop lower
+  const sway = (n % 2 ? 1 : -1) * (1.5 + 3.2 * k);
+  shadow?.animate(
+    [
+      { opacity: 0, transform: 'scale(1)', offset: 0 },
+      { opacity: 0.5, transform: `scale(${1 + crouch * 0.6})`, offset: 0.2 },
+      { opacity: 0.3, transform: 'scale(0.6)', offset: 0.5 },
+      { opacity: 0.55, transform: `scale(${1 + thump * 0.8})`, offset: 0.8 },
+      { opacity: 0, transform: 'scale(1)', offset: 1 },
+    ],
+    opts,
+  );
+  if (k) flapMoustache(squash, k, ms);
+  return squash.animate(
+    [
+      { transform: 'translateY(0) scale(1, 1) rotate(0deg)', offset: 0 },
+      { transform: `translateY(0) scale(${1 + crouch}, ${1 - crouch}) rotate(0deg)`, offset: 0.2, easing: 'cubic-bezier(.2,.7,.4,1)' },
+      { transform: `translateY(${-lift * 0.6}%) scale(0.93, 1.1) rotate(${sway * 0.5}deg)`, offset: 0.34, easing: 'ease-out' },
+      { transform: `translateY(${-lift}%) scale(1, 1) rotate(${sway}deg)`, offset: 0.5, easing: 'ease-in' },
+      { transform: `translateY(${-lift * 0.4}%) scale(0.96, 1.06) rotate(${sway * 0.4}deg)`, offset: 0.7, easing: 'ease-in' },
+      { transform: `translateY(0) scale(${1 + thump}, ${1 - thump}) rotate(0deg)`, offset: 0.8, easing: 'cubic-bezier(.2,.8,.4,1.2)' },
+      { transform: `translateY(0) scale(${1 - thump * 0.35}, ${1 + thump * 0.4}) rotate(0deg)`, offset: 0.91 },
+      { transform: 'translateY(0) scale(1, 1) rotate(0deg)', offset: 1 },
+    ],
+    opts,
+  ).finished;
+}
+
+/** The moustache follows the hop a beat late: bunches on the crouch, lifts in the air, slams down on landing. */
+function flapMoustache(squash: HTMLElement, k: number, ms: number): void {
+  const amt = 5 + 2.6 * k;
+  squash.querySelectorAll<SVGGElement>('.mh').forEach((h) => {
+    const s = Number(h.dataset.side);
+    h.animate(
+      [
+        { transform: 'rotate(0deg) scale(1, 1)', offset: 0 },
+        { transform: `rotate(${s * amt * 0.4}deg) scale(0.96, 1.1)`, offset: 0.2 },
+        { transform: `rotate(${s * -amt * 0.6}deg) scale(1, 0.9)`, offset: 0.36 },
+        { transform: `rotate(${s * amt * 0.7}deg) scale(1, 1.06)`, offset: 0.55 },
+        { transform: `rotate(${s * -amt}deg) scale(1.04, 0.84)`, offset: 0.82 },
+        { transform: `rotate(${s * amt * 0.5}deg) scale(1, 1.06)`, offset: 0.92 },
+        { transform: 'rotate(0deg) scale(1, 1)', offset: 1 },
+      ],
+      { duration: ms, composite: 'add' },
+    );
+  });
+}
+
+/** After the last landing: a few dying wobbles, longer and bigger the heavier it is. */
+function settle(squash: HTMLElement, k: number): Promise<unknown> {
+  const c = 0.04 + 0.022 * k;
+  return squash.animate(
+    [
+      { transform: 'scale(1, 1)' },
+      { transform: `scale(${1 + c}, ${1 - c})` },
+      { transform: `scale(${1 - c * 0.6}, ${1 + c * 0.6})` },
+      { transform: `scale(${1 + c * 0.3}, ${1 - c * 0.3})` },
+      { transform: `scale(${1 - c * 0.12}, ${1 + c * 0.12})` },
+      { transform: 'scale(1, 1)' },
+    ],
+    { duration: settleMs(k), easing: 'ease-out' },
+  ).finished;
 }
 
 /** Straight slide (used to send captured tokens home). */

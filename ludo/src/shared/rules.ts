@@ -45,6 +45,12 @@ export function createGameState(opts: {
   };
 }
 
+/** Each token's captures since it last left base, created on first use (older saved games have none). */
+export function killsOf(state: GameState, color: Color): number[] {
+  state.kills ??= {};
+  return (state.kills[color] ??= [0, 0, 0, 0]);
+}
+
 /** The player's match stats, created on first use (games saved before stats existed have none). */
 export function statsOf(state: GameState, color: Color): PlayerStats {
   state.stats ??= {};
@@ -157,7 +163,8 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number): 
 
   state.tokens[color][tokenId] = move.to;
   turn.queue.splice(dieIndex, 1);
-  events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die });
+  const kills = killsOf(state, color);
+  events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die, kills: kills[tokenId] });
   const mine = statsOf(state, color);
   mine.cells += move.to - move.from; // from base (-1) to the start square counts as 1
 
@@ -166,6 +173,9 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number): 
     state.firstBlood = true;
     const theirs = statsOf(state, c.color);
     mine.captures++;
+    // The capturer's moustache grows; the captured token goes home clean-shaven.
+    kills[tokenId]++;
+    killsOf(state, c.color)[c.tokenId] = 0;
     if (firstBlood) mine.firstBlood = true;
     // Paying back a capture they made on us is a revenge; this one is now theirs to avenge.
     if ((mine.owed[c.color] ?? 0) > 0) {

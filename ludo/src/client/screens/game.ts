@@ -11,7 +11,9 @@ import {
   type Seat,
 } from '../../shared/types.js';
 import { setGameHandler, showError } from '../app.js';
-import { hop, sleep, slide } from '../board/animate.js';
+import { hop, reducedMotion, sleep, slide } from '../board/animate.js';
+import { moustacheLevel } from '../../shared/heft.js';
+import { installMoustacheDefs } from '../moustache.js';
 import { TokenLayer, boardSvg } from '../board/render.js';
 import { Dice, dieChip } from '../dice.js';
 import { bindFullscreenButton, canFullscreen, enterFullscreen, isFullscreen } from '../fullscreen.js';
@@ -208,6 +210,7 @@ export function gameScreen(root: HTMLElement): () => void {
   async function playEvents(work: GameState, events: GameEvent[]): Promise<void> {
     const me = mySeat()?.color;
     let lastMover: HTMLElement | undefined;
+    let lastMove: { color: Color; tokenId: number } | undefined;
     for (const [i, e] of events.entries()) {
       if (destroyed) return;
       switch (e.type) {
@@ -255,13 +258,22 @@ export function gameScreen(root: HTMLElement): () => void {
           const el = tokens.get(e.color, e.tokenId);
           if (!el) break;
           lastMover = el;
+          lastMove = { color: e.color, tokenId: e.tokenId };
           const start = tokenCell(e.color, e.from, e.tokenId);
           const path = pathCells(e.color, e.from, e.to, e.tokenId);
           const idx = work.turn.queue.indexOf(e.die);
           if (idx >= 0) work.turn.queue.splice(idx, 1);
           renderQueue(work, false);
           renderTargets([]);
-          await hop(el, start, path, e.from === BASE ? 260 : 150, () => play('step'));
+          const kills = e.kills ?? 0;
+          await hop(el, start, path, {
+            kills,
+            fromBase: e.from === BASE,
+            onStep: (_i, cell) => {
+              play('step');
+              heavyLanding(cell, kills);
+            },
+          });
           work.tokens[e.color][e.tokenId] = e.to;
           tokens.sync(work, new Set(), null);
           const abs = absoluteSquare(e.color, e.to);
@@ -285,6 +297,10 @@ export function gameScreen(root: HTMLElement): () => void {
           setTimeout(() => play('slurp'), 260);
           await slide(el, from, tokenCell(e.victim, BASE, e.tokenId), 560);
           work.tokens[e.victim][e.tokenId] = BASE;
+          // The capturer's moustache grows a level; the captured token goes home clean-shaven.
+          work.kills ??= {};
+          (work.kills[e.victim] ??= [0, 0, 0, 0])[e.tokenId] = 0;
+          if (lastMove) (work.kills[lastMove.color] ??= [0, 0, 0, 0])[lastMove.tokenId]++;
           tokens.sync(work, new Set(), null);
           // The game's first capture: everyone gets the "first blood" banner.
           if (e.firstBlood) await firstBloodBanner(e.color, e.victim);
@@ -581,6 +597,33 @@ export function gameScreen(root: HTMLElement): () => void {
     setHtml(targets, html);
   }
 
+  /** A token with captures lands heavily: the board shakes from 1 kill, and dust flies from 2. */
+  function heavyLanding(cell: readonly [number, number], kills: number): void {
+    const k = moustacheLevel(kills);
+    if (!k || reducedMotion()) return;
+    const amp = 1.8 + 0.9 * k;
+    board.animate(
+      [{ transform: 'translateY(0)' }, { transform: `translateY(${amp}px)` }, { transform: `translateY(${-amp * 0.5}px)` }, { transform: `translateY(${amp * 0.2}px)` }, { transform: 'translateY(0)' }],
+      { duration: 200 + 35 * k },
+    );
+    if (k < 2) return;
+    const left = ((cell[0] + 0.5) / 15) * 100;
+    const top = ((cell[1] + 0.85) / 15) * 100;
+    for (const dir of [-1, 1]) {
+      for (let i = 0; i < Math.min(3, k - 1); i++) {
+        const p = el(`<span class="fx-dust" style="left:${left}%;top:${top}%"></span>`);
+        fx.appendChild(p);
+        p.animate(
+          [
+            { transform: 'translate(-50%, -50%) scale(0.6)', opacity: 0.9 },
+            { transform: `translate(calc(-50% + ${dir * (6 + 5 * i + 2 * k)}px), calc(-50% - ${3 + 4 * i}px)) scale(${1.4 + 0.2 * k})`, opacity: 0 },
+          ],
+          { duration: 420 + 60 * k, easing: 'cubic-bezier(.2,.7,.3,1)' },
+        ).finished.then(() => p.remove());
+      }
+    }
+  }
+
   function burst(cell: readonly [number, number], color: Color | 'gold'): void {
     const b = el(`<div class="burst t-${color}" style="left:${((cell[0] + 0.5) / 15) * 100}%;top:${((cell[1] + 0.5) / 15) * 100}%">${'<i></i>'.repeat(8)}</div>`);
     fx.appendChild(b);
@@ -612,6 +655,7 @@ export function gameScreen(root: HTMLElement): () => void {
     }
   }
 
+  installMoustacheDefs();
   setGameHandler(onUpdate);
   renderAll();
   warnThreatened(false);

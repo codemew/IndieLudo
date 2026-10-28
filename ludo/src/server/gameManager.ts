@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
+import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
 import { RuleError, applyMove, applyRoll, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
 import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
@@ -312,7 +313,7 @@ export class GameManager {
     let ms = 0;
     for (const e of events) {
       if (e.type === 'roll') ms += 1200;
-      else if (e.type === 'move') ms += e.from === BASE ? 300 : (e.to - e.from) * 150;
+      else if (e.type === 'move') ms += moveMs(e.kills ?? 0, e.from === BASE ? BASE_EXIT_HOPS : e.to - e.from);
       else if (e.type === 'capture') ms += e.firstBlood ? 600 + FIRST_BLOOD_MS : 600;
       else if (e.type === 'penalty') ms += 1000;
       else if (e.type === 'noMoves') ms += 650;

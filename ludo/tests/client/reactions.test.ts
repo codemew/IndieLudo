@@ -29,3 +29,17 @@ describe('token reactions', () => {
     }
   });
 });
+
+describe('moustache drawing', () => {
+  it('has nothing at 0 kills, a distinct shape for levels 1 to 4, and stops growing after that', async () => {
+    const { moustacheSvg } = await import('../../src/client/moustache.js');
+    expect(moustacheSvg(0)).toBe('');
+    const shapes = [1, 2, 3, 4].map((l) => moustacheSvg(l));
+    for (const svg of shapes) {
+      expect(svg).toContain('class="tok-stache"');
+      expect(svg.match(/class="mh"/g)).toHaveLength(2); // two halves that twitch and flap
+    }
+    expect(new Set(shapes).size).toBe(4);
+    expect(moustacheSvg(7)).toBe(moustacheSvg(4));
+  });
+});

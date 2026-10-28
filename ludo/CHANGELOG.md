@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.7.0
+
+### Added
+- **Moustaches:** every capture grows the capturing token's moustache a level: a bold chevron, then a horseshoe, a handlebar, and a giant bushy imperial at 4 kills.
+  - **Motion:** it twitches now and then, flaps with each hop, and pops up to the next size after a capture.
+  - **Losing it:** a captured token goes home clean-shaven.
+  - **Same on every phone:** the server counts kills per token, so every phone shows the same moustache.
+- **Heavy tokens:** each kill makes a token hop more slowly and heavily: ×1.35, ×1.8, ×2.5, then ×3.5 at 4 kills.
+  - **Hops:** heavier tokens crouch and squash more, hop lower, and jiggle to a stop.
+  - **Board:** it shakes on their landings from the first kill, and dust flies from 2 kills.
+  - **Timing:** bots and turn timers wait for the slower moves.
+
+- **Update app:** a button on the home screen, under the lobbies, shows the app's version.
+  - **When an update is ready:** after the server is updated, it highlights with "v… is ready" and **Update now**.
+  - **What tapping it does:** the browser drops its saved copies of the game's files and deletes any offline caches, then the game reloads from the server and says which version it's on.
+  - **What it keeps:** logins, device access and a game in progress.
+
+### Changed
+- **The main page is always checked with the server** (`Cache-Control: no-cache`), so a normal reload already picks up a new build. The built files keep their year-long caching, since their names change with every build.
+- **Every token now hops with squash and stretch:** it crouches, springs up, lands with a squash and rebounds, rocking side to side. This replaces the old scale-up hop. One square's hop now takes 170 ms instead of 150 ms.
+
 ## 1.6.0
 
 ### Changed

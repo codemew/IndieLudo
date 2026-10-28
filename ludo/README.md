@@ -122,6 +122,27 @@ npm run typecheck
 - **Six streak:** the first six lights a warm amber fire along the floor under the dice queue (left side, fading out before the dice), and the second makes it a taller, deeper orange one, like a classic fire. Each has its own sound. The fire sits behind the controls without blocking taps. The cube keeps glowing in the colour of the player whose roll it is. Three sixes bring a sad face 😩 and a sad trombone.
 - **First blood:** the first capture of a game slams a red **FIRST BLOOD** banner across the board on every phone, showing who captured whom, with a drum hit.
 
+## Moustaches and heavy tokens
+
+Every capture grows the capturing token's moustache a level, and makes it heavier to move.
+
+| Kills | Moustache | Each hop |
+|---|---|---|
+| 0 | none | normal |
+| 1 | bold chevron | ×1.35 slower |
+| 2 | horseshoe | ×1.8 slower |
+| 3 | handlebar | ×2.5 slower |
+| 4 or more | giant bushy imperial | ×3.5 slower |
+
+- **Every hop:** tokens crouch, spring up, land with a squash and rebound, and rock side to side.
+- **Heavier tokens:**
+  - **Hops:** they crouch and squash more, hop lower, flap their moustache on every hop, and jiggle to a stop.
+  - **Board shake:** from the first kill, harder with each level.
+  - **Dust:** kicked up from 2 kills.
+- **Moustache:** it twitches now and then. It pops up to the next size after a capture, once the token's reaction face has finished.
+- **Losing it:** a captured token goes home clean‑shaven, back to 0 kills.
+- **Same on every phone:** the server counts kills per token, so every phone shows the same moustache. Bots and turn timers wait for the slower moves.
+
 ## End of game: awards and stats
 
 The results screen shows awards, everyone's match stats, and each player's award icons on the podium. The server counts the stats while the game is played, so they can't be faked, and they're saved with the game.
@@ -204,6 +225,16 @@ Everyone in a lobby is automatically in that lobby's voice chat. Bots never are.
     { "urls": "turn:relay.example.com:3478", "username": "…", "credential": "…" }
     ```
 - **Slow networks:** a phone sends the routes it finds within 3 seconds with its call, and any found later (a relay often takes longer on cellular) follow on their own.
+
+## Updating the app on phones
+
+- **The page is always checked:** the server tells browsers to check the main page with the server every time (`Cache-Control: no-cache`). After you rebuild and restart the server, a normal reload loads the new version.
+- **Built files:** the game's script and stylesheet have the build's fingerprint in their names, so they can be cached for a year without going stale.
+- **A phone that kept the game open:** it shows **"v… is ready · Update now"** at the bottom of its home screen, since the server tells each phone its version when it connects.
+- **Update now / Update app:** the button goes through `/refresh`.
+  - That page sends `Clear-Site-Data: "cache"`, which drops the browser's saved copies of the site's files. It doesn't touch logins, cookies or local data.
+  - The app also deletes any offline caches.
+  - Then it reloads the game, and reports "Updated to v…" (or that it's already up to date).
 
 ## Signal and ping
 

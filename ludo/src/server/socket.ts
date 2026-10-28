@@ -85,6 +85,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     const game = lobby?.gameId ? ctx.games.get(lobby.gameId) : undefined;
     if (game) socket.join(rooms.game(game.id));
     const hello: Hello = {
+      appVersion: ctx.appVersion,
       user: { id: userId, username: socket.data.username },
       lobby: lobby ? ctx.lobbies.toPublic(lobby) : null,
       game: game ? ctx.games.publicState(game) : null,

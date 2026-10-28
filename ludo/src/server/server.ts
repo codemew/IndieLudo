@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
@@ -21,6 +21,9 @@ import { attachSocketHandlers, lobbyBroadcaster, rooms, type LudoServerIO } from
 import { loadTls, type TlsMaterial } from './tls.js';
 import { UserService } from './users.js';
 import { VoiceManager } from './voice.js';
+
+/** The package.json version (same path from src/server and dist/server). */
+const APP_VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 export interface StartOptions {
   db?: DB;
@@ -139,6 +142,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   if (restored) log(`[games] restored ${restored} unfinished game(s)`);
 
   ctx = {
+    appVersion: APP_VERSION,
     config,
     db,
     users,
@@ -195,12 +199,27 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   );
   app.use('/api', express.json({ limit: '4kb' }), apiRouter(ctx, { gateDelayMs: opts.gateDelayMs }));
 
+  // "Update app" navigates here. Browsers clear their cache for Clear-Site-Data reliably when it
+  // comes with a page load (they finish clearing before showing it); then we go on to the game.
+  // It only affects the asker's own saved copies of this site's files (not logins or local data).
+  app.get('/refresh', (_req, res) => {
+    res.setHeader('Clear-Site-Data', '"cache"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Updating Ludo</title><meta http-equiv="refresh" content="0;url=/?fresh=${Date.now()}"><script>location.replace('/?fresh=' + Date.now())</script>`);
+  });
+
   const staticDir = opts.staticDir === undefined ? resolve('dist/client') : opts.staticDir;
   if (staticDir && existsSync(join(staticDir, 'index.html'))) {
+    // Built files have the content hash in their name, so they can be kept for a year. The page
+    // that names them must always be checked with the server, or phones keep an old build.
+    const revalidate = (res: express.Response, path: string) => {
+      if (/\.(html|webmanifest)$/.test(path)) res.setHeader('Cache-Control', 'no-cache');
+    };
     app.use('/assets', express.static(join(staticDir, 'assets'), { immutable: true, maxAge: '1y' }));
-    app.use(express.static(staticDir, { index: 'index.html', maxAge: 0 }));
+    app.use(express.static(staticDir, { index: 'index.html', maxAge: 0, setHeaders: revalidate }));
     app.use((req, res, next) => {
       if (req.method !== 'GET' || req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(join(staticDir, 'index.html'));
     });
   }

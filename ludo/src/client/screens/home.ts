@@ -2,6 +2,7 @@ import type { LobbySummary, PublicLobby } from '../../shared/types.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
 import { canInstall, promptInstall } from '../install.js';
+import { updateApp, updateAvailable } from '../update.js';
 import { ApiError, api } from '../api.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
@@ -32,6 +33,7 @@ export function homeScreen(root: HTMLElement): () => void {
       <div id="my-lobby"></div>
       <div class="section-title"><h3>Lobbies</h3><span class="live-dot" title="Live"></span></div>
       <div class="lobby-list" id="lobby-list"></div>
+      <div class="app-update" id="app-update"></div>
     </section>
     <footer class="bottom-bar">
       <button class="btn btn-primary btn-xl" id="create">＋ Create lobby</button>
@@ -60,13 +62,14 @@ export function homeScreen(root: HTMLElement): () => void {
       $(root, '#me-stats').textContent = u.gamesPlayed !== undefined ? `${u.wins ?? 0} wins · ${u.gamesPlayed} games` : '';
     }
     renderMyLobby($(root, '#my-lobby'), state.lobby);
+    renderUpdate($(root, '#app-update'));
     renderList($(root, '#lobby-list'), state.lobbies, state.lobby);
     // Cards animate in on the first paint only, not on every live list update.
     root.classList.add('settled');
   };
   render();
   const offStore = subscribe((changed) => {
-    if (changed.some((k) => k === 'lobbies' || k === 'lobby' || k === 'user')) render();
+    if (changed.some((k) => k === 'lobbies' || k === 'lobby' || k === 'user' || k === 'serverVersion')) render();
   });
   return () => {
     offStore();
@@ -222,4 +225,22 @@ function renameDialog(): void {
     void save().then((ok) => ok && m.close());
   });
   setTimeout(() => input.select(), 50);
+}
+
+/** The app's version, and the button that loads the newest build (highlighted when one is ready). */
+function renderUpdate(box: HTMLElement): void {
+  const ready = updateAvailable();
+  const html = ready
+    ? `<span><b>v${esc(state.serverVersion)} is ready</b> <span class="muted small">· you have v${__APP_VERSION__}</span></span><button class="btn btn-small btn-primary" id="update">⟳ Update now</button>`
+    : `<span class="muted small">Ludo v${__APP_VERSION__}</span><button class="btn btn-small btn-ghost" id="update">⟳ Update app</button>`;
+  if (box.dataset.html === html) return;
+  box.dataset.html = html;
+  box.innerHTML = html;
+  box.classList.toggle('ready', ready);
+  const btn = $<HTMLButtonElement>(box, '#update');
+  btn.onclick = () => {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Updating…';
+    void updateApp();
+  };
 }

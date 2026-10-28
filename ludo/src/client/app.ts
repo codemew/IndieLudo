@@ -7,6 +7,7 @@ import { state, subscribe, update } from './store.js';
 import { KEYS, storage } from './storage.js';
 import { errorText, toast } from './ui.js';
 import { onSwapEnded, onSwapRequest } from './swapUi.js';
+import { reportUpdate } from './update.js';
 import { voice } from './voice.js';
 
 /** The game screen registers itself here while mounted so it can animate updates. */
@@ -94,7 +95,8 @@ function connectSocket(token: string): void {
 }
 
 async function onHello(h: Hello): Promise<void> {
-  update({ user: { ...state.user, ...h.user }, lobby: h.lobby });
+  update({ user: { ...state.user, ...h.user }, lobby: h.lobby, serverVersion: h.appVersion });
+  reportUpdate();
   void emit<typeof state.lobbies>('lobby:list', {}).then((r) => r.ok && r.data && update({ lobbies: r.data }));
   const wasFirst = firstHello;
   firstHello = false;

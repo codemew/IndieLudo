@@ -54,6 +54,8 @@ export interface GameState {
   firstBlood?: boolean;
   /** Per-player match stats for the results screen, counted by the rules engine. */
   stats?: Partial<Record<Color, PlayerStats>>;
+  /** Captures made by each token since it last left base; its moustache grows with them (heft.ts). */
+  kills?: Partial<Record<Color, number[]>>;
 }
 
 export interface PlayerStats {
@@ -83,7 +85,8 @@ export interface LegalMove {
 export type GameEvent =
   | { type: 'roll'; color: Color; value: number; queue: number[] }
   | { type: 'penalty'; color: Color; queue: number[] }
-  | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number }
+  /** `kills`: the moving token's captures so far, which set how heavily it hops. */
+  | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number; kills?: number }
   | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true }
   | { type: 'home'; color: Color; tokenId: number }
   | { type: 'rank'; color: Color; rank: number }

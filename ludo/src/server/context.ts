@@ -10,6 +10,8 @@ import type { VoiceManager } from './voice.js';
 
 /** Services shared by the HTTP API, the admin routes and the socket layer. */
 export interface Ctx {
+  /** package.json version of the running server. */
+  appVersion: string;
   config: Config;
   db: DB;
   users: UserService;

@@ -1,5 +1,8 @@
 import { BASE, BASE_ORIGIN, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, tokenCell, type Cell } from '../../shared/board.js';
+import { moustacheLevel } from '../../shared/heft.js';
 import { COLORS, type Color, type GameState } from '../../shared/types.js';
+import { moustacheSvg } from '../moustache.js';
+import { reducedMotion } from './animate.js';
 
 function starPoints(cx: number, cy: number, outer: number, inner: number): string {
   const pts: string[] = [];
@@ -108,12 +111,57 @@ export class TokenLayer {
       b = document.createElement('button');
       b.className = `token t-${color}`;
       b.setAttribute('aria-label', `${color} token ${id + 1}`);
-      b.innerHTML = '<span class="tok-body"></span>';
+      // The shadow stays on the board while the squash layer (body and moustache) hops and squashes.
+      b.innerHTML = '<span class="tok-shadow"></span><span class="tok-squash"><span class="tok-body"></span></span>';
+      b.dataset.lvl = '0';
+      // Each token's moustache twitches on its own schedule.
+      const tw = 3.6 + Math.random() * 2.4;
+      b.style.setProperty('--tw', `${tw.toFixed(2)}s`);
+      b.style.setProperty('--td', `${(-Math.random() * tw).toFixed(2)}s`);
       b.addEventListener('click', () => this.onTap(color, id));
       this.layer.appendChild(b);
       this.els.set(key, b);
     }
     return b;
+  }
+
+  /**
+   * Shows the moustache for this level. Growing pops it up to the new size, after any reaction
+   * emoji on the token has finished so the pop isn't hidden behind it; shaving it (captured) is instant.
+   */
+  private setMoustache(b: HTMLButtonElement, level: number): void {
+    b.dataset.want = String(level);
+    const shown = Number(b.dataset.lvl);
+    if (level === shown) return;
+    if (level > shown && b.classList.contains('shows-emoji')) {
+      if (!b.dataset.waiting) {
+        b.dataset.waiting = '1';
+        const retry = () => {
+          if (b.classList.contains('shows-emoji')) return void setTimeout(retry, 150);
+          delete b.dataset.waiting;
+          this.setMoustache(b, Number(b.dataset.want));
+        };
+        setTimeout(retry, 150);
+      }
+      return;
+    }
+    const squash = b.querySelector('.tok-squash')!;
+    squash.querySelector('.tok-stache')?.remove();
+    squash.insertAdjacentHTML('beforeend', moustacheSvg(level));
+    b.dataset.lvl = String(level);
+    if (level > shown && !reducedMotion()) {
+      squash.animate([{ transform: 'scale(1, 1)' }, { transform: 'scale(1.14, 0.86)' }, { transform: 'scale(0.94, 1.08)' }, { transform: 'scale(1, 1)' }], { duration: 520, easing: 'ease-out' });
+      squash.querySelector('.stache')?.animate(
+        [
+          { transform: 'scale(0.6)', opacity: 0.4 },
+          { transform: 'scale(1.3) rotate(-4deg)', opacity: 1, offset: 0.35 },
+          { transform: 'scale(0.92) rotate(3deg)', offset: 0.6 },
+          { transform: 'scale(1.04) rotate(-1deg)', offset: 0.8 },
+          { transform: 'scale(1) rotate(0deg)' },
+        ],
+        { duration: 700, easing: 'ease-out' },
+      );
+    }
   }
 
   get(color: Color, id: number): HTMLButtonElement | undefined {
@@ -133,6 +181,7 @@ export class TokenLayer {
         b.getAnimations().forEach((a) => a.cancel());
         b.style.transform = tf(pl.x, pl.y, pl.scale);
         b.classList.toggle('legal', tappable.has(key));
+        this.setMoustache(b, moustacheLevel(state.kills?.[seat.color]?.[id] ?? 0));
         b.classList.toggle('active', seat.color === activeColor);
         b.disabled = !tappable.has(key);
       });

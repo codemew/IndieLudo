@@ -139,7 +139,7 @@ Every capture grows the capturing token's moustache a level, and makes it heavie
   - **Hops:** they crouch and squash more, hop lower, flap their moustache on every hop, and jiggle to a stop.
   - **Board shake:** from the first kill, harder with each level.
   - **Dust:** kicked up from 2 kills.
-- **Moustache:** it twitches now and then. After a capture, it waits until the token is still, with no reaction face and no hop, then pauses one more second and pops up to the next size, so the growth is always visible.
+- **Moustache:** it twitches now and then, puffing up and bouncing once as it does (the "pump"). After a capture, it waits until the token is still, with no reaction face and no hop, then pauses 3 more seconds. The old moustache fades as the new one slowly grows in over 2 seconds, so the growth is always visible.
 - **Losing it:** a captured token goes home clean‑shaven, back to 0 kills.
 - **Same on every phone:** the server counts kills per token, so every phone shows the same moustache. Bots and turn timers wait for the slower moves.
 

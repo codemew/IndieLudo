@@ -5,7 +5,9 @@ import { moustacheSvg } from '../moustache.js';
 import { reducedMotion } from './animate.js';
 
 /** After a capture, how long the token must sit still before its moustache grows, so the growth is seen. */
-const GROW_DELAY_MS = 1000;
+const GROW_DELAY_MS = 3000;
+/** How long the moustache takes to grow into its new size. */
+const GROW_ANIM_MS = 2000;
 
 function starPoints(cx: number, cy: number, outer: number, inner: number): string {
   const pts: string[] = [];
@@ -117,8 +119,9 @@ export class TokenLayer {
       // The shadow stays on the board while the squash layer (body and moustache) hops and squashes.
       b.innerHTML = '<span class="tok-shadow"></span><span class="tok-squash"><span class="tok-body"></span></span>';
       b.dataset.lvl = '0';
-      // Each token's moustache twitches on its own schedule.
-      const tw = 3.6 + Math.random() * 2.4;
+      // Each token's moustache twitches on its own schedule: every 3.3–5.5 s (10% more often than
+      // the original 3.6–6 s).
+      const tw = (3.6 + Math.random() * 2.4) / 1.1;
       b.style.setProperty('--tw', `${tw.toFixed(2)}s`);
       b.style.setProperty('--td', `${(-Math.random() * tw).toFixed(2)}s`);
       b.addEventListener('click', () => this.onTap(color, id));
@@ -157,22 +160,41 @@ export class TokenLayer {
     setTimeout(attempt, 100);
   }
 
+  /**
+   * Swaps in the moustache for `level`. Growing is slow: the old moustache fades out while the new
+   * one grows in from smaller, swells a little past its size and settles, and the token does a
+   * slow proud squash.
+   */
   private drawMoustache(b: HTMLButtonElement, level: number, grow: boolean): void {
     const squash = b.querySelector('.tok-squash')!;
-    squash.querySelector('.tok-stache')?.remove();
+    const olds = [...squash.querySelectorAll<SVGSVGElement>('.tok-stache')];
     squash.insertAdjacentHTML('beforeend', moustacheSvg(level));
     b.dataset.lvl = String(level);
-    if (!grow) return;
-    squash.animate([{ transform: 'scale(1, 1)' }, { transform: 'scale(1.14, 0.86)' }, { transform: 'scale(0.94, 1.08)' }, { transform: 'scale(1, 1)' }], { duration: 520, easing: 'ease-out' });
-    squash.querySelector('.stache')?.animate(
+    if (!grow) {
+      olds.forEach((o) => o.remove());
+      return;
+    }
+    for (const o of olds) {
+      o.animate([{ opacity: Number(getComputedStyle(o).opacity) || 1 }, { opacity: 0 }], { duration: GROW_ANIM_MS * 0.35, easing: 'ease-in', fill: 'forwards' }).finished.then(() => o.remove(), () => o.remove());
+    }
+    squash.animate(
       [
-        { transform: 'scale(0.6)', opacity: 0.4 },
-        { transform: 'scale(1.3) rotate(-4deg)', opacity: 1, offset: 0.35 },
-        { transform: 'scale(0.92) rotate(3deg)', offset: 0.6 },
-        { transform: 'scale(1.04) rotate(-1deg)', offset: 0.8 },
-        { transform: 'scale(1) rotate(0deg)' },
+        { transform: 'scale(1, 1)' },
+        { transform: 'scale(1.07, 0.93)', offset: 0.3 },
+        { transform: 'scale(0.98, 1.03)', offset: 0.7 },
+        { transform: 'scale(1, 1)' },
       ],
-      { duration: 700, easing: 'ease-out' },
+      { duration: GROW_ANIM_MS * 0.8, easing: 'ease-in-out' },
+    );
+    squash.querySelector<SVGSVGElement>('.tok-stache:last-of-type .stache')?.animate(
+      [
+        { transform: 'scale(0.55)', opacity: 0 },
+        { transform: 'scale(0.7)', opacity: 1, offset: 0.2 },
+        { transform: 'scale(1.12) rotate(-3deg)', offset: 0.65 },
+        { transform: 'scale(0.97) rotate(1.5deg)', offset: 0.85 },
+        { transform: 'scale(1) rotate(0deg)', opacity: 1 },
+      ],
+      { duration: GROW_ANIM_MS, easing: 'ease-in-out' },
     );
   }
 

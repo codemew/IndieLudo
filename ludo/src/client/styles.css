@@ -3097,20 +3097,46 @@ button.me:active {
 .tok-stache .mh {
   animation: stache-twitch var(--tw, 4.5s) ease-in-out var(--td, 0s) infinite;
 }
+/* The flick takes the last 15.4% of each token's (10% shorter) twitch cycle, so it lasts as long
+   as it always did while happening more often. */
 @keyframes stache-twitch {
   0%,
-  86%,
+  84.6%,
   100% {
     transform: rotate(0deg) scaleX(1);
   }
-  89% {
+  87.9% {
     transform: rotate(calc(var(--side) * -7deg)) scaleX(1.04);
   }
-  92% {
+  91.2% {
     transform: rotate(calc(var(--side) * 5deg));
   }
-  95% {
+  94.5% {
     transform: rotate(calc(var(--side) * -3deg));
+  }
+}
+/* Pump: with each idle flick the whole moustache puffs up, bounces once and settles (in step
+   with the halves' twitch; the slow growth after a capture overrides it while it plays). */
+.tok-stache .stache {
+  animation: stache-pump var(--tw, 4.5s) ease-in-out var(--td, 0s) infinite;
+}
+@keyframes stache-pump {
+  0%,
+  84.6%,
+  100% {
+    transform: scale(1, 1);
+  }
+  86.6% {
+    transform: scale(1.17, 1.13);
+  }
+  89.2% {
+    transform: scale(0.95, 0.97);
+  }
+  91.8% {
+    transform: scale(1.07, 1.05);
+  }
+  94.6% {
+    transform: scale(0.99, 0.99);
   }
 }
 /* While the token pulls a reaction face, its moustache hides with its body. */
@@ -3126,7 +3152,8 @@ button.me:active {
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .tok-stache .mh {
+  .tok-stache .mh,
+  .tok-stache .stache {
     animation: none;
   }
 }

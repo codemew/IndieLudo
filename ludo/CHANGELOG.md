@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.1
+
+### Changed
+- **A longer pause before the moustache grows:** after a capture, once the token is still, it now waits 3 seconds (was 1) before the moustache grows.
+- **The moustache grows slowly:** the old moustache fades out while the new one grows in over 2 seconds, swells slightly past its size and settles back, with a slow squash of the token. Before, it was a quick 0.7-second pop.
+- **The moustache twitches more often:** the occasional idle flick comes 10% more often (every 3.3–5.5 s instead of 3.6–6 s). The flick itself is unchanged.
+- **The moustache pumps when it twitches:** with each idle flick it puffs up, bounces once and settles (approved on the Moustache Twitch review page).
+
 ## 2.0.0
 
 Version 2 brings together everything since 1.0: lobby voice chat that also works across mobile networks, the moustache and heavy-token effects, first blood, awards and match stats, colour swaps, signal and ping, and in-app updates.

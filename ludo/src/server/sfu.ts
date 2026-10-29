@@ -44,6 +44,8 @@ export interface VoiceServerOptions {
   onSlots?: (lobbyId: string, userId: number, slots: VoiceSlot[]) => void;
   /** A phone's connection to the voice server came up or went down. */
   onLink?: (lobbyId: string, userId: number, connected: boolean) => void;
+  /** The server dropped a phone's link (it broke or never connected): the phone should redo it now. */
+  onGone?: (lobbyId: string, userId: number) => void;
 }
 
 /**
@@ -100,11 +102,11 @@ export class VoiceServer {
       } else if (s === 'failed' || s === 'closed' || s === 'disconnected') {
         if (member.connected) this.opts.onLink?.(lobbyId, userId, false);
         member.connected = false;
-        if (s !== 'disconnected') this.leave(lobbyId, userId);
+        if (s !== 'disconnected') this.drop(lobbyId, userId);
       }
     });
     room.set(userId, member);
-    member.timer = setTimeout(() => !member.connected && this.leave(lobbyId, userId), CONNECT_TIMEOUT_MS);
+    member.timer = setTimeout(() => !member.connected && this.drop(lobbyId, userId), CONNECT_TIMEOUT_MS);
     member.timer.unref?.();
     // Everyone already here gets a slot for the newcomer, and the newcomer one for each of them.
     for (const other of room.values()) {
@@ -155,6 +157,13 @@ export class VoiceServer {
       this.sendSlots(lobbyId, other);
     }
     if (room.size === 0) this.rooms.delete(lobbyId);
+  }
+
+  /** The link broke on the server's side: drop it and tell the phone, which reconnects at once. */
+  drop(lobbyId: string, userId: number): void {
+    if (!this.rooms.get(lobbyId)?.has(userId)) return;
+    this.leave(lobbyId, userId);
+    this.opts.onGone?.(lobbyId, userId);
   }
 
   /** Follows the voice channel: those who left it (or a restart, or voice turned off) are dropped. */

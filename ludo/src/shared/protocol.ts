@@ -15,6 +15,8 @@ export interface MoveIntent extends RollIntent {
 
 export interface ClientToServer {
   'lobby:list': (p: Record<string, never>, ack: (r: Ack<LobbySummary[]>) => void) => void;
+  /** "Are you still there?" from the phone, after a network change: answered at once. */
+  'net:probe': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:create': (p: { createPassword: string; name: string; password: string }, ack: (r: Ack<PublicLobby>) => void) => void;
   /** `watch`: join without a seat, to watch (the only way into a lobby whose game is running, or whose seats are full). */
   'lobby:join': (p: { lobbyId: string; password: string; watch?: boolean }, ack: (r: Ack<PublicLobby>) => void) => void;
@@ -165,6 +167,8 @@ export interface ServerToClient {
   'voice:frames': (f: VoiceFramesIn) => void;
   /** Which of your voice-server receive slots carries whose voice (sent when it changes). */
   'voice:slots': (s: { lobbyId: string; slots: VoiceSlot[] }) => void;
+  /** The voice server lost your link (it broke on its side): reconnect it now. */
+  'voice:sfuGone': (s: { lobbyId: string }) => void;
 }
 
 type FieldType = 'string' | 'int' | 'bool' | 'color';

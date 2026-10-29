@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from 'puppeteer-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { BUILT, CHROME, setup, shot, sleep, tap, until } from './helpers.js';
+import { BUILT, CHROME, SHOTS, setup, shot, sleep, tap, until } from './helpers.js';
 import { makeVoiceWav } from './makeVoiceWav.js';
 
 const WAV = makeVoiceWav(join(mkdtempSync(join(tmpdir(), 'ludo-voice-')), 'voice.wav'));
@@ -152,5 +152,74 @@ describe.skipIf(!CHROME || !BUILT || !WAV)('voice chat without the voice server'
   it('falls back to a direct link between the phones', async () => {
     await until('a direct link', async () => (await phones[0].evaluate(`window.__pcs.some((x) => x.connectionState === 'connected')`)) === true, 20_000);
     await until('the panel', async () => (await phones[0].$eval('#lobby-voice', (e) => e.textContent!)).includes('Talking with 1 player'), 8000);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT || !WAV)('voice details and reconnecting by itself', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let phones: Page[];
+  let lobbyId: string;
+  let aliceId: number;
+  const recovery: Record<string, number> = {};
+  const detailsText = () => phones[0].$eval('.vd-body', (e) => (e as HTMLElement).innerText.replace(/\s+/g, ' '));
+  /** How many connections alice's page has made so far: a reconnect makes a new one. */
+  const made = () => phones[0].evaluate('window.__pcs.length') as Promise<number>;
+  /** Alice is on the voice server again over a new connection, and bob gets her voice through it. */
+  const backWithin = async (what: string, ms: number, t0: number, before: number) => {
+    const fresh = `window.__pcs.slice(${before}).some((x) => x.connectionState === 'connected' && (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === 8)`;
+    await until(`${what}: back on the voice server`, async () => t.server.ctx.sfu.isConnected(lobbyId, aliceId) && (await phones[0].evaluate(fresh)) === true, ms);
+    recovery[what] = Date.now() - t0;
+    // Then her voice reaches bob again (once the test voice is talking: nothing is sent in its silent part).
+    const got = (await sfuStats(phones[1]))?.got ?? 0;
+    await until(`${what}: bob hears alice again`, async () => ((await sfuStats(phones[1]))?.got ?? 0) > got + 40, 30_000);
+  };
+
+  beforeAll(async () => {
+    t = await setup({ chromeArgs: [`--use-file-for-fake-audio-capture=${WAV}`], onPage: watchPcs });
+    phones = await t.lobby(['alice', 'bob']);
+    const lobby = t.server.ctx.lobbies.all()[0];
+    lobbyId = lobby.id;
+    aliceId = lobby.hostId;
+    for (const p of phones) await until('voice server', async () => (await sfuStats(p))?.state === 'connected', 15_000);
+  });
+  afterAll(() => t?.close());
+
+  it('Details show the transport, both ends with ports, and the game connection', async () => {
+    await tap(phones[0], '.voice-details [data-act=toggle]');
+    await until('stats in the panel', async () => /round trip \d+ ms/.test(await detailsText()), 10_000);
+    const text = await detailsText();
+    expect(text).toContain('Game connection · WebSocket over TCP');
+    expect(text).toMatch(/Voice server · connected/);
+    expect(text).toMatch(/UDP · you \S+:\d+ \([^)]+\) → server \S+:43\d{3} \([^)]+\)/); // the test server's voice ports
+    expect(text).toMatch(/bob · via the voice server · UDP/);
+    expect(text).toMatch(/Their audio: .*opus 48 kHz/);
+    // Bitrates need two looks (the panel refreshes every 2 s).
+    await until('the bitrates', async () => /Traffic: ↑ \d+ kbps · ↓ \d+ kbps/.test(await detailsText()), 6000);
+    if (SHOTS) await (await phones[0].$('#lobby-voice'))!.screenshot({ path: join(SHOTS, 'voice-details.png') });
+  });
+
+  it('a network change (Wi-Fi ↔ mobile data) redoes voice at once', async () => {
+    const [t0, before] = [Date.now(), await made()];
+    await phones[0].evaluate(`navigator.connection.dispatchEvent(new Event('change'))`);
+    await backWithin('network change', 10_000, t0, before);
+    await until('the event in Details', async () => (await detailsText()).includes('network changed'), 5000);
+  });
+
+  it('when the voice-server link dies (its route went away), the phone reconnects it by itself', async () => {
+    const [t0, before] = [Date.now(), await made()];
+    t.server.ctx.sfu.drop(lobbyId, aliceId); // the server side of alice's link broke
+    await backWithin('voice link lost', 20_000, t0, before);
+    await until('the event in Details', async () => (await detailsText()).includes('voice server dropped the link'), 5000);
+  });
+
+  it('when the game connection drops, voice comes back with it', async () => {
+    const [t0, before] = [Date.now(), await made()];
+    t.server.io.in(`user:${aliceId}`).disconnectSockets(true);
+    await backWithin('game connection dropped', 20_000, t0, before);
+    await until('the event in Details', async () => (await detailsText()).includes('game connection back'), 5000);
+    expect(t.errors).toEqual([]);
+    // How long each took (ms), for the record.
+    (await import('node:fs')).writeFileSync(join(tmpdir(), 'ludo-voice-recovery.json'), JSON.stringify({ ...recovery, log: (await detailsText()).replace(/.*Recent: /, '') }));
+    for (const ms of Object.values(recovery)) expect(ms).toBeLessThan(6000);
   });
 });

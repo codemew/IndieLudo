@@ -75,7 +75,9 @@ export class VoiceManager {
     const ch = this.channel(lobbyId);
     if (!ch.enabled) return this.state(lobbyId);
     const existing = ch.members.get(userId);
-    ch.members.set(userId, { muted: existing?.muted ?? false, sfu: false, socketId });
+    // A rejoin (network change, reconnect) keeps the voice-server flag until that link itself
+    // changes, so the others don't start dialling directly while this phone reconnects.
+    ch.members.set(userId, { muted: existing?.muted ?? false, sfu: existing?.sfu ?? false, socketId });
     return this.changed(lobbyId);
   }
 

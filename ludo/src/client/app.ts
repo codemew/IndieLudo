@@ -87,6 +87,7 @@ function connectSocket(token: string): void {
       s.on('voice:signal', (sig) => void voice.onSignal(sig));
       s.on('voice:frames', (f) => voice.onFrames(f));
       s.on('voice:slots', (x) => voice.onSlots(x));
+      s.on('voice:sfuGone', (x) => voice.onSfuGone(x));
       s.on('net:ping', (ack) => ack());
       s.on('net:stats', (n) => n.lobbyId === state.lobby?.id && update({ net: n }));
     },

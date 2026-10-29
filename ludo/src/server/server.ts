@@ -146,6 +146,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     log,
     onSlots: (lobbyId, userId, slots) => io?.to(rooms.user(userId)).emit('voice:slots', { lobbyId, slots }),
     onLink: (lobbyId, userId, connected) => voice.setSfu(lobbyId, userId, connected),
+    onGone: (lobbyId, userId) => io?.to(rooms.user(userId)).emit('voice:sfuGone', { lobbyId }),
   });
 
   const net = new NetStatsTracker();

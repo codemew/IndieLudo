@@ -2,7 +2,8 @@ import { VOICE_BITRATES } from '../shared/types.js';
 import { play } from './sound.js';
 import { state, subscribe } from './store.js';
 import { ICONS, confirmDialog, el, errorText, esc, setHtml, toast } from './ui.js';
-import { voice, type LinkReport } from './voice.js';
+import { voice, type LinkReport, type VoiceReport } from './voice.js';
+import { routeText as pathText, streamText } from './voiceStats.js';
 
 /** Mic badge beside a member's name: live / muted, pulsing while our connection to them is set up. */
 export function voiceBadge(userId: number | null): string {
@@ -220,7 +221,8 @@ export function qualityPicker(): { el: HTMLElement; refresh: () => void } {
   return { el: root, refresh };
 }
 
-const nameOf = (userId: number) => state.lobby?.members.find((m) => m.userId === userId)?.username ?? `player ${userId}`;
+const nameOf = (userId: number) =>
+  [...(state.lobby?.members ?? []), ...(state.lobby?.spectators ?? [])].find((m) => m.userId === userId)?.username ?? `player ${userId}`;
 const routeText = (r: LinkReport['mine']) => {
   const kinds = [r.host && `${r.host} local${r.mdns ? ` (${r.mdns} hidden)` : ''}`, r.srflx && `${r.srflx} internet`, r.relay && `${r.relay} relay`].filter(Boolean).join(', ');
   const fam = [r.v4 && `IPv4 ${r.v4}`, r.v6 && `IPv6 ${r.v6}`].filter(Boolean).join(' · ');
@@ -229,13 +231,13 @@ const routeText = (r: LinkReport['mine']) => {
 
 /** What a link's state most likely means, in plain words. */
 function explain(l: LinkReport): string {
-  if (l.sfu) return 'Through the voice server, over UDP: this phone sends its voice once and the server passes it on.';
+  if (l.sfu) return 'Through the voice server, over UDP: each phone sends its voice once and the server passes it on.';
   if (l.relay.heard || l.relay.sending) {
     return `Going through the game server${l.relay.heard ? '' : ' (waiting for their audio)'}: a direct link isn't possible between these two phones, so voice takes the same route as the game, with a little extra delay.`;
   }
   if (l.status === 'connected') {
-    const how = l.via?.includes('relay') ? 'through a relay' : l.via?.includes('srflx') ? 'over the internet' : 'on the local network';
-    return `Connected ${how}.`;
+    const how = l.via?.includes('relay') ? 'through a TURN relay' : l.via?.includes('srflx') || l.via?.includes('prflx') ? 'over the internet' : 'on the local network';
+    return `Connected directly ${how}${l.route?.protocol === 'TCP' ? ', over TCP because UDP is blocked on one of the networks (works, but with more delay)' : ''}.`;
   }
   const theirs = l.theirs.host + l.theirs.srflx + l.theirs.relay;
   const mine = l.mine.host + l.mine.srflx + l.mine.relay;
@@ -252,6 +254,40 @@ function explain(l: LinkReport): string {
   return 'Both phones offered routes but none got through: the network is blocking a direct link between these two phones. A relay (TURN server) would carry this audio.';
 }
 
+/** How a player's voice reaches us, with the transport. */
+function pathOf(l: LinkReport): string {
+  if (l.sfu) return 'via the voice server · UDP';
+  if (l.status === 'connected') return `direct link · ${l.route?.protocol ?? 'UDP'}${l.via?.includes('relay') ? ' via TURN relay' : ''}`;
+  if (l.relay.heard) return 'via the game-server relay · TCP (WebSocket)';
+  return `${l.status} for ${l.forSec}s · ${l.role === 'dial' ? 'we call them' : 'they call us'}`;
+}
+
+const GAME_TRANSPORT: Record<string, string> = { websocket: 'WebSocket over TCP', polling: 'HTTP long-polling over TCP (WebSockets blocked on this network)' };
+
+/** This phone's side: game connection, voice-server link, microphone. */
+function thisPhone(r: VoiceReport): string {
+  const s = r.server;
+  const since = (sec: number) => (sec >= 60 ? `${Math.floor(sec / 60)} min ${sec % 60} s` : `${sec} s`);
+  const server =
+    s.status === 'off'
+      ? 'off on this server (voice goes directly between phones)'
+      : `${s.status} for ${since(s.forSec)}${s.connects > 1 ? ` · reconnected ${s.connects - 1}×` : ''}`;
+  const lines = [
+    `<li class="vd-link vd-mine"><div><b>Game connection</b> · ${r.game.transport ? GAME_TRANSPORT[r.game.transport] ?? r.game.transport : 'offline'}</div></li>`,
+    `<li class="vd-link vd-mine"><div><b>Voice server</b> · ${esc(server)}</div>${s.route?.protocol ? `<span>${esc(pathText(s.route, 'server'))}</span>` : ''}${s.stream && streamText(s.stream) ? `<span>Traffic: ${esc(streamText(s.stream))}</span>` : ''}</li>`,
+    `<li class="vd-link vd-mine"><div><b>Microphone</b> · ${r.mic ? `on${r.denoise ? ' · AI noise removal on' : ''} · ${r.sending ? 'sending (you are talking)' : 'nothing sent while you are quiet'}` : 'blocked'}</div></li>`,
+    `<li class="vd-link vd-mine"><div><b>STUN/TURN servers</b> · ${r.iceServers}${r.signalError ? ` · last signalling error: ${esc(r.signalError)}` : ''}</div></li>`,
+  ];
+  return `<ul class="vd-links vd-me">${lines.join('')}</ul>`;
+}
+
+/** Recent reconnects, newest first. */
+function eventsOf(r: VoiceReport): string {
+  if (!r.events.length) return '';
+  const t = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return `<p class="muted small vd-events">Recent: ${[...r.events].reverse().map((e) => `${t(e.at)} ${esc(e.what)}`).join(' · ')}</p>`;
+}
+
 /** The "Details" toggle: each voice link's state, routes and a likely explanation, plus a copyable report. */
 function linkDetails(): { el: HTMLElement; stop: () => void } {
   const root = el(`
@@ -266,21 +302,16 @@ function linkDetails(): { el: HTMLElement; stop: () => void } {
   const paint = async () => {
     if (!root.isConnected) return stop();
     const r = await voice.report();
-    const rows = r.links
-      .map(
-        (l) => `
+    const rows = r.links.map((l) => `
         <li class="vd-link vd-${l.relay.heard || l.sfu ? 'connected' : l.status}">
-          <div><b>${esc(nameOf(l.userId))}</b> · ${l.sfu ? 'via the voice server (UDP)' : l.relay.heard ? 'via the game server' : `${l.status}${l.status === 'connected' ? '' : ` for ${l.forSec}s`}`}${l.sfu ? '' : ` · ${l.role === 'dial' ? 'we call them' : 'they call us'}`}</div>
-          <span>You: ${routeText(l.mine)} · Them: ${routeText(l.theirs)}${l.via ? ` · via ${l.via}` : ''} · ICE ${esc(l.ice)}${l.late.sent || l.late.got ? ` · late routes ↑${l.late.sent} ↓${l.late.got}` : ''}${l.relay.sending || l.relay.framesIn ? ` · via server ↑${l.relay.sending ? 'on' : 'off'} ↓${l.relay.framesIn} frames` : ''}</span>
+          <div><b>${esc(nameOf(l.userId))}</b> · ${esc(pathOf(l))}</div>
+          ${l.route?.protocol ? `<span>${esc(pathText(l.route, 'them'))}</span>` : ''}
+          ${l.stream && streamText(l.stream) ? `<span>Their audio: ${esc(streamText(l.stream))}</span>` : ''}
+          ${l.sfu || l.status === 'connected' ? '' : `<span>Offered routes · you: ${routeText(l.mine)} · them: ${routeText(l.theirs)} · ICE ${esc(l.ice)}${l.late.sent || l.late.got ? ` · late routes ↑${l.late.sent} ↓${l.late.got}` : ''}</span>`}
+          ${l.relay.sending || l.relay.framesIn ? `<span>Game-server relay (TCP): sending ${l.relay.sending ? 'on' : 'off'} · ${l.relay.framesIn} frames received</span>` : ''}
           <em>${explain(l)}</em>
-        </li>`,
-      )
-      .join('');
-    setHtml(
-      body,
-      `<p class="muted small">Microphone: ${r.mic ? `on${r.denoise ? ' · AI noise removal on' : ''}` : 'blocked'} · Voice server: ${r.sfu} · STUN/TURN servers: ${r.iceServers}${r.signalError ? ` · last signalling error: ${esc(r.signalError)}` : ''}</p>` +
-        (rows ? `<ul class="vd-links">${rows}</ul>` : '<p class="muted small">Nobody else is in voice chat.</p>'),
-    );
+        </li>`).join('');
+    setHtml(body, `${thisPhone(r)}${rows ? `<ul class="vd-links">${rows}</ul>` : '<p class="muted small">Nobody else is in voice chat.</p>'}${eventsOf(r)}`);
   };
   const stop = () => {
     if (timer) clearInterval(timer);

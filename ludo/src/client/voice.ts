@@ -1,7 +1,8 @@
 import type { RTCIceServerConfig, SfuOffer, VoiceFramesIn, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
 import { DEFAULT_VOICE_BITRATE, VOICE_BITRATES, type VoiceSlot, type VoiceState } from '../shared/types.js';
 import { MicChain, canDenoise, micConstraints } from './micChain.js';
-import { emit, send } from './net.js';
+import { emit, onNetworkChange, probe, reconnectNow, send, transportName } from './net.js';
+import { summarize, type RouteStats, type Sample, type StreamStats } from './voiceStats.js';
 import { RelayPlayer, RelaySender, relaySupport } from './voiceRelay.js';
 
 export type PeerStatus = 'connecting' | 'connected' | 'failed';
@@ -19,6 +20,12 @@ const RETRY_MS = 1500;
 const DEVICE_SETTLE_MS = 700;
 /** With the voice server on, direct links wait this long for both phones to reach it first. */
 const SFU_GRACE_MS = 6000;
+/** A link that went quiet ("disconnected": its route stopped answering) for this long is redone. */
+const DISCONNECTED_MS = 3000;
+/** Network changes come in bursts (Wi-Fi dropping, then mobile data up): act once it settles. */
+const NETWORK_SETTLE_MS = 800;
+/** Reconnect events kept for the Details panel. */
+const MAX_EVENTS = 8;
 /** A received voice level older than this means they stopped talking (nothing is sent in silence). */
 const LEVEL_STALE_MS = 250;
 
@@ -124,6 +131,10 @@ export interface LinkReport {
   relay: { sending: boolean; heard: boolean; framesIn: number };
   /** Talking through the built-in voice server (UDP). */
   sfu: boolean;
+  /** The working route of a direct link (protocol, both ends' address and port, round trip). */
+  route: RouteStats | null;
+  /** Their audio as it arrives (bitrate, loss, jitter, codec), on whichever link carries it. */
+  stream: StreamStats | null;
   mine: RouteSummary;
   theirs: RouteSummary;
   /** Route types of the working connection, e.g. "host → host". */
@@ -179,6 +190,26 @@ interface SfuLink {
   since: number;
   late: RTCIceCandidateInit[];
   lateTimer: ReturnType<typeof setTimeout> | null;
+  /** Redoes the link if it stays "disconnected" (its route died, e.g. Wi-Fi went away). */
+  lostTimer: ReturnType<typeof setTimeout> | null;
+}
+
+/** The whole voice picture, for the Details panel and the copyable report. */
+export interface VoiceReport {
+  myId: number;
+  mic: boolean;
+  denoise: boolean;
+  /** Our voice gate is open (we're talking) right now. */
+  sending: boolean;
+  iceServers: number;
+  signalError: string | null;
+  /** The game connection: WebSocket or long-polling, both over TCP. */
+  game: { transport: string | null };
+  /** Our connection to the voice server. */
+  server: { status: PeerStatus | 'off'; forSec: number; connects: number; route: RouteStats | null; stream: StreamStats | null };
+  /** Recent reconnects and why, newest last. */
+  events: { at: number; what: string }[];
+  links: LinkReport[];
 }
 
 /**
@@ -247,6 +278,15 @@ class VoiceClient {
   private seenAt = new Map<number, number>();
   /** Last RTP timestamp seen per speaker, to tell a fresh voice level from a stale one. */
   private lastSrc = new Map<number, { rtp: number; at: number }>();
+  /** When each other member last dropped off the voice server, so we wait for them to come back. */
+  private sfuLostAt = new Map<number, number>();
+  /** How often our voice-server link came up (more than once: it reconnected). */
+  private sfuConnects = 0;
+  private events: { at: number; what: string }[] = [];
+  private netTimer: ReturnType<typeof setTimeout> | null = null;
+  private recovering = false;
+  /** Byte counters from the last report, per link, for bitrates. */
+  private samples = new Map<string, Sample>();
 
   constructor() {
     if (typeof document === 'undefined') return;
@@ -258,6 +298,45 @@ class VoiceClient {
       if (this.deviceTimer) clearTimeout(this.deviceTimer);
       this.deviceTimer = setTimeout(() => void this.onDevicesChanged(), DEVICE_SETTLE_MS);
     });
+    // Wi-Fi ↔ mobile data: every route the calls used is gone.
+    onNetworkChange(() => {
+      if (!this.lobbyId) return;
+      if (this.netTimer) clearTimeout(this.netTimer);
+      this.netTimer = setTimeout(() => {
+        this.netTimer = null;
+        void this.recover('network changed');
+      }, NETWORK_SETTLE_MS);
+    });
+  }
+
+  private note(what: string): void {
+    this.events.push({ at: Date.now(), what });
+    if (this.events.length > MAX_EVENTS) this.events.shift();
+    this.notify();
+  }
+
+  /**
+   * The network changed or the voice-server link died. First: does the game connection still
+   * answer? A socket can look connected for ~20 s after its network went away. If it doesn't,
+   * reconnect it now (voice rejoins once it's back, see onReconnect). If it does, redo voice
+   * over the network the phone has now: everything after a network change, just the
+   * voice-server link when only that died.
+   */
+  private async recover(reason: string): Promise<void> {
+    if (!this.lobbyId || this.recovering) return;
+    this.recovering = true;
+    try {
+      this.note(reason);
+      if (!(await probe())) {
+        this.note('game connection not answering: reconnecting it');
+        reconnectNow();
+        return;
+      }
+      if (reason === 'network changed') await this.restart();
+      else await this.startSfu();
+    } finally {
+      this.recovering = false;
+    }
   }
 
   onChange(fn: () => void): () => void {
@@ -338,47 +417,65 @@ class VoiceClient {
   /** Last error the server gave for one of our voice signals (e.g. a rejected offer). */
   signalError: string | null = null;
 
-  /** Per-player link details for the "Details" panel and a copyable report. */
-  async report(): Promise<{ myId: number; mic: boolean; iceServers: number; signalError: string | null; sfu: PeerStatus | 'off'; denoise: boolean; links: LinkReport[] }> {
+  /** Everything the "Details" panel shows, and the copyable report. */
+  async report(): Promise<VoiceReport> {
+    const now = Date.now();
+    const look = async (key: string, pc: RTCPeerConnection | null | undefined, mid?: string) => {
+      if (!pc || pc.connectionState === 'closed') return null;
+      try {
+        const r = summarize((await pc.getStats()).values(), { mid, prev: this.samples.get(key), now });
+        this.samples.set(key, r.sample);
+        return r;
+      } catch {
+        return null;
+      }
+    };
+    const sfu = this.sfu;
+    const server = await look('sfu', sfu?.pc);
     const links: LinkReport[] = [];
     for (const userId of this.others) {
       const peer = this.peers.get(userId);
-      let via: string | null = null;
-      let audioKbIn = 0;
-      if (peer) {
-        try {
-          const stats = await peer.pc.getStats();
-          const byId = new Map<string, any>();
-          stats.forEach((s: any) => byId.set(s.id, s));
-          stats.forEach((s: any) => {
-            if (s.type === 'inbound-rtp' && s.kind === 'audio') audioKbIn += Math.round((s.bytesReceived ?? 0) / 1024);
-            if (s.type === 'candidate-pair' && s.state === 'succeeded' && (s.nominated || s.selected)) {
-              const l = byId.get(s.localCandidateId);
-              const r = byId.get(s.remoteCandidateId);
-              via = `${l?.candidateType ?? '?'} → ${r?.candidateType ?? '?'}`;
-            }
-          });
-        } catch {
-          /* closed */
-        }
-      }
+      const viaSfu = this.viaSfu(userId);
+      const direct = viaSfu ? null : await look(`peer:${userId}`, peer?.pc);
+      const slotMid = viaSfu ? sfu!.slots.find((x) => x.userId === userId)?.mid : undefined;
+      const slot = slotMid !== undefined ? await look(`slot:${userId}`, sfu!.pc, slotMid) : null;
+      const route = direct?.route ?? null;
       links.push({
         userId,
-        status: peer?.status ?? 'none',
-        forSec: peer ? Math.round((Date.now() - peer.since) / 1000) : 0,
+        status: viaSfu ? 'connected' : (peer?.status ?? 'none'),
+        forSec: peer ? Math.round((now - peer.since) / 1000) : 0,
         role: this.myId < userId ? 'dial' : 'answer',
         ice: peer ? `${peer.pc.iceConnectionState}/${peer.pc.iceGatheringState}` : '-',
         gotReply: Boolean(peer?.pc.remoteDescription),
         late: peer ? { ...peer.trickled } : { sent: 0, got: 0 },
         relay: { sending: this.relayTo.has(userId), heard: this.relayIn.heard(userId), framesIn: this.relayIn.framesFrom(userId) },
-        sfu: this.viaSfu(userId),
+        sfu: viaSfu,
         mine: routesIn(peer?.pc.localDescription?.sdp),
         theirs: routesIn(peer?.pc.remoteDescription?.sdp),
-        via,
-        audioKbIn,
+        via: route?.local && route.remote ? `${route.local.type} → ${route.remote.type}` : null,
+        audioKbIn: Math.round((direct?.sample.bytesIn ?? slot?.sample.bytesIn ?? 0) / 1024),
+        route,
+        stream: slot?.stream ?? direct?.stream ?? null,
       });
     }
-    return { myId: this.myId, mic: this.micAvailable, iceServers: this.iceServers.length, signalError: this.signalError, sfu: this.sfuStatus, denoise: this.denoising, links };
+    return {
+      myId: this.myId,
+      mic: this.micAvailable,
+      denoise: this.denoising,
+      sending: Boolean(this.sendTrack()) && !this.muted,
+      iceServers: this.iceServers.length,
+      signalError: this.signalError,
+      game: { transport: transportName() },
+      server: {
+        status: this.sfuStatus,
+        forSec: sfu ? Math.round((now - sfu.since) / 1000) : 0,
+        connects: this.sfuConnects,
+        route: server?.route ?? null,
+        stream: server?.stream ?? null,
+      },
+      events: [...this.events],
+      links,
+    };
   }
 
   /** How many of the other members we have a working audio link with. */
@@ -660,9 +757,17 @@ class VoiceClient {
   private setOthers(state: VoiceState): void {
     const now = Date.now();
     this.others = new Set(state.participants.map((p) => p.userId).filter((id) => id !== this.myId));
-    this.onSfu = new Set(state.participants.filter((p) => p.sfu && p.userId !== this.myId).map((p) => p.userId));
+    const onSfu = new Set(state.participants.filter((p) => p.sfu && p.userId !== this.myId).map((p) => p.userId));
+    for (const id of this.onSfu) if (!onSfu.has(id)) this.sfuLostAt.set(id, now);
+    for (const id of onSfu) this.sfuLostAt.delete(id);
+    this.onSfu = onSfu;
     for (const id of this.others) if (!this.seenAt.has(id)) this.seenAt.set(id, now);
     for (const id of [...this.seenAt.keys()]) if (!this.others.has(id)) this.seenAt.delete(id);
+  }
+
+  /** The voice server lost our link on its side: redo it now rather than wait to notice. */
+  onSfuGone(s: { lobbyId: string }): void {
+    if (s.lobbyId === this.lobbyId && this.joined && this.sfuOn) void this.recover('voice server dropped the link');
   }
 
   /** The voice server says which receive slot carries whose voice. */
@@ -679,7 +784,7 @@ class VoiceClient {
     if (!lobbyId || !this.sfuOn || this.sfuStarting) return;
     this.sfuStarting = true;
     this.closeSfu();
-    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], status: 'connecting', since: Date.now(), late: [], lateTimer: null };
+    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], status: 'connecting', since: Date.now(), late: [], lateTimer: null, lostTimer: null };
     this.sfu = link;
     this.notify();
     const fail = () => {
@@ -720,9 +825,19 @@ class VoiceClient {
         const status: PeerStatus = s === 'connected' ? 'connected' : s === 'failed' || s === 'closed' ? 'failed' : 'connecting';
         if (status !== link.status) link.since = Date.now();
         link.status = status;
+        if (link.lostTimer) clearTimeout(link.lostTimer);
+        link.lostTimer = null;
         if (status === 'connected') {
+          this.sfuConnects++;
+          if (this.sfuConnects > 1) this.note('voice server link back');
           void this.applyBitrate(link.mic);
           for (const a of link.audios) void a.play().catch(() => {});
+        } else if (s === 'disconnected') {
+          // Its route stopped answering (on iOS this is how a network switch shows): give it a
+          // moment to recover by itself, then redo it.
+          link.lostTimer = setTimeout(() => this.sfu === link && link.status !== 'connected' && void this.recover('voice server link lost'), DISCONNECTED_MS);
+        } else if (status === 'failed') {
+          void this.recover('voice server link failed');
         }
         this.updateRelay();
         this.notify();
@@ -749,6 +864,7 @@ class VoiceClient {
     if (!link) return;
     this.sfu = null;
     if (link.lateTimer) clearTimeout(link.lateTimer);
+    if (link.lostTimer) clearTimeout(link.lostTimer);
     if (link.pc) {
       link.pc.ontrack = link.pc.onicecandidate = link.pc.onconnectionstatechange = null;
       link.pc.close();
@@ -846,7 +962,9 @@ class VoiceClient {
 
   /** After a socket reconnect the server has dropped us from the channel: rejoin and re-call. */
   async onReconnect(): Promise<void> {
-    if (this.lobbyId) await this.restart();
+    if (!this.lobbyId) return;
+    this.note('game connection back: rejoining voice');
+    await this.restart();
   }
 
   private async restart(): Promise<string | null> {
@@ -974,12 +1092,19 @@ class VoiceClient {
         if (this.peers.has(id)) this.closePeer(id);
         continue;
       }
-      // Give both phones a moment to reach the voice server before dialling directly.
-      if (this.sfuOn && !this.peers.has(id) && now - (this.seenAt.get(id) ?? 0) < SFU_GRACE_MS) continue;
+      // Give both phones a moment to reach the voice server (again, after a reconnect) before
+      // dialling directly.
+      const waitFrom = Math.max(this.seenAt.get(id) ?? 0, this.sfuLostAt.get(id) ?? 0, this.sfu?.status === 'connected' ? 0 : (this.sfu?.since ?? 0));
+      if (this.sfuOn && !this.peers.has(id) && now - waitFrom < SFU_GRACE_MS) continue;
       const peer = this.peers.get(id);
       // close() fires no state event, so a link closed under us still reads as connected.
       if (peer && peer.pc.connectionState === 'closed' && peer.status !== 'failed') this.markFailed(id, peer);
-      const stuck = !peer || (peer.status === 'failed' && now - peer.since > RETRY_MS) || (peer.status !== 'connected' && now - peer.since > STALL_MS);
+      const stuck =
+        !peer ||
+        (peer.status === 'failed' && now - peer.since > RETRY_MS) ||
+        (peer.status !== 'connected' && now - peer.since > STALL_MS) ||
+        // A connected link whose route went away (network switch): redo it soon, not after 12 s.
+        (peer.pc.connectionState === 'disconnected' && now - peer.since > DISCONNECTED_MS);
       if (!stuck) continue;
       if (this.myId < id) {
         this.closePeer(id);

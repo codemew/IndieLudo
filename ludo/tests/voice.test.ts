@@ -298,3 +298,16 @@ describe('lobby voice chat over sockets', () => {
     expect(t.server.ctx.voice.state(lobbyId).participants).toEqual([]);
   });
 });
+
+describe('rejoining after a network change', () => {
+  it('keeps the voice-server flag until that link itself changes, so the others wait instead of dialling directly', async () => {
+    const { VoiceManager } = await import('../src/server/voice.js');
+    const vm = new VoiceManager({ isMember: () => true, isHost: () => false });
+    vm.join('g1', 1, 's1');
+    vm.setSfu('g1', 1, true);
+    vm.join('g1', 1, 's2'); // the phone rejoined over its new network
+    expect(vm.state('g1').participants).toEqual([{ userId: 1, muted: false, sfu: true }]);
+    vm.setSfu('g1', 1, false);
+    expect(vm.state('g1').participants).toEqual([{ userId: 1, muted: false }]);
+  });
+});

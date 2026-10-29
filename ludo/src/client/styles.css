@@ -3111,6 +3111,12 @@ button.me:active {
 .vd-link.vd-none {
   border-left-color: #ef4444;
 }
+.vd-link.vd-mine {
+  border-left-color: rgba(167, 139, 250, 0.7);
+}
+.vd-link span {
+  display: block;
+}
 .vd-link span {
   font-size: 11px;
   color: var(--muted);

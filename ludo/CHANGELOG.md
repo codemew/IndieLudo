@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.1.0
+
+### Added
+- **Voice Details show how voice travels.**
+  - **Game connection:** WebSocket over TCP (or HTTP long-polling).
+  - **Voice server:** the transport (UDP or TCP), both ends' address and port (local network or internet, Wi-Fi or mobile, IPv4 or IPv6), round-trip time, kbps up and down, packet loss, jitter and codec.
+  - **Each player:** whether their voice comes via the voice server (UDP), a direct link (UDP or TCP) or the game-server relay (TCP), with their audio's stats.
+  - **Recent:** a log of reconnects and their reasons.
+  - **Copy report:** includes all of it.
+- **Automatic voice reconnect when a phone switches between Wi-Fi and mobile data.**
+  - **Noticing:** the phone notices the switch, checks whether the game connection still answers, and redoes voice over the new network, or reconnects the game connection first if it went stale.
+  - **When the server notices first:** it tells the phone when it loses a link.
+  - **Silent switches:** a voice link whose route goes quiet is redone after 3 s; it used to take 12 s or more.
+  - **Measured in Chrome:** back in about 1 s after a network change, 1.2 s after the game connection drops, and 0.2 s after the voice server loses a link.
+
+### Fixed
+- **Others no longer dial someone directly while they reconnect** to the voice server. They wait for them to come back, so there's no burst of direct calls that close again moments later.
+- **The voice Details named spectators "player 12"** instead of their names.
+
+### Tests
+- **Unit tests:**
+  - reading WebRTC stats into routes and stats
+  - the reconnect decisions after a network change, with the game connection stale or still answering
+  - keeping the voice-server flag across a rejoin
+- **In Chrome:**
+  - the Details showing UDP, addresses, ports, bitrates and the WebSocket game connection
+  - recovery after a network-change event, a link dropped by the voice server, and a dropped game connection, each in under 6 s
+
 ## 3.0.0
 
 ### Added

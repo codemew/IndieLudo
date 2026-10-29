@@ -136,6 +136,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     };
 
     on('lobby:list', SCHEMAS.empty, () => ({ ok: true, data: ctx.lobbies.summaries() }));
+    on('net:probe', SCHEMAS.empty, () => ({ ok: true }));
 
     on('lobby:create', SCHEMAS.lobbyCreate, (p) => {
       const l = ctx.lobbies.create(me(), p);

@@ -83,6 +83,33 @@ export function emit<T = unknown>(event: keyof ClientToServer, payload: object, 
   });
 }
 
+/**
+ * After a network change: does the game connection still answer within `timeoutMs`? A socket
+ * can look connected for up to ~20 s after its network went away (until the heartbeat misses).
+ */
+export async function probe(timeoutMs = 2500): Promise<boolean> {
+  return (await emit('net:probe', {}, timeoutMs)).ok;
+}
+
+/** Drops the game connection so it reconnects at once, over whatever network the phone has now. */
+export function reconnectNow(): void {
+  if (!socket || intentionalClose) return;
+  if (socket.connected) socket.io.engine?.close();
+  else socket.connect();
+}
+
+/** How the game connection runs: "websocket" or "polling" (both over TCP), or null while offline. */
+export function transportName(): string | null {
+  return socket?.connected ? (socket.io.engine?.transport?.name ?? null) : null;
+}
+
+const networkListeners = new Set<() => void>();
+/** Called when the phone changes network (Wi-Fi ↔ mobile data, or back online). */
+export function onNetworkChange(fn: () => void): () => void {
+  networkListeners.add(fn);
+  return () => networkListeners.delete(fn);
+}
+
 /** Emits without waiting for a reply (relayed voice frames); dropped while offline. */
 export function send(event: keyof ClientToServer, payload: object): void {
   if (socket?.connected) (socket as any).emit(event, payload);
@@ -93,7 +120,14 @@ export function installNetworkListeners(onResume: () => void): void {
   const kick = () => {
     if (socket && !socket.connected && !intentionalClose) socket.connect();
   };
-  window.addEventListener('online', kick);
+  const changed = () => networkListeners.forEach((fn) => fn());
+  window.addEventListener('online', () => {
+    kick();
+    changed();
+  });
+  // Android Chrome reports switches between Wi-Fi and mobile data; iOS only online/offline, and
+  // there the voice link noticing its route died (voice.ts) does the job.
+  (navigator as Navigator & { connection?: EventTarget }).connection?.addEventListener?.('change', changed);
   window.addEventListener('offline', () => socket && !intentionalClose && banner(true));
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') return;

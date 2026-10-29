@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 /** What the client sent to the server. */
 const sent: [string, any][] = [];
+/** The test's handle on the network: the change listener voice.ts registers, and the probe's answer. */
+const net = vi.hoisted(() => ({ changed: null as null | (() => void), answers: true, reconnected: 0 }));
 vi.mock('../../src/client/net.js', () => ({
   emit: vi.fn(async (event: string, payload: any) => {
     sent.push([event, payload]);
@@ -16,6 +18,11 @@ vi.mock('../../src/client/net.js', () => ({
     }
     return { ok: true };
   }),
+  send: vi.fn(),
+  onNetworkChange: vi.fn((fn: () => void) => ((net.changed = fn), () => {})),
+  probe: vi.fn(async () => net.answers),
+  reconnectNow: vi.fn(() => net.reconnected++),
+  transportName: vi.fn(() => 'websocket'),
 }));
 
 /** Just enough of RTCPeerConnection to drive the signalling. */
@@ -125,6 +132,30 @@ describe('late candidates (trickle ICE)', () => {
 
     const report = await voice.report();
     expect(report.links[0]).toMatchObject({ userId: 2, late: { sent: 2, got: 1 } });
+    await voice.leave();
+  });
+
+  it('after a network change: a stale game connection is reconnected; a live one rejoins voice at once', async () => {
+    expect(await voice.join('L', 1)).toBeNull();
+    const joins = () => sent.filter(([e]) => e === 'voice:join').length;
+
+    // Wi-Fi went away and the socket's network with it: the probe gets no answer.
+    net.answers = false;
+    const before = joins();
+    net.changed!();
+    net.changed!(); // a burst of change events acts once
+    await sleep(1000);
+    expect(net.reconnected).toBe(1);
+    expect(joins()).toBe(before); // voice rejoins when the socket is back (onReconnect)
+
+    // Mobile data took over and the game connection still answers: redo voice right away.
+    net.answers = true;
+    net.changed!();
+    await sleep(1000);
+    expect(net.reconnected).toBe(1);
+    expect(joins()).toBe(before + 1);
+    const events = (await voice.report()).events.map((e) => e.what);
+    expect(events).toEqual(['network changed', 'game connection not answering: reconnecting it', 'network changed']);
     await voice.leave();
   });
 });

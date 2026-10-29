@@ -159,7 +159,8 @@ export type LobbyStatus = 'waiting' | 'playing';
  * browsers refuse an Opus cap below 6 kbps.
  */
 export const VOICE_BITRATES = [6, 12, 24, 48] as const;
-export const DEFAULT_VOICE_BITRATE = 24;
+/** New lobbies start at the lowest step: least mobile data, and speech stays clear. The host can raise it. */
+export const DEFAULT_VOICE_BITRATE = 6;
 
 /** Who is in a lobby's voice channel. Shared with every member of the lobby. */
 export interface VoiceState {

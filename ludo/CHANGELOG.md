@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.1
+
+### Changed
+- **Voice quality starts at 6 kbps** (was 24) in every new lobby. That's the least mobile data, and speech stays clear. The host can still pick 12, 24 or 48 kbps for richer sound, and that choice applies to everyone.
+
 ## 3.1.0
 
 ### Added

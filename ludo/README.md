@@ -213,10 +213,10 @@ Everyone in a lobby, up to 8 people (4 seats and 4 spectators), is automatically
 - **Host controls:** these are on the lobby screen and in the game's ☰ menu. If the host leaves, the next host gets them.
   - **Restart for everyone:** every phone drops its voice connections and joins again from scratch. Use it when several players can't hear each other.
   - **Turn off / Turn on:** turns voice chat off or on for the whole lobby. While it's off, no phone uses its microphone.
-  - **Quality:** **6, 12, 24 or 48 kbps**. The change applies to everyone at once, without reconnecting. The default is 24 kbps. 6 kbps saves the most mobile data and still keeps speech clear. Browsers won't encode voice below 6 kbps. Other players can see the setting but not change it.
+  - **Quality:** **6, 12, 24 or 48 kbps**. The change applies to everyone at once, without reconnecting. The default is 6 kbps, which saves the most mobile data and still keeps speech clear; the host can raise it for richer sound. Browsers won't encode voice below 6 kbps. Other players can see the setting but not change it.
 - **How it works: the built-in voice server (UDP):**
   - **One upload:** each phone has one WebRTC connection to the game server and sends its voice to it once. The server passes it on to everyone else in the lobby, without decoding or mixing it.
-  - **Data:** with 4 people talking, a phone uploads about 3.3× less than with a direct link to everyone (measured: 131 KB a minute against 438 KB).
+  - **Data:** with 4 people talking, a phone uploads about 3.3× less than with a direct link to everyone (measured at 24 kbps: 131 KB a minute against 438 KB; less again at the 6 kbps default).
   - **Reach:** every phone can reach the server, since it's the game server, so mixed networks (Jio mobile data and IPv4-only Wi-Fi) work.
   - **Reconnecting:** one connection to redo, instead of one per player.
   - **Security:** audio is encrypted (DTLS‑SRTP) between each phone and the server.

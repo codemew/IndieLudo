@@ -11,7 +11,7 @@ vi.mock('../../src/client/net.js', () => ({
       return {
         ok: true,
         data: {
-          state: { lobbyId: 'L', enabled: true, epoch: 0, bitrateKbps: 24, participants: [{ userId: 1, muted: false }, { userId: 2, muted: false }] },
+          state: { lobbyId: 'L', enabled: true, epoch: 0, bitrateKbps: 6, participants: [{ userId: 1, muted: false }, { userId: 2, muted: false }] },
           iceServers: [],
         },
       };

@@ -39,15 +39,15 @@ describe('VoiceManager', () => {
 
   it('quality: 6/12/24/48 kbps only, and only the host may change it', () => {
     const { vm } = make();
-    expect(vm.state('g1').bitrateKbps).toBe(24);
+    expect(vm.state('g1').bitrateKbps).toBe(6); // the default: least mobile data
     expect(() => vm.setBitrate('g1', 2, 48)).toThrow('NOT_HOST');
-    vm.setBitrate('g1', 1, 6);
-    expect(vm.state('g1').bitrateKbps).toBe(6);
+    vm.setBitrate('g1', 1, 24);
+    expect(vm.state('g1').bitrateKbps).toBe(24);
     for (const bad of [4, 8, 16, 32, 64, 0]) expect(() => vm.setBitrate('g1', 1, bad)).toThrow('INVALID_BITRATE');
     expect(() => vm.setBitrate('g1', 3, 16)).toThrow('NOT_IN_LOBBY');
     vm.join('g1', 1, 's1');
     vm.leave('g1', 1);
-    expect(vm.state('g1').bitrateKbps).toBe(6);
+    expect(vm.state('g1').bitrateKbps).toBe(24); // the host's choice outlives members coming and going
   });
 
   it('relays only between members of the same channel', () => {
@@ -75,7 +75,7 @@ describe('VoiceManager', () => {
     const { vm, onChange } = make();
     vm.join('g1', 1, 's1');
     vm.close('g1');
-    expect(onChange).toHaveBeenLastCalledWith({ lobbyId: 'g1', enabled: true, epoch: 0, bitrateKbps: 24, participants: [] });
+    expect(onChange).toHaveBeenLastCalledWith({ lobbyId: 'g1', enabled: true, epoch: 0, bitrateKbps: 6, participants: [] });
   });
 
   it('the host can turn voice off (everyone is dropped, nobody can join) and back on', () => {
@@ -153,7 +153,7 @@ describe('lobby voice chat over sockets', () => {
     expect(joined).toEqual({
       ok: true,
       data: {
-        state: { lobbyId, enabled: true, epoch: 0, bitrateKbps: 24, participants: [{ userId: host.userId, muted: false }] },
+        state: { lobbyId, enabled: true, epoch: 0, bitrateKbps: 6, participants: [{ userId: host.userId, muted: false }] },
         iceServers: [{ urls: 'stun:example.test:3478' }],
         sfu: true,
       },
@@ -176,8 +176,8 @@ describe('lobby voice chat over sockets', () => {
     expect(await guest.emit('voice:mute', { lobbyId, muted: true })).toEqual({ ok: true });
     await muted;
 
-    const hq = nextVoice(guest, (s) => s.bitrateKbps === 6);
-    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 6 })).toEqual({ ok: true });
+    const hq = nextVoice(guest, (s) => s.bitrateKbps === 24);
+    expect(await host.emit('voice:bitrate', { lobbyId, kbps: 24 })).toEqual({ ok: true });
     await hq;
     expect(await host.emit('voice:bitrate', { lobbyId, kbps: 64 })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
     expect(await host.emit('voice:bitrate', { lobbyId, kbps: 20 })).toEqual({ ok: false, error: 'INVALID_BITRATE' });

@@ -113,7 +113,7 @@ export interface PlayerStats {
   homeRuns?: number;
   /** Risks taken, for "Balls of steel": laps taken round again plus wildcard entries. */
   risks?: number;
-  /** Team-up: teammates' tokens captured, for "Et tu, Brute?". Not counted as captures. */
+  /** Team-up: teammates' tokens captured, for "Backstabber". Not counted as captures. */
   friendlyFire?: number;
   firstBlood: boolean;
   /** Captures each opponent has made on you that you haven't avenged yet. */

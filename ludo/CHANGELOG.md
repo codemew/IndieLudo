@@ -13,7 +13,7 @@
   - **Winning:** both partners home wins it; a partner who finishes first sits out; a surrender concedes for the team.
   - **Friendly fire:** allowed, with a confirm. The bonus roll is kept, but the capturer's moustache shrinks a level. Bots do it only when nothing else is possible.
   - **In the lobby and the game:** team tags and "＋ Bot teammate / opponent" in the lobby; partner badges on the chips; "Your team won!" on the results for both winners, who both get a lifetime win.
-- **Awards:** Balls of steel (a drawn steel ball) for the most risks taken (laps round again plus wildcard entries), and 🗡️ Et tu, Brute? for the most teammates captured.
+- **Awards:** Balls of steel (a drawn steel ball) for the most risks taken (laps round again plus wildcard entries), and 🗡️ Backstabber for the most teammates captured.
 - **Which token moves?** Tapping your stacked tokens that differ (moustache, last lap) opens a sheet with each one large.
 - **Voice goes over the internet first.**
   - **Local routes:** offered only by phones on IPv4 with a ping under 40 ms (`voice.localMaxPingMs`), ranked after the internet ones, or after the internet route hasn't connected for 5 s. This applies to the voice server and the direct links.

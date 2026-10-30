@@ -201,7 +201,7 @@ describe.skipIf(!CHROME || !BUILT)('Team-up', () => {
       expect(await p.$$eval('.podium-row .crown', (cs) => cs.length)).toBe(2);
       expect(await p.$$eval('.podium-row .place', (ps) => ps.map((x) => x.textContent))).toEqual(['1st', '1st', '2nd', '2nd']);
     }
-    expect(await alice.$$eval('.award', (as) => as.map((x) => x.querySelector('b')!.textContent))).toContain('Et tu, Brute?');
+    expect(await alice.$$eval('.award', (as) => as.map((x) => x.querySelector('b')!.textContent))).toContain('Backstabber');
     await shot(alice, 'teamup-results');
     expect(t.errors).toEqual([]);
   });

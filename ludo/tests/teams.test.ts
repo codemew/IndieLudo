@@ -154,14 +154,14 @@ describe('Team-up rules', () => {
     expect(threatenedTokens(s).has('red:0')).toBe(true);
   });
 
-  it('awards: "Et tu, Brute?" for the most friendly fire, "Balls of steel" for the most risks', () => {
+  it('awards: "Backstabber" for the most friendly fire, "Balls of steel" for the most risks', () => {
     const s = teamGame();
     statsOf(s, 'red').friendlyFire = 2;
     statsOf(s, 'blue').friendlyFire = 1;
     statsOf(s, 'green').risks = 3;
     statsOf(s, 'yellow').risks = 3;
     const awards = gameAwards(s);
-    expect(awards.find((a) => a.key === 'friendlyFire')).toMatchObject({ title: 'Et tu, Brute?', colors: ['red'], value: 2 });
+    expect(awards.find((a) => a.key === 'friendlyFire')).toMatchObject({ title: 'Backstabber', colors: ['red'], value: 2 });
     expect(awards.find((a) => a.key === 'risks')).toMatchObject({ title: 'Balls of steel', colors: ['green', 'yellow'], value: 3 });
   });
 });

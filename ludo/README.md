@@ -148,7 +148,7 @@ A token that has reached home can be sent back to base to play it again: **hold 
 
 - **Teams:** 2 vs 2, diagonal partners: **Red + Yellow** against **Green + Blue**. Pick your team by your seat; the host can add a bot as a teammate or an opponent. All four seats must be filled.
 - **Winning:** a team wins when both partners have all four tokens home; the game ends there. A partner who finishes first sits out.
-- **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you still get the bonus roll, but your moustache **shrinks a level**, and it counts only for 🗡️ Et tu, Brute?, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
+- **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you still get the bonus roll, but your moustache **shrinks a level**, and it counts only for 🗡️ Backstabber, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
 - **Surrender:** concedes for the team: the match ends and the other team wins.
 - **Results:** "Your team won!" for both winners; both get a lifetime win.
 
@@ -196,7 +196,7 @@ The results screen shows awards, everyone's match stats, and each player's award
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
 | 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
 | (no column) | Balls of steel (a steel-ball icon) | The most risks taken: laps taken round again plus wildcard entries |
-| (no column) | 🗡️ Et tu, Brute? | Team-up: the most teammates' tokens captured |
+| (no column) | 🗡️ Backstabber | Team-up: the most teammates' tokens captured |
 | (no column) | 👶 Baby face (the comedy trophy) | The **fewest** clean-shaven tokens that grew a moustache (a token's first capture since it last left base). It's only given when someone else grew more, so it never goes to everyone. |
 | 🩸 First blood | First blood | The game's first capture |
 

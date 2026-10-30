@@ -538,7 +538,7 @@ export function gameScreen(root: HTMLElement): () => void {
           burst(from, e.color);
           if (e.friendly) {
             // Team-up: eating your own teammate. Allowed, but nobody is proud of it.
-            callout('Friendly fire!', 'Et tu, Brute?');
+            callout('Friendly fire!', 'Stabbed in the back!');
           } else {
             // The capturer savours its meal while the victim reacts on its way home.
             if (lastMover) tokenEmoji(lastMover, 'yum');

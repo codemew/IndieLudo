@@ -192,7 +192,7 @@ describe('the results screen', () => {
     expect([...document.querySelectorAll('.place')].map((p) => p.textContent)).toEqual(['1st', '2nd', '3rd', '4th']);
     expect(document.querySelector('.podium-row.p-yellow')!.textContent).toContain('🏳️');
     const awards = [...document.querySelectorAll('.award b')].map((b) => b.textContent);
-    expect(awards).toEqual(expect.arrayContaining(['Balls of steel', 'Et tu, Brute?', 'Most macho', 'Baby face', 'First blood']));
+    expect(awards).toEqual(expect.arrayContaining(['Balls of steel', 'Backstabber', 'Most macho', 'Baby face', 'First blood']));
     expect(document.querySelector('.award .aw-icon .steel-ball')).not.toBeNull();
     expect(document.querySelector('.p-red td.best')!.textContent).toBe('5'); // 🏠 Home
     click('#home');

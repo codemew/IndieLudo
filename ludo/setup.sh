@@ -393,7 +393,10 @@ dev_browser() {
     if chrome_runs "$chrome"; then
       ok "It starts headless"
     else
-      gap "$chrome does not start headless (a snap-packaged Chromium can't). Install Google Chrome or set CHROME_PATH."
+      local hint="Install Google Chrome or set CHROME_PATH."
+      # find_chrome puts CHROME_PATH first: an explicit choice is respected, even when it is the broken one.
+      [[ -n "${CHROME_PATH:-}" && "$chrome" == "$CHROME_PATH" ]] && hint="CHROME_PATH is set to it: fix it, or unset it to use /usr/bin/google-chrome."
+      gap "$chrome does not start headless (a snap-packaged Chromium can't). $hint"
     fi
   fi
 }

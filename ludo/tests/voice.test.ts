@@ -156,6 +156,7 @@ describe('lobby voice chat over sockets', () => {
         state: { lobbyId, enabled: true, epoch: 0, bitrateKbps: 6, participants: [{ userId: host.userId, muted: false }] },
         iceServers: [{ urls: 'stun:example.test:3478' }],
         sfu: true,
+        local: { ok: true, why: expect.stringMatching(/^IPv4 · \d+ ms$/) },
       },
     });
     expect((await bobSeesAlice).participants).toEqual([{ userId: host.userId, muted: false }]);

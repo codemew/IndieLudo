@@ -169,5 +169,38 @@ export async function slide(el: HTMLElement, from: Cell, to: Cell, ms: number): 
   }
 }
 
+/**
+ * A wildcard entry: the token rises from home, swells and spins with a glow, flies in a high
+ * arc across the board and drops heavily into its base slot.
+ */
+export async function fly(el: HTMLElement, from: Cell, to: Cell, ms: number): Promise<void> {
+  const peak: Cell = [(from[0] + to[0]) / 2, Math.min(from[1], to[1]) - 2.5];
+  const at = (t: number): Cell => [(1 - t) ** 2 * from[0] + 2 * (1 - t) * t * peak[0] + t * t * to[0], (1 - t) ** 2 * from[1] + 2 * (1 - t) * t * peak[1] + t * t * to[1]];
+  const frames: Keyframe[] = [
+    { transform: `${tf(from[0], from[1], 1)} rotate(0deg)`, offset: 0 },
+    { transform: `${tf(from[0], from[1] - 0.4, 1.9)} rotate(-20deg)`, offset: 0.22, easing: 'ease-in-out' },
+    { transform: `${tf(from[0], from[1] - 0.5, 2.1)} rotate(340deg)`, offset: 0.4 },
+  ];
+  for (const t of [0.25, 0.5, 0.75]) {
+    const [x, y] = at(t);
+    frames.push({ transform: `${tf(x, y, 2.1 - 0.6 * t)} rotate(${360 + 180 * t}deg)`, offset: 0.4 + 0.45 * t });
+  }
+  frames.push({ transform: `${tf(to[0], to[1], 1.25)} rotate(540deg)`, offset: 0.9, easing: 'cubic-bezier(.5,0,.9,.4)' });
+  frames.push({ transform: `${tf(to[0], to[1], 1)} rotate(720deg)`, offset: 1 });
+  el.style.zIndex = '32';
+  el.classList.add('flying');
+  const anim = el.animate(frames, { duration: reducedMotion() ? 40 : atTempo(ms), fill: 'forwards' });
+  try {
+    await anim.finished;
+  } catch {
+    /* cancelled */
+  } finally {
+    el.style.transform = tf(to[0], to[1], 1);
+    anim.cancel();
+    el.style.zIndex = '';
+    el.classList.remove('flying');
+  }
+}
+
 /** A pause between events on the board (at the current tempo). */
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, reducedMotion() ? Math.min(ms, 60) : atTempo(ms)));

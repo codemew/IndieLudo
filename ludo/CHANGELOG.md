@@ -1,5 +1,39 @@
 # Changelog
 
+## 3.2.0
+
+### Added
+- **Wildcard entry.** Hold your home triangle (or use 🃏 in the game menu) to send tokens from home back to base and play them again.
+  - **Any time:** also on other players' turns, and even after finishing (that player gives up their place until all four are home again).
+  - **The token:** keeps its moustache and needs a 6 to come out.
+  - **Two laps at most:** each token gets one extra lap, used by going round again or by a wildcard entry, so at most four per player.
+  - **Home again:** another bonus roll and another macho arrival. The new 🏠 Home stat counts every arrival, so 5 is possible.
+  - **On every phone:** a hazard-striped "WILDCARD ENTRY · beware!" banner, the token flying from home to base with a shockwave, its own sound and a vibration.
+- **Team-up mode**, chosen by the host in the lobby: 2 vs 2, Red + Yellow against Green + Blue.
+  - **Winning:** both partners home wins it; a partner who finishes first sits out; a surrender concedes for the team.
+  - **Friendly fire:** allowed, with a confirm. The bonus roll is kept, but the capturer's moustache shrinks a level. Bots do it only when nothing else is possible.
+  - **In the lobby and the game:** team tags and "＋ Bot teammate / opponent" in the lobby; partner badges on the chips; "Your team won!" on the results for both winners, who both get a lifetime win.
+- **Awards:** Balls of steel (a drawn steel ball) for the most risks taken (laps round again plus wildcard entries), and 🗡️ Et tu, Brute? for the most teammates captured.
+- **Which token moves?** Tapping your stacked tokens that differ (moustache, last lap) opens a sheet with each one large.
+- **Voice goes over the internet first.**
+  - **Local routes:** offered only by phones on IPv4 with a ping under 40 ms (`voice.localMaxPingMs`), ranked after the internet ones, or after the internet route hasn't connected for 5 s. This applies to the voice server and the direct links.
+  - **Public address:** without `announcedIp`, the voice server learns it from how internet phones connect.
+  - **Details:** shows which route rule applies.
+
+### Fixed
+- **Results with a long name and several awards:** the awards no longer spill out of the podium row. The name wraps, the awards sit under it, and a long heading wraps too.
+- **The gold and blue lap markers can be tapped:** the token layer used to catch the tap. The browser tests now tap at real screen positions.
+
+### Changed
+- **The timer pauses:** a surrender or wildcard entry by someone else pauses the current player's timer instead of restarting it.
+
+### Tests
+- **Coverage:** 535 unit tests, up from 334, at 90% line coverage (enforced: 80% overall, 95% for shared and server code; `npm run test:coverage`).
+  - **Rules:** a rules matrix, the wildcard entry and Team-up.
+  - **Voice:** address and route ranking.
+  - **Client:** every screen in happy-dom.
+- **Browser tests:** 34 in Chrome, including holding the home triangle, Team-up from lobby to results, long names on results at 390 and 360 px, and the internet-first voice route.
+
 ## 3.1.1
 
 ### Changed

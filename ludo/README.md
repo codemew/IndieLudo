@@ -64,8 +64,9 @@ While the server runs, you can type these commands into it:
 
 ```bash
 npm run dev     # backend (tsx watch) + Vite with HMR on https://<LAN-IP>:5173
-npm test        # all unit and integration tests
-npm run test:e2e  # builds, then plays the lobby, second lap and results screens in headless Chrome (CHROME_PATH to pick one; skipped if none is found)
+npm test        # all unit and integration tests (the client screens run in happy-dom)
+npm run test:coverage  # the same, with line coverage; fails below 80% overall or 95% for src/shared and src/server
+npm run test:e2e  # builds, then plays the lobby, game, Team-up, wildcard, voice and results screens in headless Chrome (CHROME_PATH to pick one; skipped if none is found)
 npm run typecheck
 ```
 
@@ -106,19 +107,21 @@ npm run typecheck
 ## Rules
 
 - **Board:** the classic layout with 2–4 players. Turns go clockwise: red → green → yellow → blue.
+- **Mode:** the host picks **🎲 Classic** (everyone for themselves) or **🤝 Team-up** in the lobby. See [Team-up](#team-up).
 - **Colours** belong to players. Every phone draws each player in the same colour on the same board orientation.
 - **Leaving base** takes a 6.
 - **Finishing** takes the exact roll; a die that would overshoot cannot be used.
 - **Second lap:** a token about to turn into its home stretch on its first lap may go round the whole board once more instead.
   - **Choosing:** the board shows a branching path, a gold trail into the home stretch and a blue one round again. Tap the gold or blue marker at the end of a trail to go that way, or tap the token for a **Which way?** sheet with two cards: **🏠 Head home** (squares left, safe from capture) and **↻ Go round again** (who it would capture on landing; how far it is left for the player to judge). **Not now** closes it without moving.
   - **On the second lap:** the token moves, captures and can be captured like any other, and wears a dashed white ring. At the end of that lap it turns home; it can't go round a third time.
+  - **Two laps at most:** each token gets one extra lap. Going round again uses it, and so does a [wildcard entry](#wildcard-entry). A token captured during its second lap starts over fresh, with its extra lap back.
   - **Bots and the timer:** they head home, unless going round would capture someone.
 - **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
 - **Surrender:** a player can give up at any time, not just on their turn, from the game menu (**🏳️ Surrender**, with a confirm).
   - **Their tokens:** any not yet home go back to base, clean-shaven and greyed out, and a white flag waves over that base on every phone. Nobody can capture them any more.
   - **The game:** the player takes no more turns and can watch the rest. If only one player is left, the match ends there.
   - **Final places:** players who finished, then the last one still playing, then those who surrendered (the last to give up ranks highest). The podium marks them with 🏳️.
-- **Your tokens sharing a square:** tap the one you want to move. When they wear different moustaches, the game always waits for your pick, so you can send a clean-shaven token forward and keep the macho one safe. Bots and the timer do the same: they move the smaller moustache.
+- **Your tokens sharing a square:** when they wear different moustaches (or one is on its last lap), the game always waits for your pick, so you can send a clean-shaven token forward and keep the macho one safe. Tapping either opens a **Which token moves?** sheet that shows each one large, with its moustache, its captures and what the move would capture. Bots and the timer move the smaller moustache.
 - **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base (two stacked tokens are both captured), and earns a **bonus roll** for each token captured. Each captured token also grows the capturer's moustache a level.
 - **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
 - **A useless six ends the turn:** when every token a player has left is in the home lane, a 6 can never be used, because even the first lane square plus 6 overshoots home. The 6 then ends the turn at once instead of giving another roll.
@@ -129,6 +132,25 @@ npm run typecheck
   - A die that can't move right now is kept, because it may become usable after another die is played. For example, with `[6, 3]`, the 6 brings a token out and then the 3 moves it.
   - When none of the remaining dice can move, they are all dropped and the turn passes.
 - **Ranking:** players are ranked as they finish. The game ends when one player is left.
+
+### Wildcard entry
+
+A token that has reached home can be sent back to base to play it again: **hold your home triangle** (a short tap says to hold), or use **🃏 Wildcard entry** in the game menu, then pick one or more tokens and tap **Send back**.
+
+- **When:** any time, also on other players' turns. It costs no roll and ends nobody's turn.
+- **After finishing too:** a player with all four home may still do it while two or more others are playing. They give up their place (the players behind move up) and must bring all four home again to finish. When only one opponent is left, finishing ends the game at once.
+- **The token:** goes to its base slot, keeps its moustache, and needs a 6 to come out. It is on its last lap now (dashed ring): it can't go round again, and it can't be sent back a second time. A token that went round again can't be sent back at all. So each player has at most four wildcard entries.
+- **Home again:** it earns the home bonus roll again, counts again for Most macho, and the 🏠 Home stat counts every arrival: a player can finish with 5.
+- **On every phone:** a hazard-striped **WILDCARD ENTRY · beware!** banner slams across the board, the token rises from home, spins and flies to its base, and lands with a thud and a shockwave, with its own sound (a whoosh, a boom, an ominous stab and a steel clang) and a vibration.
+- **Bots** never make wildcard entries.
+
+### Team-up
+
+- **Teams:** 2 vs 2, diagonal partners: **Red + Yellow** against **Green + Blue**. Pick your team by your seat; the host can add a bot as a teammate or an opponent. All four seats must be filled.
+- **Winning:** a team wins when both partners have all four tokens home; the game ends there. A partner who finishes first sits out.
+- **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you still get the bonus roll, but your moustache **shrinks a level**, and it counts only for 🗡️ Et tu, Brute?, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
+- **Surrender:** concedes for the team: the match ends and the other team wins.
+- **Results:** "Your team won!" for both winners; both get a lifetime win.
 
 **Timers and bots:**
 - Each action has `turnTimeoutSec`. When it runs out, the server plays **the rest of that turn** for the player (rolls and moves), at bot speed. The player can tap to take over again at any point.
@@ -167,11 +189,14 @@ The results screen shows awards, everyone's match stats, and each player's award
 
 | Stat | Award | What counts |
 |---|---|---|
+| 🏠 Home | (no award) | Every arrival home. A token back from a wildcard entry that gets home again counts twice, so 5 is possible. |
 | 👣 Cells | Most cells travelled | Every square moved; leaving base counts as 1 |
 | ⚔️ Captures | Most tokens captured | Opponent tokens sent back to base |
 | 🎲 Sixes | Most sixes | Every 6 rolled, including ones lost to the three‑sixes penalty |
 | 😤 Revenges | Most revenges taken | Capturing a player who captured you and whom you hadn't paid back yet. Each capture can be avenged once. |
 | 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
+| (no column) | Balls of steel (a steel-ball icon) | The most risks taken: laps taken round again plus wildcard entries |
+| (no column) | 🗡️ Et tu, Brute? | Team-up: the most teammates' tokens captured |
 | (no column) | 👶 Baby face (the comedy trophy) | The **fewest** clean-shaven tokens that grew a moustache (a token's first capture since it last left base). It's only given when someone else grew more, so it never goes to everyone. |
 | 🩸 First blood | First blood | The game's first capture |
 
@@ -220,7 +245,11 @@ Everyone in a lobby, up to 8 people (4 seats and 4 spectators), is automatically
   - **Reach:** every phone can reach the server, since it's the game server, so mixed networks (Jio mobile data and IPv4-only Wi-Fi) work.
   - **Reconnecting:** one connection to redo, instead of one per player.
   - **Security:** audio is encrypted (DTLS‑SRTP) between each phone and the server.
-  - **Ports:** it uses the UDP ports in `voice.sfu.portMin`–`portMax` (40000–40099 by default), one or two per phone in voice. On one Wi‑Fi network nothing needs setting up. **To play over the internet, forward that UDP range on your router to the host**; `setup.sh` opens it in the host's firewall. Phones outside the home network reach the server at the router's public IP, which is found with STUN, or set it with `voice.sfu.announcedIp`.
+  - **Ports:** it uses the UDP ports in `voice.sfu.portMin`–`portMax` (40000–40099 by default), one or two per phone in voice. On one Wi‑Fi network nothing needs setting up. **To play over the internet, forward that UDP range on your router to the host**; `setup.sh` opens it in the host's firewall. Phones outside the home network reach the server at the router's public IP: set it with `voice.sfu.announcedIp`, or leave it empty and the server learns it from the address internet phones connect to (the Host they use, resolved), falling back to STUN.
+- **Internet first:** every voice connection (to the voice server, and the direct fallback links) tries the internet route first.
+  - **Local-network routes** (192.168.x.x and other private addresses, hidden `.local` names) are offered only by a phone on **IPv4 with a ping under 40 ms** (`voice.localMaxPingMs`), which is most likely on the same network as the server, and even then ranked after the internet ones. A phone on IPv6 (for example Jio mobile data) or with a higher ping uses internet routes only.
+  - **Fallback:** if the internet route hasn't connected after 5 s, the phone tries again with local routes too (for routers that can't loop their public address back to the home network).
+  - **Details** shows which applies: "Local network route · allowed, after the internet route (IPv4 · 12 ms)", "not used: internet only (ping 85 ms)", or "added: the internet route didn't connect".
   - **Fallbacks:** a pair of phones that can't both use the voice server falls back to a direct WebRTC link, and then to the voice relay over the game's own connection (below).
 - **Repairs itself:**
   - **No crossed calls:** of each pair of phones, only the one whose user id is lower dials. The other asks it to call back with a "ring". So two phones that reconnect together never call each other at once.
@@ -371,17 +400,22 @@ Plain HTTP on `httpRedirectPort` redirects to HTTPS.
 | `trustProxy` | `false` | Trust `X-Forwarded-*` headers |
 | `gate.maxFailsPerIp` / `globalFailRotateThreshold` | 5 / 50 | Limits on access‑code guessing |
 | `voice.iceServers` | Google STUN | STUN/TURN servers for voice chat; see [Voice chat](#voice-chat) |
-| `voice.sfu.enabled` / `portMin` / `portMax` / `announcedIp` | `true` / 40000 / 40099 / `""` | The built-in voice server and its UDP ports (forward them on the router to play over the internet); `announcedIp` overrides the public IP found with STUN |
+| `voice.sfu.enabled` / `portMin` / `portMax` / `announcedIp` | `true` / 40000 / 40099 / `""` | The built-in voice server and its UDP ports (forward them on the router to play over the internet); `announcedIp` sets the public IP (empty: learnt from how internet phones connect, then STUN) |
+| `voice.localMaxPingMs` | 40 | Voice goes internet first; a phone also offers local-network routes only on IPv4 with a ping below this |
 
-Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH`, `LUDO_TRUST_PROXY`, `LUDO_VOICE_SFU` (`false` turns the voice server off), `LUDO_VOICE_PORTS` (e.g. `40000-40099`) and `LUDO_VOICE_IP`.
+Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH`, `LUDO_TRUST_PROXY`, `LUDO_VOICE_SFU` (`false` turns the voice server off), `LUDO_VOICE_PORTS` (e.g. `40000-40099`), `LUDO_VOICE_IP` and `LUDO_VOICE_LOCAL_PING_MS`.
 
 ## Project layout
 
 ```
-src/shared/   board geometry, pure rules engine, socket protocol and schemas (used by server and client)
+src/shared/   board geometry, pure rules engine (wildcard entry, Team-up), awards, voice route
+              ranking (ice.ts), socket protocol and schemas (used by server and client)
 src/server/   express + socket.io, config, sqlite, access gate, sessions, lobbies, game manager, bots, TLS
 src/client/   vanilla TS screens, SVG board, WAAPI token animations, 3D CSS dice, WebAudio sounds,
               WebRTC voice chat (voice.ts)
-tests/        Vitest: rules, dice, users and sessions, lobbies, game manager (fake timers), bot,
-              access gate (HTTP), socket integration, anti‑cheat, TLS, voice chat, board geometry
+tests/        Vitest: rules (and a rules matrix), wildcard entry, Team-up, dice, users and sessions,
+              lobbies, game manager (fake timers), bot, access gate (HTTP), socket integration,
+              anti‑cheat, TLS, voice chat and its routes, board geometry; tests/client/dom: every
+              client screen in happy-dom with the network faked
+e2e/          headless Chrome phones against a real server (npm run test:e2e)
 ```

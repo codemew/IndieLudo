@@ -9,7 +9,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let muted = storage.get(KEYS.muted) === '1';
 
-export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood';
+export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire';
 
 export function unlock(): void {
   try {
@@ -193,6 +193,29 @@ export function play(name: Sfx): void {
       noise(0, 0.12, 0.12, 300, 'lowpass');
       [196, 247, 294].forEach((f) => tone(f, 0.12, 0.55, 'sawtooth', 0.06, f * 0.98));
       [392, 494].forEach((f) => tone(f, 0.12, 0.45, 'triangle', 0.08));
+      break;
+    case 'wildcard':
+      // A wildcard entry: a rising whoosh, a deep boom, an ominous minor stab and a steel clang.
+      // Confident, and a warning to everyone else.
+      noise(0, 0.7, 0.16, 500, 'lowpass');
+      tone(90, 0, 0.7, 'sawtooth', 0.05, 360);
+      tone(70, 0.62, 0.7, 'sine', 0.36, 38);
+      noise(0.62, 0.14, 0.16, 260, 'lowpass');
+      [147, 175, 220].forEach((f) => tone(f, 0.7, 0.9, 'sawtooth', 0.055, f * 0.985));
+      [294, 349].forEach((f) => tone(f, 0.7, 0.75, 'triangle', 0.07));
+      // Steel: inharmonic partials, struck and ringing.
+      [1180, 1923, 2711, 3602].forEach((f, i) => tone(f, 1.05, 0.9 - i * 0.15, 'sine', 0.09 - i * 0.015));
+      noise(1.05, 0.05, 0.12, 4200);
+      break;
+    case 'land':
+      // The token thumps down in its base.
+      tone(95, 0, 0.35, 'sine', 0.3, 50);
+      noise(0, 0.1, 0.14, 300, 'lowpass');
+      break;
+    case 'friendlyFire':
+      // "Oops": a sliding descending whistle and a thud.
+      tone(880, 0, 0.45, 'triangle', 0.14, 330);
+      tone(120, 0.42, 0.2, 'sine', 0.2, 80);
       break;
     case 'turn':
       tone(880, 0, 0.12, 'sine', 0.22);

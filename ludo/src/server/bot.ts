@@ -1,12 +1,12 @@
 import { BASE, HOME, LAST_TRACK, absoluteSquare, isSafeSquare, isSecondLap, onTrack } from '../shared/board.js';
-import { currentColor, legalMoves } from '../shared/rules.js';
+import { currentColor, isTeammate, legalMoves } from '../shared/rules.js';
 import type { Color, GameState, LegalMove } from '../shared/types.js';
 
-/** True if an opponent token sits 1..6 squares behind the given absolute square. */
+/** True if an opponent token sits 1..6 squares behind the given absolute square (a teammate is no threat). */
 function threatened(state: GameState, me: Color, abs: number): boolean {
   if (isSafeSquare(abs)) return false;
   for (const seat of state.seats) {
-    if (seat.color === me) continue;
+    if (seat.color === me || isTeammate(state, me, seat.color)) continue;
     for (const p of state.tokens[seat.color]) {
       const theirs = absoluteSquare(seat.color, p);
       if (theirs === null) continue;
@@ -18,7 +18,8 @@ function threatened(state: GameState, me: Color, abs: number): boolean {
 }
 
 function score(state: GameState, me: Color, m: LegalMove): number {
-  let s = m.captures.length * 100;
+  // Capturing a teammate (Team-up) is a last resort: only when no other move is legal.
+  let s = m.captures.reduce((n, c) => n + (isTeammate(state, me, c.color) ? -1000 : 100), 0);
   if (m.to === HOME) s += 80;
   if (m.from === BASE) s += 60;
   if (onTrack(m.from) && m.to > LAST_TRACK && m.to < HOME) s += 40;
@@ -39,7 +40,7 @@ function score(state: GameState, me: Color, m: LegalMove): number {
   return s + along / 10 - kills / 1000;
 }
 
-/** Simple heuristic: capture > finish > leave base > reach safety > advance. */
+/** Simple heuristic: capture > finish > leave base > reach safety > advance; never a teammate unless forced. */
 export function chooseMove(state: GameState): LegalMove | null {
   const moves = legalMoves(state);
   if (moves.length === 0) return null;

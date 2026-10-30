@@ -25,8 +25,11 @@ export interface Config {
    * STUN/TURN servers handed to browsers for voice chat. LAN-only play needs none.
    * `turn` is a TURN relay using a shared secret (coturn's use-auth-secret, and most hosted
    * TURN services): each player gets a login that expires, and the secret never leaves the server.
+   * `localMaxPingMs`: voice goes over the internet first; a phone also offers local-network
+   * routes only if it is on IPv4 with a ping below this (it is then probably on the same network
+   * as the server), or once the internet route has failed.
    */
-  voice: { iceServers: RTCIceServerConfig[]; turn?: TurnConfig | null; sfu?: SfuConfig };
+  voice: { iceServers: RTCIceServerConfig[]; turn?: TurnConfig | null; sfu?: SfuConfig; localMaxPingMs: number };
   /** Not in config.json: directory for generated certificates. */
   certDir: string;
 }
@@ -71,7 +74,7 @@ export const DEFAULTS: Config = {
   https: { enabled: true, port: 3443, httpRedirectPort: 3000, certPath: '', keyPath: '', autoSelfSigned: true },
   trustProxy: false,
   gate: { maxFailsPerIp: 5, globalFailRotateThreshold: 50 },
-  voice: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }], sfu: DEFAULT_SFU },
+  voice: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }], sfu: DEFAULT_SFU, localMaxPingMs: 40 },
   certDir: './data/certs',
 };
 
@@ -108,6 +111,7 @@ const ENV_MAP: [string, (c: ConfigOverrides, v: string) => void][] = [
     c.voice = { ...c.voice, sfu: { ...DEFAULT_SFU, ...c.voice?.sfu, portMin: min, portMax: max ?? min } };
   }],
   ['LUDO_VOICE_IP', (c, v) => (c.voice = { ...c.voice, sfu: { ...DEFAULT_SFU, ...c.voice?.sfu, announcedIp: v.trim() } })],
+  ['LUDO_VOICE_LOCAL_PING_MS', (c, v) => (c.voice = { ...c.voice, localMaxPingMs: Number(v) })],
   ['LUDO_TURN_SECRET', (c, v) => (c.voice = { ...c.voice, turn: { urls: [], ...c.voice?.turn, secret: v } })],
 ];
 
@@ -134,6 +138,7 @@ export function validateConfig(c: Config): string[] {
   if (!Array.isArray(ice) || !ice.every((s) => s && typeof s === 'object' && validUrls(s.urls))) {
     errors.push('voice.iceServers must be a list of { "urls": "stun:…" } objects');
   }
+  if (!Number.isFinite(c.voice.localMaxPingMs) || c.voice.localMaxPingMs < 0) errors.push('voice.localMaxPingMs must be a non-negative number of milliseconds');
   const sfu = c.voice.sfu;
   if (sfu) {
     const port = (p: number) => Number.isInteger(p) && p >= 1024 && p <= 65535;

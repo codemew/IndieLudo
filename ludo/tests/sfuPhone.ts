@@ -9,12 +9,12 @@ const CODECS = { audio: [new RTCRtpCodecParameters({ mimeType: 'audio/opus', clo
  * A phone on the voice server, played by werift in Node: it joins over the real socket, sends
  * fake Opus packets as its microphone and records what arrives on each receive slot.
  */
-export async function sfuPhone(c: TestClient, lobbyId: string) {
+export async function sfuPhone(c: TestClient, lobbyId: string, opts: { local?: boolean } = {}) {
   const join = await c.emit<{ state: unknown; sfu: boolean }>('voice:join', { lobbyId });
   if (!join.ok || !join.data?.sfu) throw new Error(`voice:join ${JSON.stringify(join)}`);
   let slots: VoiceSlot[] = [];
   c.socket.on('voice:slots', (s: { lobbyId: string; slots: VoiceSlot[] }) => s.lobbyId === lobbyId && (slots = s.slots));
-  const r = await c.emit<SfuOffer>('voice:sfuJoin', { lobbyId });
+  const r = await c.emit<SfuOffer>('voice:sfuJoin', { lobbyId, ...(opts.local && { local: true }) });
   if (!r.ok) throw new Error(`voice:sfuJoin ${r.error}`);
   slots = r.data!.slots;
   const pc = new RTCPeerConnection({ codecs: CODECS, bundlePolicy: 'max-bundle', iceServers: [] });
@@ -46,6 +46,7 @@ export async function sfuPhone(c: TestClient, lobbyId: string) {
   let seq = 0;
   return {
     pc,
+    offer: r.data!.sdp,
     heard,
     slots: () => slots,
     /** Sends `n` 20 ms packets of "voice". */

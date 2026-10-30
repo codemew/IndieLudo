@@ -1,5 +1,6 @@
 import { BASE, HOME, LAP2_FIRST, LAP2_LAST, LAST_TRACK, absoluteSquare, isSafeSquare, isSecondLap } from './board.js';
-import { COLORS, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
+import { moustacheLevel } from './heft.js';
+import { COLORS, TEAMMATE, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
 
 /**
  * Pure Ludo rules engine. Functions mutate the given state in place and return
@@ -23,12 +24,15 @@ export function createGameState(opts: {
   seats: Omit<Seat, 'timeouts'>[];
   firstSeat?: number;
   now?: number;
+  /** Team-up: 2v2, diagonal partners. Needs all four seats. */
+  teams?: boolean;
 }): GameState {
   const seats = [...opts.seats]
     .sort((a, b) => COLORS.indexOf(a.color) - COLORS.indexOf(b.color))
     .map((s) => ({ ...s, timeouts: 0 }));
   if (seats.length < 2 || seats.length > 4) throw new RuleError('BAD_SEAT_COUNT');
   if (new Set(seats.map((s) => s.color)).size !== seats.length) throw new RuleError('DUPLICATE_COLOR');
+  if (opts.teams && seats.length !== 4) throw new RuleError('TEAMS_NEED_FOUR');
   const tokens = { red: [], green: [], yellow: [], blue: [] } as Record<Color, number[]>;
   for (const s of seats) tokens[s.color] = Array(TOKENS_PER_PLAYER).fill(BASE);
   return {
@@ -42,6 +46,7 @@ export function createGameState(opts: {
     finished: false,
     createdAt: opts.now ?? Date.now(),
     firstBlood: false,
+    ...(opts.teams && { teams: true }),
   };
 }
 
@@ -51,10 +56,33 @@ export function killsOf(state: GameState, color: Color): number[] {
   return (state.kills[color] ??= [0, 0, 0, 0]);
 }
 
+/** Each token's extra lap used so far (0 or 1), created on first use (older saved games have none). */
+export function extraLapsOf(state: GameState, color: Color): number[] {
+  state.extraLaps ??= {};
+  return (state.extraLaps[color] ??= [0, 0, 0, 0]);
+}
+
+/** Whether this token still has its extra lap (to go round again, or for a wildcard entry). Doesn't change the state. */
+export function hasExtraLap(state: GameState, color: Color, tokenId: number): boolean {
+  return !state.extraLaps?.[color]?.[tokenId];
+}
+
 /** The player's match stats, created on first use (games saved before stats existed have none). */
 export function statsOf(state: GameState, color: Color): PlayerStats {
   state.stats ??= {};
-  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, firstBlood: false, owed: {} });
+  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, firstBlood: false, owed: {} });
+}
+
+/** Team-up partners (never true in a classic game). */
+export function isTeammate(state: Pick<GameState, 'teams'>, a: Color, b: Color): boolean {
+  return Boolean(state.teams) && TEAMMATE[a] === b;
+}
+
+/** Who won: the first to finish, or in Team-up the first team with both partners home. Empty while playing. */
+export function winnersOf(state: Pick<GameState, 'teams' | 'ranks'>): Color[] {
+  const first = state.ranks[0];
+  if (!first) return [];
+  return state.teams ? [first, TEAMMATE[first]] : [first];
 }
 
 export function currentColor(state: GameState): Color {
@@ -68,16 +96,28 @@ export function isPlayerDone(state: GameState, color: Color): boolean {
 
 /**
  * The last player still in takes the next place, then those who surrendered (the last to
- * give up ranks highest), and the game is over.
+ * give up ranks highest), and the game is over. In Team-up, `winner`'s team comes first and
+ * the other team after it, each in the order: finished, still playing, surrendered.
  */
-function endGame(state: GameState, events: GameEvent[]): void {
-  for (const s of state.seats.filter((x) => !isPlayerDone(state, x.color))) {
-    state.ranks.push(s.color);
-    events.push({ type: 'rank', color: s.color, rank: state.ranks.length });
-  }
-  for (const c of [...(state.surrendered ?? [])].reverse()) {
-    state.ranks.push(c);
-    events.push({ type: 'rank', color: c, rank: state.ranks.length });
+function endGame(state: GameState, events: GameEvent[], winner?: Color): void {
+  if (state.teams && winner) {
+    const surrendered = state.surrendered ?? [];
+    const order = (team: Color[]) => [
+      ...state.ranks.filter((c) => team.includes(c)),
+      ...team.filter((c) => !state.ranks.includes(c) && !surrendered.includes(c)),
+      ...surrendered.filter((c) => team.includes(c)),
+    ];
+    const winners = order([winner, TEAMMATE[winner]]);
+    state.ranks = [...winners, ...order(state.seats.map((s) => s.color).filter((c) => !winners.includes(c)))];
+  } else {
+    for (const s of state.seats.filter((x) => !isPlayerDone(state, x.color))) {
+      state.ranks.push(s.color);
+      events.push({ type: 'rank', color: s.color, rank: state.ranks.length });
+    }
+    for (const c of [...(state.surrendered ?? [])].reverse()) {
+      state.ranks.push(c);
+      events.push({ type: 'rank', color: c, rank: state.ranks.length });
+    }
   }
   state.finished = true;
   state.turn.queue = [];
@@ -88,7 +128,7 @@ function endGame(state: GameState, events: GameEvent[]): void {
 /**
  * A player gives up, at any point of the game (not only on their turn). Their tokens that
  * aren't home go back to base, clean-shaven, and they take no more turns. If that leaves one
- * player, the game ends.
+ * player, the game ends. In Team-up their team concedes: the other team wins at once.
  */
 export function applySurrender(state: GameState, color: Color): GameEvent[] {
   if (state.finished) throw new RuleError('GAME_OVER');
@@ -102,6 +142,10 @@ export function applySurrender(state: GameState, color: Color): GameEvent[] {
     kills[i] = 0;
     return BASE;
   });
+  if (state.teams) {
+    endGame(state, events, state.seats.find((s) => s.color !== color && s.color !== TEAMMATE[color])!.color);
+    return events;
+  }
   if (state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
     endGame(state, events);
     return events;
@@ -116,10 +160,46 @@ function allHome(state: GameState, color: Color): boolean {
 }
 
 /**
- * Where a token could end up with this die. Usually one place; a token about to turn into its
- * home column on its first lap may instead go round the board once more (`lap`).
+ * Tokens this player may send from home back to base (a wildcard entry): home, with their extra
+ * lap unused, while the game is on and they haven't surrendered. A finished player may too.
  */
-export function targetsFor(progress: number, die: number): { to: number; lap?: true }[] {
+export function respawnable(state: GameState, color: Color): number[] {
+  if (state.finished || state.surrendered?.includes(color) || !state.seats.some((s) => s.color === color)) return [];
+  return state.tokens[color].flatMap((p, i) => (p === HOME && hasExtraLap(state, color, i) ? [i] : []));
+}
+
+/**
+ * A wildcard entry, at any time (it costs no turn): the tokens go from home back to base, keep
+ * their moustaches, and need a 6 to come out again. It uses up each token's extra lap, so a
+ * token does it at most once and can't go round again after it. A finished player who does
+ * it gives up their place and plays on: all four must be home again to finish.
+ */
+export function applyRespawn(state: GameState, color: Color, tokenIds: number[]): GameEvent[] {
+  if (state.finished) throw new RuleError('GAME_OVER');
+  if (!state.seats.some((s) => s.color === color)) throw new RuleError('NOT_SEATED');
+  if (state.surrendered?.includes(color)) throw new RuleError('SURRENDERED');
+  const ids = [...new Set(tokenIds)];
+  if (!ids.length || ids.length !== tokenIds.length || ids.some((i) => !Number.isInteger(i) || i < 0 || i >= TOKENS_PER_PLAYER)) throw new RuleError('BAD_TOKENS');
+  if (ids.some((i) => state.tokens[color][i] !== HOME)) throw new RuleError('NOT_HOME');
+  if (ids.some((i) => !hasExtraLap(state, color, i))) throw new RuleError('NO_LAPS_LEFT');
+  const laps = extraLapsOf(state, color);
+  for (const i of ids) {
+    state.tokens[color][i] = BASE;
+    laps[i] = 1;
+  }
+  const mine = statsOf(state, color);
+  mine.risks = (mine.risks ?? 0) + ids.length;
+  const place = state.ranks.indexOf(color);
+  if (place >= 0) state.ranks.splice(place, 1);
+  return [{ type: 'respawn', color, tokenIds: ids.sort((a, b) => a - b), ...(place >= 0 && { unranked: place + 1 }) }];
+}
+
+/**
+ * Where a token could end up with this die. Usually one place; a token about to turn into its
+ * home column on its first lap may instead go round the board once more (`lap`), unless it has
+ * used its extra lap already (`canLap` false).
+ */
+export function targetsFor(progress: number, die: number, canLap = true): { to: number; lap?: true }[] {
   if (progress === BASE) return die === SIX ? [{ to: 0 }] : [];
   const t = progress + die;
   if (isSecondLap(progress)) {
@@ -128,7 +208,7 @@ export function targetsFor(progress: number, die: number): { to: number; lap?: t
     return column <= HOME ? [{ to: column }] : [];
   }
   if (progress >= HOME) return [];
-  if (progress <= LAST_TRACK && t > LAST_TRACK) return [{ to: t }, { to: t - LAST_TRACK - 1 + LAP2_FIRST, lap: true }];
+  if (canLap && progress <= LAST_TRACK && t > LAST_TRACK) return [{ to: t }, { to: t - LAST_TRACK - 1 + LAP2_FIRST, lap: true }];
   return t <= HOME ? [{ to: t }] : [];
 }
 
@@ -150,14 +230,14 @@ function capturesAt(state: GameState, mover: Color, to: number): LegalMove['capt
   return captures;
 }
 
-/** Every (die, token) pair the current player may play right now. */
+/** Every (die, token) pair the current player may play right now. Captures include a teammate's tokens: allowed, though rarely wise. */
 export function legalMoves(state: GameState): LegalMove[] {
   if (state.finished || state.turn.phase !== 'moving') return [];
   const color = currentColor(state);
   const moves: LegalMove[] = [];
   state.turn.queue.forEach((die, dieIndex) => {
     state.tokens[color].forEach((from, tokenId) => {
-      for (const { to, lap } of targetsFor(from, die)) {
+      for (const { to, lap } of targetsFor(from, die, hasExtraLap(state, color, tokenId))) {
         moves.push({ dieIndex, die, tokenId, from, to, captures: capturesAt(state, color, to), ...(lap && { lap }) });
       }
     });
@@ -168,14 +248,17 @@ export function legalMoves(state: GameState): LegalMove[] {
 /**
  * Collapses moves that lead to the same outcome (same die value, tokens on the same square).
  * When only one remains the server can play it without asking. Tokens sharing a square but
- * with different moustaches (captures) are different choices: the player may want to send the
- * clean-shaven one forward and keep the macho one safe, so that is left to them.
+ * with different moustaches (captures), or one with its extra lap used and one without, are
+ * different choices: the player may want to send the clean-shaven one forward and keep the
+ * macho one safe, so that is left to them.
  */
 export function distinctChoices(moves: LegalMove[], state?: GameState): LegalMove[] {
-  const kills = state ? state.kills?.[currentColor(state)] : undefined;
+  const color = state && currentColor(state);
+  const kills = color ? state.kills?.[color] : undefined;
+  const laps = color ? state.extraLaps?.[color] : undefined;
   const seen = new Map<string, LegalMove>();
   for (const m of moves) {
-    const key = `${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${kills?.[m.tokenId] ?? 0}`;
+    const key = `${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}`;
     if (!seen.has(key)) seen.set(key, m);
   }
   return [...seen.values()];
@@ -231,38 +314,57 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
   events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die, kills: kills[tokenId] });
   const mine = statsOf(state, color);
   mine.cells += move.from === BASE ? 1 : move.die; // leaving base counts as 1
+  if (move.lap) {
+    // Going round again is a risk, and it uses up the token's extra lap.
+    extraLapsOf(state, color)[tokenId] = 1;
+    mine.risks = (mine.risks ?? 0) + 1;
+  }
 
   for (const c of move.captures) {
-    const firstBlood = !state.firstBlood;
-    state.firstBlood = true;
-    const theirs = statsOf(state, c.color);
-    mine.captures++;
-    // The capturer's moustache grows (a clean-shaven one grows its first, counted for "Baby face");
-    // the captured token goes home clean-shaven.
-    if (kills[tokenId] === 0) mine.staches = (mine.staches ?? 0) + 1;
-    kills[tokenId]++;
+    const from = state.tokens[c.color][c.tokenId];
+    // Caught on its second lap: it starts over from base like any captured token, extra lap back.
+    if (isSecondLap(from)) extraLapsOf(state, c.color)[c.tokenId] = 0;
     killsOf(state, c.color)[c.tokenId] = 0;
-    if (firstBlood) mine.firstBlood = true;
-    // Paying back a capture they made on us is a revenge; this one is now theirs to avenge.
-    if ((mine.owed[c.color] ?? 0) > 0) {
-      mine.owed[c.color]!--;
-      mine.revenges++;
+    if (isTeammate(state, color, c.color)) {
+      // Friendly fire (Team-up): still a bonus roll, but the capturer's moustache shrinks a level,
+      // and it counts for "Et tu, Brute?" rather than as a capture (or first blood, or a revenge).
+      kills[tokenId] = Math.max(0, moustacheLevel(kills[tokenId]) - 1);
+      mine.friendlyFire = (mine.friendlyFire ?? 0) + 1;
+      events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, friendly: true });
+    } else {
+      const firstBlood = !state.firstBlood;
+      state.firstBlood = true;
+      const theirs = statsOf(state, c.color);
+      mine.captures++;
+      // The capturer's moustache grows (a clean-shaven one grows its first, counted for "Baby face");
+      // the captured token goes home clean-shaven.
+      if (kills[tokenId] === 0) mine.staches = (mine.staches ?? 0) + 1;
+      kills[tokenId]++;
+      if (firstBlood) mine.firstBlood = true;
+      // Paying back a capture they made on us is a revenge; this one is now theirs to avenge.
+      if ((mine.owed[c.color] ?? 0) > 0) {
+        mine.owed[c.color]!--;
+        mine.revenges++;
+      }
+      theirs.owed[color] = (theirs.owed[color] ?? 0) + 1;
+      events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, ...(firstBlood && { firstBlood: true as const }) });
     }
-    theirs.owed[color] = (theirs.owed[color] ?? 0) + 1;
-    events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from: state.tokens[c.color][c.tokenId], ...(firstBlood && { firstBlood: true as const }) });
     state.tokens[c.color][c.tokenId] = BASE;
     turn.bonus++;
   }
 
   if (move.to === HOME) {
     events.push({ type: 'home', color, tokenId });
+    // Every arrival counts, so a token back from a wildcard entry that makes it home again counts twice.
+    mine.homeRuns = (mine.homeRuns ?? 0) + 1;
     // A token with a moustache (at least one capture) made it home: that counts for "most macho".
     if (kills[tokenId] > 0) mine.machoHome = (mine.machoHome ?? 0) + 1;
     if (allHome(state, color)) {
       state.ranks.push(color);
       events.push({ type: 'rank', color, rank: state.ranks.length });
-      if (state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
-        endGame(state, events);
+      // Team-up ends when both partners are home; a classic game when one player is left.
+      if (state.teams ? state.ranks.includes(TEAMMATE[color]) : state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
+        endGame(state, events, color);
         return events;
       }
       turn.queue = [];

@@ -1,4 +1,4 @@
-import { BASE, BASE_ORIGIN, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, isSecondLap, tokenCell, type Cell } from '../../shared/board.js';
+import { BASE, BASE_ORIGIN, HOME, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, isSecondLap, tokenCell, type Cell } from '../../shared/board.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { COLORS, type Color, type GameState } from '../../shared/types.js';
 import { moustacheSvg } from '../moustache.js';
@@ -220,7 +220,11 @@ export class TokenLayer {
         b.getAnimations().forEach((a) => a.cancel());
         b.style.transform = tf(pl.x, pl.y, pl.scale);
         b.classList.toggle('legal', tappable.has(key));
-        b.classList.toggle('lap2', isSecondLap(state.tokens[seat.color][id]));
+        const p = state.tokens[seat.color][id];
+        // On its last lap (round again, or back from home by a wildcard entry): a dashed ring.
+        b.classList.toggle('lap2', isSecondLap(p) || (p !== HOME && Boolean(state.extraLaps?.[seat.color]?.[id])));
+        // Home tokens never move; holding them is for the wildcard entry zone underneath.
+        b.classList.toggle('at-home', p === HOME);
         this.setMoustache(b, moustacheLevel(state.kills?.[seat.color]?.[id] ?? 0));
         b.classList.toggle('active', seat.color === activeColor);
         b.disabled = !tappable.has(key);

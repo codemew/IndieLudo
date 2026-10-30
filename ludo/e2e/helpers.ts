@@ -32,7 +32,8 @@ export async function setup(o: SetupOptions = {}) {
     mergeConfig(DEFAULTS, { lobbyCreatePassword: 'create', adminPassword: 'admin', dbPath: ':memory:', port: 0, turnTimeoutSec: 120, https: { enabled: false }, certDir: dir, voice: { iceServers: [], sfu: { enabled: true, portMin: 43000, portMax: 43199, announcedIp: '' } }, ...o.config }),
     { dice: () => dice.shift() ?? 1, randomInt: () => 0, log: () => {}, gateDelayMs: 0 },
   );
-  const url = `http://localhost:${server.port}`;
+  // 127.0.0.1, not localhost (::1 in Chrome): like a LAN phone, the test phones reach the server over IPv4.
+  const url = `http://127.0.0.1:${server.port}`;
   const browser: Browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--no-sandbox', '--autoplay-policy=no-user-gesture-required', ...(o.chromeArgs ?? [])] });
   const errors: string[] = [];
 

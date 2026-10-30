@@ -155,6 +155,37 @@ describe.skipIf(!CHROME || !BUILT || !WAV)('voice chat without the voice server'
   });
 });
 
+describe.skipIf(!CHROME || !BUILT || !WAV)('voice goes over the internet first', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let phones: Page[];
+  beforeAll(async () => {
+    // Nobody qualifies for local routes (a 0 ms limit), and the announced public address is a
+    // documentation address nothing answers on.
+    t = await setup({
+      chromeArgs: [`--use-file-for-fake-audio-capture=${WAV}`],
+      onPage: watchPcs,
+      config: { voice: { iceServers: [], localMaxPingMs: 0, sfu: { enabled: true, portMin: 43200, portMax: 43399, announcedIp: '203.0.113.7' } } },
+    });
+    phones = await t.lobby(['alice', 'bob']);
+  });
+  afterAll(() => t?.close());
+
+  it('the first offer has internet routes only; voice still connects (adding local ones after 5 s if it must)', async () => {
+    for (const p of phones) await until('the voice server link', async () => (await sfuStats(p))?.state === 'connected', 25_000);
+    const offers = (await phones[0].evaluate(`window.__pcs.filter((x) => (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === 8).map((x) => x.remoteDescription.sdp)`)) as string[];
+    const hosts = (sdp: string) => [...sdp.matchAll(/^a=candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ host/gm)].map((m) => m[1]);
+    expect(hosts(offers[0]).filter((a) => /^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(a))).toEqual([]);
+    expect(hosts(offers[0])).toContain('203.0.113.7');
+    await tap(phones[0], '.voice-details [data-act=toggle]');
+    await until('the local route line', async () => /Local network route · (not used: internet only|added: the internet route didn't connect) \(ping \d+ ms\)/.test(await phones[0].$eval('.vd-body', (e) => (e as HTMLElement).innerText.replace(/\s+/g, ' '))), 8000);
+    if (offers.length > 1) {
+      // The fallback: the later offer brought the local network back in.
+      expect(hosts(offers.at(-1)!).some((a) => /^(10|192\.168|172\.)/.test(a))).toBe(true);
+      expect(await phones[0].$eval('.vd-body', (e) => e.textContent)).toContain('trying the local network too');
+    }
+  });
+});
+
 describe.skipIf(!CHROME || !BUILT || !WAV)('voice details and reconnecting by itself', () => {
   let t: Awaited<ReturnType<typeof setup>>;
   let phones: Page[];
@@ -189,6 +220,7 @@ describe.skipIf(!CHROME || !BUILT || !WAV)('voice details and reconnecting by it
     await until('stats in the panel', async () => /round trip \d+ ms/.test(await detailsText()), 10_000);
     const text = await detailsText();
     expect(text).toContain('Game connection · WebSocket over TCP');
+    expect(text, text).toMatch(/Local network route · allowed, after the internet route \(IPv4 · \d+ ms\)/);
     expect(text).toMatch(/Voice server · connected/);
     expect(text).toMatch(/UDP · you \S+:\d+ \([^)]+\) → server \S+:43\d{3} \([^)]+\)/); // the test server's voice ports
     expect(text).toMatch(/bob · via the voice server · UDP/);

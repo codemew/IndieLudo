@@ -19,6 +19,7 @@
   "gate": { "maxFailsPerIp": 5, "globalFailRotateThreshold": 50 },
   "voice": {
     "iceServers": [{ "urls": "stun:stun.l.google.com:19302" }],
-    "sfu": { "enabled": true, "portMin": 40000, "portMax": 40099, "announcedIp": "" }
+    "sfu": { "enabled": true, "portMin": 40000, "portMax": 40099, "announcedIp": "" },
+    "localMaxPingMs": 40
   }
 }

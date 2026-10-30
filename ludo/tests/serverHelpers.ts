@@ -97,6 +97,8 @@ export function clientForToken(base: string, token: string, userId: number): Pro
     }
   });
   socket.on('lobby:state', (l: PublicLobby | null) => lobbyStates.push(l));
+  // Like a real phone: answer the server's pings (it times them, and voice uses the result).
+  socket.on('net:ping', (ack: () => void) => ack());
   return new Promise((resolve, reject) => {
     socket.once('connect_error', reject);
     socket.once('hello', (hello: Hello) =>

@@ -7,6 +7,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { NET_PING_INTERVAL_MS, NET_PING_TIMEOUT_MS } from '../shared/net.js';
+import { winnersOf } from '../shared/rules.js';
 import { apiRouter } from './api.js';
 import { compressedAssets } from './assets.js';
 import { DEFAULT_SFU, type Config } from './config.js';
@@ -102,7 +103,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     onUpdate: (state, events) => io?.to(rooms.game(state.id)).emit('game:state', { state, events }),
     onGameOver: (state) => {
       for (const seat of state.seats) {
-        if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, state.ranks[0] === seat.color);
+        if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, winnersOf(state).includes(seat.color));
       }
       lobbies.finishGame(state.lobbyId, state.botBattle === true);
     },
@@ -143,6 +144,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   });
   const sfu = new VoiceServer({
     config: config.voice.sfu ?? DEFAULT_SFU,
+    iceServers: config.voice.iceServers,
     log,
     onSlots: (lobbyId, userId, slots) => io?.to(rooms.user(userId)).emit('voice:slots', { lobbyId, slots }),
     onLink: (lobbyId, userId, connected) => voice.setSfu(lobbyId, userId, connected),

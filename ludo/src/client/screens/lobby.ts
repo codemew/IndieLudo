@@ -1,4 +1,4 @@
-import { MAX_SPECTATORS, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
+import { MAX_SEATS, MAX_SPECTATORS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
 import { showError } from '../app.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
@@ -25,6 +25,11 @@ export function lobbyScreen(root: HTMLElement): () => void {
     </header>
     <section class="lobby-body">
       <p class="muted center" id="lobby-hint"></p>
+      <div class="mode-switch" id="mode" role="radiogroup" aria-label="Game mode">
+        <button class="mode-opt" data-teams="0" role="radio">🎲 Classic</button>
+        <button class="mode-opt" data-teams="1" role="radio">🤝 Team-up</button>
+      </div>
+      <p class="muted small center mode-note" id="mode-note"></p>
       <div class="seat-grid" id="seats"></div>
       <div class="watchers" id="watchers"></div>
       <div class="lobby-voice" id="lobby-voice">
@@ -48,6 +53,8 @@ export function lobbyScreen(root: HTMLElement): () => void {
     if (!r.ok) showError(r.error);
   };
 
+  root.querySelectorAll<HTMLButtonElement>('.mode-opt').forEach((b) => (b.onclick = () => void act('lobby:mode', { teams: b.dataset.teams === '1' })));
+
   const render = () => {
     const lobby = state.lobby;
     if (!lobby) return;
@@ -67,11 +74,22 @@ export function lobbyScreen(root: HTMLElement): () => void {
         ? 'Tap an open seat to move or add a bot, or ⇄ to swap colours with a player.'
         : 'Tap an open seat to move, or ⇄ to swap colours with a player.';
 
+    // Classic or Team-up: the host picks; everyone sees which.
+    root.querySelectorAll<HTMLButtonElement>('.mode-opt').forEach((b) => {
+      const on = (b.dataset.teams === '1') === lobby.teams;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+      b.disabled = !isHost;
+    });
+    $(root, '#mode-note').textContent = lobby.teams
+      ? 'Team-up: 2 vs 2. Diagonal partners (Red + Yellow vs Green + Blue) win together when both are home. Needs all 4 seats.'
+      : 'Classic: everyone for themselves.';
+
     const seats = $(root, '#seats');
     seats.innerHTML = '';
     for (const color of SEAT_ORDER) {
       const m = lobby.members.find((x) => x.color === color);
-      seats.appendChild(seatCard(color, m, { me, isHost, watching, hostId: lobby.hostId, act }));
+      seats.appendChild(seatCard(color, m, { me, isHost, watching, hostId: lobby.hostId, act, teams: lobby.teams, myColor: mine?.color }));
     }
     renderWatchers($(root, '#watchers'), lobby, { me, isHost, act });
     paintLive();
@@ -95,13 +113,15 @@ export function lobbyScreen(root: HTMLElement): () => void {
     if (extras.childElementCount) actions.appendChild(extras);
     if (isHost) {
       const notReady = lobby.members.filter((m) => !m.isBot && m.userId !== me && !m.ready).length;
-      const enough = lobby.members.length >= 2;
+      const enough = lobby.teams ? lobby.members.length === MAX_SEATS : lobby.members.length >= 2;
       const botBattle = enough && lobby.members.every((m) => m.isBot);
       const btn = el<HTMLButtonElement>(`<button class="btn btn-primary btn-xl" id="start">${botBattle ? '🤖 Start bot battle' : 'Start game'}</button>`);
       btn.disabled = !enough || notReady > 0;
       btn.onclick = () => act('lobby:start');
       const hint = !enough
-        ? `Need at least 2 ${watching ? 'bots or players' : 'players'} — add a bot?`
+        ? lobby.teams
+          ? 'Team-up needs all 4 seats: fill the open ones with bots?'
+          : `Need at least 2 ${watching ? 'bots or players' : 'players'} — add a bot?`
         : notReady
           ? `Waiting for ${notReady} player${notReady > 1 ? 's' : ''} to get ready`
           : botBattle
@@ -157,13 +177,14 @@ export function lobbyScreen(root: HTMLElement): () => void {
 function seatCard(
   color: Color,
   m: LobbyMember | undefined,
-  ctx: { me: number; isHost: boolean; watching: boolean; hostId: number; act: (e: any, p?: object) => Promise<void> },
+  ctx: { me: number; isHost: boolean; watching: boolean; hostId: number; act: (e: any, p?: object) => Promise<void>; teams: boolean; myColor?: Color },
 ): HTMLElement {
   if (!m) {
     const card = el(`
       <div class="seat seat-open s-${color}">
         <div class="seat-token"></div>
         <div class="seat-name">${COLOR_NAME[color]} · open</div>
+        ${ctx.teams ? `<div class="seat-tags">${teamTag(color)}</div>` : ''}
         <div class="seat-actions"></div>
       </div>`);
     const actions = $(card, '.seat-actions');
@@ -172,7 +193,9 @@ function seatCard(
     sit.onclick = () => ctx.act(ctx.watching ? 'lobby:sit' : 'lobby:color', { color });
     actions.appendChild(sit);
     if (ctx.isHost) {
-      const bot = el<HTMLButtonElement>(`<button class="chip">＋ Bot</button>`);
+      // In Team-up the host sees whether a bot here plays with them or against them.
+      const label = ctx.teams && ctx.myColor ? (TEAMMATE[ctx.myColor] === color ? '＋ Bot teammate' : '＋ Bot opponent') : '＋ Bot';
+      const bot = el<HTMLButtonElement>(`<button class="chip">${label}</button>`);
       bot.onclick = () => ctx.act('lobby:addBot', { color });
       actions.appendChild(bot);
     }
@@ -185,6 +208,7 @@ function seatCard(
       <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}${m.isBot ? '' : ` <span class="seat-wins" title="${m.wins ?? 0} win${m.wins === 1 ? '' : 's'}">🏆 ${m.wins ?? 0}</span>`}<span class="seat-vc"></span></div>
       ${m.isBot ? '' : `<div class="seat-net"></div>`}
       <div class="seat-tags">
+        ${ctx.teams ? teamTag(color) : ''}
         ${m.userId === ctx.hostId ? '<span class="tag">👑 host</span>' : ''}
         ${m.isBot ? '<span class="tag">bot</span>' : m.userId === ctx.hostId ? '' : m.ready ? '<span class="tag tag-ok">✓ ready</span>' : '<span class="tag">not ready</span>'}
         ${!m.isBot && !m.connected ? '<span class="tag tag-warn">offline</span>' : ''}
@@ -209,6 +233,11 @@ function seatCard(
   return card;
 }
 
+/** Team-up: which pair this seat plays in, with both colours. */
+function teamTag(color: Color): string {
+  const [a, b] = color === 'red' || color === 'yellow' ? (['red', 'yellow'] as const) : (['green', 'blue'] as const);
+  return `<span class="tag team-tag"><i class="team-dot d-${a}"></i><i class="team-dot d-${b}"></i>${COLOR_NAME[a]} + ${COLOR_NAME[b]}</span>`;
+}
 
 /** The people watching without a seat, with their mic badge and signal like the seats have. */
 function renderWatchers(box: HTMLElement, lobby: PublicLobby, ctx: { me: number; isHost: boolean; act: (e: any, p?: object) => Promise<void> }): void {

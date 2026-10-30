@@ -1,3 +1,4 @@
+import type { LocalRoute } from './ice.js';
 import type { NetStats } from './net.js';
 import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, VoiceSlot, VoiceState } from './types.js';
 import { MAX_VOICE_PEERS } from './types.js';
@@ -38,12 +39,16 @@ export interface ClientToServer {
   'lobby:sit': (p: { color: Color }, ack: (r: Ack) => void) => void;
   'lobby:kick': (p: { userId: number }, ack: (r: Ack) => void) => void;
   'lobby:start': (p: Record<string, never>, ack: (r: Ack) => void) => void;
+  /** Host: Classic (false) or Team-up (true) for the next game. */
+  'lobby:mode': (p: { teams: boolean }, ack: (r: Ack) => void) => void;
   'game:roll': (p: RollIntent, ack: (r: Ack) => void) => void;
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   'game:resume': (p: { gameId: string }, ack: (r: Ack<PublicGameState>) => void) => void;
   'game:takeback': (p: { gameId: string }, ack: (r: Ack) => void) => void;
   /** Give up: you're out (ranked below everyone still playing) and watch the rest. */
   'game:surrender': (p: { gameId: string; actionId: string }, ack: (r: Ack) => void) => void;
+  /** A wildcard entry: send home tokens (`tokens`, a bitmask of token ids) back to base. */
+  'game:respawn': (p: { gameId: string; actionId: string; tokens: number }, ack: (r: Ack) => void) => void;
   'voice:get': (p: { lobbyId: string }, ack: (r: Ack<VoiceState>) => void) => void;
   'voice:join': (p: { lobbyId: string }, ack: (r: Ack<VoiceJoined>) => void) => void;
   'voice:leave': (p: { lobbyId: string }, ack: (r: Ack) => void) => void;
@@ -55,7 +60,8 @@ export interface ClientToServer {
   /** Relayed voice for links that can't connect directly: a few Opus frames, for one or more players. */
   'voice:frames': (p: VoiceFramesOut) => void;
   /** Connect to the built-in voice server: it answers with its offer and the slot map. */
-  'voice:sfuJoin': (p: { lobbyId: string }, ack: (r: Ack<SfuOffer>) => void) => void;
+  /** `local`: offer local-network routes too, even if this phone doesn't qualify for them (the internet route failed). */
+  'voice:sfuJoin': (p: { lobbyId: string; local?: boolean }, ack: (r: Ack<SfuOffer>) => void) => void;
   'voice:sfuAnswer': (p: { lobbyId: string; sdp: string }, ack: (r: Ack) => void) => void;
   /** Late ICE candidates from the phone, as JSON (a list of RTCIceCandidateInit). */
   'voice:sfuCand': (p: { lobbyId: string; sdp: string }, ack: (r: Ack) => void) => void;
@@ -71,6 +77,8 @@ export interface VoiceJoined {
   iceServers: RTCIceServerConfig[];
   /** The built-in voice server is on: connect to it (voice:sfuJoin) first. */
   sfu?: boolean;
+  /** Whether this phone may offer local-network routes (IPv4 and a low ping), and why: voice goes internet first. */
+  local?: LocalRoute;
 }
 
 /** Same shape as the browser's RTCIceServer, declared here so the server needs no DOM types. */
@@ -227,6 +235,9 @@ export const SCHEMAS = {
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
   surrender: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 } },
+  respawn: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 }, tokens: { type: 'int', min: 1, max: 15 } },
+  lobbyMode: { teams: { type: 'bool' } },
+  sfuJoin: { lobbyId: { type: 'string', max: 64 }, local: { type: 'bool', optional: true } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },
   voiceMute: { lobbyId: { type: 'string', max: 64 }, muted: { type: 'bool' } },
   voiceBitrate: { lobbyId: { type: 'string', max: 64 }, kbps: { type: 'int', min: 6, max: 48 } },

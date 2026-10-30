@@ -1,3 +1,4 @@
+import { hasLocalCandidates, internetFirst, isLocalCandidate, rankCandidate, scrubRelated, type LocalRoute } from '../shared/ice.js';
 import type { RTCIceServerConfig, SfuOffer, VoiceFramesIn, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
 import { DEFAULT_VOICE_BITRATE, VOICE_BITRATES, type VoiceSlot, type VoiceState } from '../shared/types.js';
 import { MicChain, canDenoise, micConstraints } from './micChain.js';
@@ -18,8 +19,13 @@ const RELAY_AFTER_MS = 8_000;
 const RETRY_MS = 1500;
 /** Plugging in or pairing a headset fires several devicechange events; act once they settle. */
 const DEVICE_SETTLE_MS = 700;
-/** With the voice server on, direct links wait this long for both phones to reach it first. */
-const SFU_GRACE_MS = 6000;
+/**
+ * Voice goes over the internet first. A phone that may not use local-network routes (see
+ * LocalRoute) and hasn't connected this long after trying is given them too.
+ */
+const LOCAL_FALLBACK_MS = 5000;
+/** With the voice server on, direct links wait this long for both phones to reach it first (the local fallback included). */
+const SFU_GRACE_MS = 10_000;
 /** A link that went quiet ("disconnected": its route stopped answering) for this long is redone. */
 const DISCONNECTED_MS = 3000;
 /** Network changes come in bursts (Wi-Fi dropping, then mobile data up): act once it settles. */
@@ -174,6 +180,8 @@ interface Peer {
   /** Their late candidates that came before their description did. */
   queued: RTCIceCandidateInit[];
   trickled: { sent: number; got: number };
+  /** Local-network routes offered on this link (we may use them, the other side offered theirs, or the internet route failed). */
+  local: boolean;
 }
 
 /** Late candidates are batched for this long, so a burst is one message. */
@@ -192,6 +200,10 @@ interface SfuLink {
   lateTimer: ReturnType<typeof setTimeout> | null;
   /** Redoes the link if it stays "disconnected" (its route died, e.g. Wi-Fi went away). */
   lostTimer: ReturnType<typeof setTimeout> | null;
+  /** Moves on to local-network routes if the internet route hasn't connected in time. */
+  fallbackTimer: ReturnType<typeof setTimeout> | null;
+  /** This link offered local-network routes. */
+  local: boolean;
 }
 
 /** The whole voice picture, for the Details panel and the copyable report. */
@@ -205,8 +217,10 @@ export interface VoiceReport {
   signalError: string | null;
   /** The game connection: WebSocket or long-polling, both over TCP. */
   game: { transport: string | null };
-  /** Our connection to the voice server. */
-  server: { status: PeerStatus | 'off'; forSec: number; connects: number; route: RouteStats | null; stream: StreamStats | null };
+  /** Our connection to the voice server; `local`: it offered local-network routes. */
+  server: { status: PeerStatus | 'off'; forSec: number; connects: number; route: RouteStats | null; stream: StreamStats | null; local: boolean };
+  /** Whether this phone may use local-network routes (voice goes internet first), and why. */
+  localRoute: LocalRoute;
   /** Recent reconnects and why, newest last. */
   events: { at: number; what: string }[];
   links: LinkReport[];
@@ -287,6 +301,12 @@ class VoiceClient {
   private recovering = false;
   /** Byte counters from the last report, per link, for bitrates. */
   private samples = new Map<string, Sample>();
+  /** Whether this phone may offer local-network routes (from the server: IPv4 and a low ping). */
+  private localRoute: LocalRoute = { ok: true, why: '' };
+  /** The internet route to the voice server failed: local-network routes are allowed for it now. */
+  private sfuLocal = false;
+  /** Direct links whose internet route failed: they offer local-network routes now. */
+  private meshLocal = new Set<number>();
 
   constructor() {
     if (typeof document === 'undefined') return;
@@ -472,7 +492,9 @@ class VoiceClient {
         connects: this.sfuConnects,
         route: server?.route ?? null,
         stream: server?.stream ?? null,
+        local: Boolean(sfu?.local),
       },
+      localRoute: { ...this.localRoute },
       events: [...this.events],
       links,
     };
@@ -514,6 +536,10 @@ class VoiceClient {
       this.error = null;
       this.iceServers = r.data!.iceServers;
       this.sfuOn = Boolean(r.data!.sfu);
+      // A fresh start on this network: internet first again.
+      this.localRoute = r.data!.local ?? { ok: true, why: '' };
+      this.sfuLocal = false;
+      this.meshLocal.clear();
       this.bitrateKbps = state.bitrateKbps;
       this.epoch = state.epoch;
       this.enabled = state.enabled;
@@ -784,7 +810,8 @@ class VoiceClient {
     if (!lobbyId || !this.sfuOn || this.sfuStarting) return;
     this.sfuStarting = true;
     this.closeSfu();
-    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], status: 'connecting', since: Date.now(), late: [], lateTimer: null, lostTimer: null };
+    const local = this.localRoute.ok || this.sfuLocal;
+    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], status: 'connecting', since: Date.now(), late: [], lateTimer: null, lostTimer: null, fallbackTimer: null, local };
     this.sfu = link;
     this.notify();
     const fail = () => {
@@ -793,7 +820,7 @@ class VoiceClient {
       link.since = Date.now();
     };
     try {
-      const r = await emit<SfuOffer>('voice:sfuJoin', { lobbyId }, 10_000);
+      const r = await emit<SfuOffer>('voice:sfuJoin', { lobbyId, ...(this.sfuLocal && { local: true }) }, 10_000);
       if (this.sfu !== link || this.lobbyId !== lobbyId) return;
       if (!r.ok) {
         if (r.error === 'SFU_OFF') this.sfuOn = false;
@@ -850,7 +877,17 @@ class VoiceClient {
       await up.sender.replaceTrack(this.sendTrack());
       await pc.setLocalDescription(await pc.createAnswer());
       const a = await emit('voice:sfuAnswer', { lobbyId, sdp: pc.localDescription!.sdp });
-      if (!a.ok) fail();
+      if (!a.ok) return fail();
+      // Internet only so far: if that doesn't connect soon, try again with the local network too.
+      if (!local) {
+        link.fallbackTimer = setTimeout(() => {
+          link.fallbackTimer = null;
+          if (this.sfu !== link || link.status === 'connected') return;
+          this.sfuLocal = true;
+          this.note('internet route to the voice server failed: trying the local network too');
+          void this.startSfu();
+        }, LOCAL_FALLBACK_MS);
+      }
     } catch {
       fail();
     } finally {
@@ -865,6 +902,7 @@ class VoiceClient {
     this.sfu = null;
     if (link.lateTimer) clearTimeout(link.lateTimer);
     if (link.lostTimer) clearTimeout(link.lostTimer);
+    if (link.fallbackTimer) clearTimeout(link.fallbackTimer);
     if (link.pc) {
       link.pc.ontrack = link.pc.onicecandidate = link.pc.onconnectionstatechange = null;
       link.pc.close();
@@ -898,9 +936,10 @@ class VoiceClient {
       }
     } else if (sig.kind === 'offer') {
       if (this.myId < sig.from) return; // we are the dialler for this pair; they'll get our offer
-      // A new offer always replaces whatever link we had with that player.
+      // A new offer always replaces whatever link we had with that player. If they offer local
+      // routes, so do we (they qualify, or their internet route failed).
       this.closePeer(sig.from);
-      const peer = this.createPeer(sig.from, sig.call, false);
+      const peer = this.createPeer(sig.from, sig.call, false, hasLocalCandidates(sig.sdp));
       try {
         await peer.pc.setRemoteDescription({ type: 'offer', sdp: sig.sdp });
         // Their offer made our audio section: send our microphone on it (or just listen).
@@ -954,10 +993,13 @@ class VoiceClient {
     for (const c of peer.queued.splice(0)) void peer.pc.addIceCandidate(c).catch(() => {});
   }
 
-  /** Sends our offer/answer with every candidate found so far; later ones follow as `cand`. */
+  /**
+   * Sends our offer/answer with every candidate found so far, internet routes first (and local
+   * ones only when the link may use them); later candidates follow as `cand`.
+   */
   private sendDescription(to: number, peer: Peer, kind: 'offer' | 'answer'): void {
     peer.sentSdp = true;
-    this.signal(to, kind, peer.call, peer.pc.localDescription!.sdp);
+    this.signal(to, kind, peer.call, internetFirst(peer.pc.localDescription!.sdp, peer.local));
   }
 
   /** After a socket reconnect the server has dropped us from the channel: rejoin and re-call. */
@@ -1011,8 +1053,11 @@ class VoiceClient {
     });
   }
 
-  /** A direct link. The dialler adds its audio section now; the answerer once the offer is in. */
-  private createPeer(userId: number, call: number, dialler: boolean): Peer {
+  /**
+   * A direct link. The dialler adds its audio section now; the answerer once the offer is in.
+   * `local`: offer local-network routes even if this phone doesn't qualify for them.
+   */
+  private createPeer(userId: number, call: number, dialler: boolean, local = false): Peer {
     const pc = new RTCPeerConnection({ iceServers: this.iceServers as RTCIceServer[] });
     let mic: RTCRtpSender | null = null;
     if (dialler) {
@@ -1024,11 +1069,26 @@ class VoiceClient {
     audio.autoplay = true;
     audio.setAttribute('playsinline', '');
     this.box().appendChild(audio);
-    const peer: Peer = { pc, mic, audio, status: 'connecting', call, since: Date.now(), sentSdp: false, late: [], lateTimer: null, queued: [], trickled: { sent: 0, got: 0 } };
+    const peer: Peer = {
+      pc,
+      mic,
+      audio,
+      status: 'connecting',
+      call,
+      since: Date.now(),
+      sentSdp: false,
+      late: [],
+      lateTimer: null,
+      queued: [],
+      trickled: { sent: 0, got: 0 },
+      local: local || this.localRoute.ok || this.meshLocal.has(userId),
+    };
     // Candidates found after our offer/answer went out: pass them on in small batches.
     pc.onicecandidate = (e) => {
       if (!e.candidate || !peer.sentSdp || this.peers.get(userId) !== peer) return;
-      peer.late.push(e.candidate.toJSON());
+      if (!peer.local && isLocalCandidate(e.candidate.candidate)) return;
+      const c = e.candidate.toJSON();
+      peer.late.push({ ...c, candidate: rankCandidate(peer.local ? (c.candidate ?? '') : scrubRelated(c.candidate ?? '')) });
       peer.lateTimer ??= setTimeout(() => {
         peer.lateTimer = null;
         if (this.peers.get(userId) !== peer || !peer.late.length) return;
@@ -1105,6 +1165,14 @@ class VoiceClient {
         (peer.status !== 'connected' && now - peer.since > STALL_MS) ||
         // A connected link whose route went away (network switch): redo it soon, not after 12 s.
         (peer.pc.connectionState === 'disconnected' && now - peer.since > DISCONNECTED_MS);
+      // Internet only, and it hasn't connected: redial offering the local network too.
+      if (peer && !peer.local && peer.sentSdp && peer.status !== 'connected' && now - peer.since > LOCAL_FALLBACK_MS && this.myId < id) {
+        this.meshLocal.add(id);
+        this.note(`internet route to ${id} failed: trying the local network too`);
+        this.closePeer(id);
+        void this.call(id);
+        continue;
+      }
       if (!stuck) continue;
       if (this.myId < id) {
         this.closePeer(id);

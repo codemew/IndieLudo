@@ -1,4 +1,6 @@
+import { lookup } from 'node:dns/promises';
 import type { Server, Socket } from 'socket.io';
+import { isIPv4, isLocalAddress, localRouteFor, type LocalRoute } from '../shared/ice.js';
 import { RELAY_LIMITS, SCHEMAS, matchesSchema, type Ack, type ClientToServer, type Hello, type Schema, type ServerToClient, type VoiceFramesOut, type VoiceSignalKind } from '../shared/protocol.js';
 import type { Color } from '../shared/types.js';
 import type { Ctx } from './context.js';
@@ -30,6 +32,20 @@ export const rooms = {
   lobby: (id: string) => `lobby:${id}`,
   game: (id: string) => `game:${id}`,
 };
+
+/** How long the server waits for a first ping when it needs one now (to decide on local voice routes). */
+const PING_NOW_TIMEOUT_MS = 1000;
+
+/**
+ * The public IPv4 address behind the Host a phone used, if it is one: an IP written in the URL,
+ * or a name resolved through DNS. Null for local addresses and anything that doesn't resolve.
+ */
+export async function publicHostAddress(host: string | undefined, resolve: (name: string) => Promise<string> = async (n) => (await lookup(n, { family: 4 })).address): Promise<string | null> {
+  const name = (host ?? '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  if (!name || name.includes(':')) return null;
+  const address = /^\d+\.\d+\.\d+\.\d+$/.test(name) ? name : await resolve(name).catch(() => null);
+  return address && !isLocalAddress(address) ? address : null;
+}
 
 function clientIp(socket: LudoSocket, trustProxy: boolean): string {
   if (trustProxy) {
@@ -85,6 +101,10 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     if (lobby) socket.join(rooms.lobby(lobby.id));
     const game = lobby?.gameId ? ctx.games.get(lobby.gameId) : undefined;
     if (game) socket.join(rooms.game(game.id));
+    // A phone on the internet tells us the address the server is reached at from outside.
+    if (!ctx.config.voice.sfu?.announcedIp && !isLocalAddress(ip)) {
+      void publicHostAddress(socket.handshake.headers.host).then((a) => a && ctx.sfu.learnPublicAddress(a));
+    }
     const hello: Hello = {
       appVersion: ctx.appVersion,
       user: { id: userId, username: socket.data.username },
@@ -97,7 +117,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
      * Wraps a handler with the rate limit, strict schema check and error mapping.
      * Clients that flood are disconnected.
      */
-    const on = <E extends keyof ClientToServer>(event: E, schema: Schema | null, handler: (payload: any) => Ack | void) => {
+    const on = <E extends keyof ClientToServer>(event: E, schema: Schema | null, handler: (payload: any) => Ack | void | Promise<Ack | void>) => {
       socket.on(event, ((payload: unknown, ack: unknown) => {
         const reply = typeof ack === 'function' ? (ack as (r: Ack) => void) : () => {};
         if (!socket.data.bucket.take()) {
@@ -110,16 +130,40 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
           reply({ ok: false, error: 'BAD_PAYLOAD' });
           return;
         }
-        try {
-          reply(handler(payload) ?? { ok: true });
-        } catch (err) {
+        const fail = (err: unknown) => {
           if (err instanceof AppError) reply({ ok: false, error: err.code });
           else {
             log(`[socket] ${event} failed: ${(err as Error).stack ?? err}`);
             reply({ ok: false, error: 'INTERNAL' });
           }
+        };
+        try {
+          const r = handler(payload);
+          if (r instanceof Promise) r.then((v) => reply(v ?? { ok: true }), fail);
+          else reply(r ?? { ok: true });
+        } catch (err) {
+          fail(err);
         }
       }) as any);
+    };
+
+    /**
+     * Whether this phone may use local-network voice routes: on IPv4 and a ping under
+     * voice.localMaxPingMs (measured now if there is no ping yet).
+     */
+    const localRoute = async (): Promise<LocalRoute> => {
+      let rtt = ctx.net.rttOf(socket.id);
+      if (rtt === null && isIPv4(ip)) {
+        rtt = await new Promise<number | null>((resolve) => {
+          const t0 = performance.now();
+          socket.timeout(PING_NOW_TIMEOUT_MS).emit('net:ping', (err: Error | null) => {
+            const ms = err ? null : performance.now() - t0;
+            ctx.net.record(socket.id, ms);
+            resolve(ms);
+          });
+        });
+      }
+      return localRouteFor(ip, rtt, ctx.config.voice.localMaxPingMs);
     };
 
     // The current name, not the one this socket connected with: the player may have renamed
@@ -177,6 +221,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('lobby:addBot', SCHEMAS.lobbyAddBot, (p) => void ctx.lobbies.addBot(userId, p.color as Color | undefined));
     on('lobby:removeBot', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.removeBot(userId, p.color as Color));
     on('lobby:fillBots', SCHEMAS.empty, () => void ctx.lobbies.fillBots(userId));
+    on('lobby:mode', SCHEMAS.lobbyMode, (p) => void ctx.lobbies.setTeams(userId, p.teams));
     on('lobby:spectate', SCHEMAS.empty, () => void ctx.lobbies.spectate(userId));
     on('lobby:sit', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.sit(userId, p.color as Color));
 
@@ -216,14 +261,15 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
 
     on('game:takeback', SCHEMAS.gameRef, (p) => ctx.games.takeback(userId, p.gameId));
     on('game:surrender', null, (p) => ctx.games.surrender(userId, p));
+    on('game:respawn', null, (p) => ctx.games.respawn(userId, p));
 
     // ---- Lobby voice chat: membership and relaying only; audio goes peer to peer. ----
 
     on('voice:get', SCHEMAS.voiceRef, (p) => ({ ok: true, data: ctx.voice.stateFor(p.lobbyId, userId) }));
-    on('voice:join', SCHEMAS.voiceRef, (p) => ({
-      ok: true,
-      data: { state: ctx.voice.join(p.lobbyId, userId, socket.id), iceServers: iceServersFor(ctx.config.voice, userId), sfu: ctx.sfu.enabled },
-    }));
+    on('voice:join', SCHEMAS.voiceRef, async (p) => {
+      const state = ctx.voice.join(p.lobbyId, userId, socket.id);
+      return { ok: true, data: { state, iceServers: iceServersFor(ctx.config.voice, userId), sfu: ctx.sfu.enabled, local: await localRoute() } };
+    });
     // The built-in voice server. Setting up a connection takes a moment (ports, the offer), so
     // these answer asynchronously; the membership checks come first, as everywhere else.
     const sfuCall = (event: 'voice:sfuJoin' | 'voice:sfuAnswer' | 'voice:sfuCand', schema: Schema, run: (p: any) => Promise<unknown>) => {
@@ -245,7 +291,8 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
         );
       }) as any);
     };
-    sfuCall('voice:sfuJoin', SCHEMAS.voiceRef, (p) => ctx.sfu.join(p.lobbyId, userId));
+    // Local-network routes for phones that qualify, or when the phone asks after the internet route failed.
+    sfuCall('voice:sfuJoin', SCHEMAS.sfuJoin, async (p) => ctx.sfu.join(p.lobbyId, userId, { local: p.local === true || (await localRoute()).ok }));
     sfuCall('voice:sfuAnswer', SCHEMAS.sfuSdp, (p) => ctx.sfu.answer(p.lobbyId, userId, p.sdp));
     sfuCall('voice:sfuCand', SCHEMAS.sfuSdp, async (p) => {
       let list: unknown;

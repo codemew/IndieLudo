@@ -86,6 +86,12 @@ const ERRORS: Record<string, string> = {
   SEAT_EMPTY: 'That seat is free now: just tap it to move there.',
   SAME_SEAT: "That's your own seat.",
   SWAP_EXPIRED: 'That swap request is no longer valid.',
+  TEAMS_NEED_FOUR: 'Team-up needs all 4 seats filled: add bots to the open ones.',
+  NOT_HOME: 'Only tokens that are home can make a wildcard entry.',
+  NO_LAPS_LEFT: 'That token has had its extra lap already.',
+  SURRENDERED: "You've surrendered.",
+  GAME_OVER: 'The game is over.',
+  BAD_TOKENS: 'Pick at least one token.',
 };
 
 export function errorText(code: string): string {

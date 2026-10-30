@@ -1,4 +1,6 @@
 import { MediaStreamTrack, RTCPeerConnection, RTCRtpCodecParameters, RTCRtpHeaderExtensionParameters, type RTCRtpTransceiver, type RtpPacket } from 'werift';
+import { internetFirst, isLocalAddress, isLocalCandidate, rankCandidate, scrubRelated } from '../shared/ice.js';
+import type { RTCIceServerConfig } from '../shared/protocol.js';
 import { MAX_VOICE_PEERS, type VoiceSlot } from '../shared/types.js';
 import type { SfuConfig } from './config.js';
 import { AppError } from './errors.js';
@@ -35,10 +37,14 @@ interface Member {
   slots: Slot[];
   connected: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  /** Local-network routes allowed for this phone (it qualifies, or the internet route failed). */
+  local: boolean;
 }
 
 export interface VoiceServerOptions {
   config: SfuConfig;
+  /** STUN servers the server uses to find its own public address (voice.iceServers; TURN ones are skipped). */
+  iceServers?: RTCIceServerConfig[];
   log?: (msg: string) => void;
   /** Tells a phone which receive slot (by mid) carries whose voice. */
   onSlots?: (lobbyId: string, userId: number, slots: VoiceSlot[]) => void;
@@ -59,6 +65,8 @@ export interface VoiceServerOptions {
  */
 export class VoiceServer {
   private rooms = new Map<string, Map<number, Member>>();
+  /** The public address internet phones reach this server at, learnt from how they connect (see learnPublicAddress). */
+  private learnt: string | null = null;
 
   constructor(private opts: VoiceServerOptions) {}
 
@@ -66,24 +74,45 @@ export class VoiceServer {
     return this.opts.config.enabled;
   }
 
+  /** The address announced to phones for the internet route: the configured one, or the one learnt. */
+  get publicAddress(): string | null {
+    return this.opts.config.announcedIp || this.learnt;
+  }
+
+  /**
+   * The public IPv4 address a phone on the internet used to reach the game server (the Host it
+   * connected to, resolved). With the router forwarding the voice ports too, that is where
+   * internet phones reach the voice server, more reliably than what a STUN server reports.
+   */
+  learnPublicAddress(address: string): void {
+    if (!isLocalAddress(address) && /^\d+\.\d+\.\d+\.\d+$/.test(address) && address !== this.learnt) {
+      this.learnt = address;
+      this.opts.log?.(`[voice] internet phones reach this server at ${address}`);
+    }
+  }
+
   /**
    * A phone (re)joins: any older connection of theirs is replaced. Returns the server's offer
-   * (its candidates included) and the slot map.
+   * (its candidates included) and the slot map. Routes go internet first; without `local`, the
+   * local-network ones are left out both ways, so only the internet route can connect.
    */
-  async join(lobbyId: string, userId: number): Promise<{ sdp: string; slots: VoiceSlot[] }> {
+  async join(lobbyId: string, userId: number, opts: { local?: boolean } = {}): Promise<{ sdp: string; slots: VoiceSlot[] }> {
     if (!this.enabled) throw new AppError('SFU_OFF', 409);
     this.leave(lobbyId, userId);
-    const { portMin, portMax, announcedIp } = this.opts.config;
+    const { portMin, portMax } = this.opts.config;
+    const announced = this.publicAddress;
+    const stun = (this.opts.iceServers ?? []).flatMap((s) => (Array.isArray(s.urls) ? s.urls : [s.urls])).filter((u) => /^stun:/i.test(u));
     const pc = new RTCPeerConnection({
       codecs: CODECS,
       headerExtensions: HEADER_EXTENSIONS,
       bundlePolicy: 'max-bundle',
+      iceServers: stun.map((urls) => ({ urls })),
       icePortRange: [portMin, portMax],
-      iceAdditionalHostAddresses: announcedIp ? [announcedIp] : undefined,
+      iceAdditionalHostAddresses: announced ? [announced] : undefined,
       iceUseLinkLocalAddress: false,
     });
     const room = this.room(lobbyId);
-    const member: Member = { userId, pc, slots: [], connected: false, timer: null };
+    const member: Member = { userId, pc, slots: [], connected: false, timer: null, local: Boolean(opts.local) };
     const mic = pc.addTransceiver('audio', { direction: 'recvonly' });
     mic.onTrack.subscribe((track) => track.onReceiveRtp.subscribe((rtp) => this.forward(lobbyId, member, rtp)));
     for (let i = 0; i < SLOTS; i++) {
@@ -121,21 +150,27 @@ export class VoiceServer {
       });
     }
     if (room.get(userId) !== member) throw new AppError('SFU_REPLACED', 409);
-    return { sdp: pc.localDescription!.sdp, slots: this.slotsOf(member) };
+    return { sdp: internetFirst(pc.localDescription!.sdp, member.local), slots: this.slotsOf(member) };
   }
 
   async answer(lobbyId: string, userId: number, sdp: string): Promise<void> {
     const member = this.rooms.get(lobbyId)?.get(userId);
     if (!member) throw new AppError('NOT_IN_VOICE', 409);
     if (member.pc.signalingState !== 'have-local-offer') throw new AppError('SFU_STATE', 409);
-    await member.pc.setRemoteDescription({ type: 'answer', sdp });
+    await member.pc.setRemoteDescription({ type: 'answer', sdp: internetFirst(sdp, member.local) });
   }
 
   /** The phone's late ICE candidates (optional: the server also learns them from its checks). */
   async candidate(lobbyId: string, userId: number, candidate: { candidate: string; sdpMid?: string | null; sdpMLineIndex?: number | null }): Promise<void> {
     const member = this.rooms.get(lobbyId)?.get(userId);
     if (!member?.pc.remoteDescription) return;
-    await member.pc.addIceCandidate(candidate as never).catch(() => {});
+    if (!member.local && isLocalCandidate(candidate.candidate)) return;
+    await member.pc.addIceCandidate({ ...candidate, candidate: rankCandidate(member.local ? candidate.candidate : scrubRelated(candidate.candidate)) } as never).catch(() => {});
+  }
+
+  /** Whether this phone's link allows local-network routes. */
+  allowsLocal(lobbyId: string, userId: number): boolean {
+    return Boolean(this.rooms.get(lobbyId)?.get(userId)?.local);
   }
 
   isConnected(lobbyId: string, userId: number): boolean {

@@ -3,10 +3,17 @@ export type Color = 'red' | 'green' | 'yellow' | 'blue';
 /** Clockwise turn order; also the order seats are stored in a game. */
 export const COLORS: readonly Color[] = ['red', 'green', 'yellow', 'blue'];
 
+/** Team-up partners sit diagonally opposite: red with yellow, green with blue. */
+export const TEAMMATE: Readonly<Record<Color, Color>> = { red: 'yellow', yellow: 'red', green: 'blue', blue: 'green' };
+
 /** How long every phone shows the "first blood" banner; the server waits this out before bots and timers carry on. */
 export const FIRST_BLOOD_MS = 1800;
 /** How long the phones show a surrender (tokens sliding home, the white flag going up). */
 export const SURRENDER_MS = 1400;
+/** How long the phones show a wildcard entry (the banner, the token flying from home back to base). */
+export const WILDCARD_MS = 2400;
+/** A wildcard entry of several tokens sends them off one after another, this far apart. */
+export const WILDCARD_STAGGER_MS = 180;
 /** Consecutive turns a player may miss (timer ran out) before a bot takes the seat. */
 export const MAX_MISSED_TURNS = 5;
 
@@ -75,6 +82,13 @@ export interface GameState {
   botBattle?: boolean;
   /** Players who gave up, in the order they did. They're skipped, and rank below everyone still playing. */
   surrendered?: Color[];
+  /**
+   * The one extra lap each token gets (0 or 1): going round again past its home turn, or a
+   * wildcard entry from home back to base. Given back if it is captured on that second lap.
+   */
+  extraLaps?: Partial<Record<Color, number[]>>;
+  /** Team-up: diagonal partners (TEAMMATE) play together and win together. */
+  teams?: boolean;
 }
 
 /** How fast a game's animations and pauses run: 1 normally, faster in a bot battle. */
@@ -95,6 +109,12 @@ export interface PlayerStats {
   machoHome?: number;
   /** Clean-shaven tokens that grew a moustache (made their first capture since leaving base); fewest wins "Baby face". Missing in older games. */
   staches?: number;
+  /** Every arrival home: a token sent back by a wildcard entry that gets home again counts twice. */
+  homeRuns?: number;
+  /** Risks taken, for "Balls of steel": laps taken round again plus wildcard entries. */
+  risks?: number;
+  /** Team-up: teammates' tokens captured, for "Et tu, Brute?". Not counted as captures. */
+  friendlyFire?: number;
   firstBlood: boolean;
   /** Captures each opponent has made on you that you haven't avenged yet. */
   owed: Partial<Record<Color, number>>;
@@ -117,7 +137,8 @@ export type GameEvent =
   | { type: 'penalty'; color: Color; queue: number[] }
   /** `kills`: the moving token's captures so far, which set how heavily it hops. */
   | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number; kills?: number }
-  | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true }
+  /** `friendly`: the victim is the capturer's teammate (Team-up): the capturer's moustache shrinks a level instead of growing. */
+  | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true; friendly?: true }
   | { type: 'home'; color: Color; tokenId: number }
   | { type: 'rank'; color: Color; rank: number }
   | { type: 'noMoves'; color: Color; discarded: number[] }
@@ -125,6 +146,8 @@ export type GameEvent =
   | { type: 'turn'; color: Color }
   /** `from`: where each of their tokens was; the ones not home go back to base under a white flag. */
   | { type: 'surrender'; color: Color; from: number[] }
+  /** A wildcard entry: these tokens go from home back to base. `unranked`: the place a finished player gave up for it. */
+  | { type: 'respawn'; color: Color; tokenIds: number[]; unranked?: number }
   | { type: 'gameOver'; ranks: Color[] };
 
 /** Snapshot sent to clients: the full public state plus the server's legal moves. */
@@ -206,6 +229,8 @@ export interface PublicLobby {
   members: LobbyMember[];
   spectators: LobbySpectator[];
   gameId: string | null;
+  /** Team-up: the next game is 2v2, diagonal partners. */
+  teams: boolean;
 }
 
 export interface LobbySummary {
@@ -217,6 +242,8 @@ export interface LobbySummary {
   players: number;
   /** People watching without a seat. */
   watching: number;
+  /** Team-up lobby. */
+  teams: boolean;
 }
 
 /** What the admin panel shows per lobby. */

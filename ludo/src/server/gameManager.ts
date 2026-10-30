@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
-import { RuleError, applyMove, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { RuleError, applyMove, applyRespawn, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
+import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, WILDCARD_MS, WILDCARD_STAGGER_MS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
@@ -85,6 +85,7 @@ export class GameManager {
       lobbyId: lobby.id,
       seats,
       firstSeat: this.randomInt(0, seats.length),
+      teams: Boolean(lobby.teams),
     });
     if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
     const game: LiveGame = { state, graceTimers: new Map(), seen: new Set(), lastEvents: [] };
@@ -173,6 +174,25 @@ export class GameManager {
   surrender(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.surrender)) return this.badPayload(userId, 'game:surrender', payload);
     const p = payload as { gameId: string; actionId: string };
+    return this.anytime(userId, p, 'surrendered', (state, seat) => applySurrender(state, seat.color));
+  }
+
+  /**
+   * A wildcard entry: home tokens (a bitmask of token ids) go back to base. Any time, like a
+   * surrender, and it doesn't take a seat back from a takeover bot.
+   */
+  respawn(userId: number, payload: unknown): Ack {
+    if (!matchesSchema(payload, SCHEMAS.respawn)) return this.badPayload(userId, 'game:respawn', payload);
+    const p = payload as { gameId: string; actionId: string; tokens: number };
+    const ids = [0, 1, 2, 3].filter((i) => p.tokens & (1 << i));
+    return this.anytime(userId, p, `made a wildcard entry (${ids.join(',')})`, (state, seat) => applyRespawn(state, seat.color, ids));
+  }
+
+  /**
+   * An action a seated player may take whatever the turn (surrender, wildcard entry). A retry
+   * with the same action id is a no-op. The current player's timer is paused for it, not reset.
+   */
+  private anytime(userId: number, p: { gameId: string; actionId: string }, what: string, apply: (state: GameState, seat: Seat) => GameEvent[]): Ack {
     const game = this.games.get(p.gameId);
     if (!game) return { ok: false, error: 'NO_GAME' };
     if (game.seen.has(p.actionId)) return { ok: true };
@@ -181,14 +201,14 @@ export class GameManager {
     const seatBefore = game.state.turn.seat;
     let events: GameEvent[];
     try {
-      events = applySurrender(game.state, seat.color);
+      events = apply(game.state, seat);
     } catch (err) {
       if (err instanceof RuleError) return { ok: false, error: err.code };
       throw err;
     }
-    this.opts.log?.(`[game ${game.state.id}] ${seat.username} surrendered`);
+    this.opts.log?.(`[game ${game.state.id}] ${seat.username} ${what}`);
     this.remember(game, p.actionId);
-    this.commit(game, events, seatBefore);
+    this.commit(game, events, seatBefore, true);
     return { ok: true };
   }
 
@@ -286,13 +306,17 @@ export class GameManager {
     if (game.seen.size > SEEN_LIMIT) game.seen.delete(game.seen.values().next().value!);
   }
 
-  /** Applies a game-logic change: new version, timers, persistence, broadcast. */
-  private commit(game: LiveGame, events: GameEvent[], seatBefore: number): void {
+  /**
+   * Applies a game-logic change: new version, timers, persistence, broadcast. `pause`: someone
+   * acted out of turn, so the current player keeps the time they had left (plus the animation).
+   */
+  private commit(game: LiveGame, events: GameEvent[], seatBefore: number, pause = false): void {
     game.state.version++;
     // Auto-play covers the rest of one turn only (bonus rolls included).
     if (game.state.turn.seat !== seatBefore) game.state.turn.auto = false;
     game.lastEvents = events;
-    this.schedule(game);
+    const left = game.state.turn.deadline - Date.now();
+    this.schedule(game, pause && game.state.turn.seat === seatBefore && game.state.turn.deadline > 0 ? Math.max(0, left) : undefined);
     this.persist(game);
     this.opts.onUpdate?.(this.publicState(game.state), events);
     if (game.state.finished) {
@@ -314,7 +338,8 @@ export class GameManager {
     this.opts.onUpdate?.(this.publicState(game.state));
   }
 
-  private schedule(game: LiveGame): void {
+  /** `timeLeftMs`: the current player's time left, kept instead of a fresh full timer. */
+  private schedule(game: LiveGame, timeLeftMs?: number): void {
     clearTimeout(game.timer);
     game.timer = undefined;
     const { state } = game;
@@ -329,7 +354,7 @@ export class GameManager {
       game.timer = setTimeout(() => this.act(game, false), think + pace);
       return;
     }
-    const timeoutMs = this.opts.turnTimeoutSec * 1000 + pace;
+    const timeoutMs = (timeLeftMs ?? this.opts.turnTimeoutSec * 1000) + pace;
     state.turn.deadline = Date.now() + timeoutMs;
     if (state.turn.phase === 'moving' && distinctChoices(legalMoves(state), state).length === 1) {
       game.timer = setTimeout(() => this.act(game, false), this.autoMoveDelayMs + pace);
@@ -349,6 +374,7 @@ export class GameManager {
       else if (e.type === 'noMoves') ms += 650;
       else if (e.type === 'bonus') ms += 500;
       else if (e.type === 'surrender') ms += SURRENDER_MS;
+      else if (e.type === 'respawn') ms += WILDCARD_MS + WILDCARD_STAGGER_MS * (e.tokenIds.length - 1);
     }
     return ms * this.animScale;
   }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { isLocalAddress } from '../src/shared/ice.js';
 import { MAX_VOICE_PEERS } from '../src/shared/types.js';
 import { client, createLobby, startTestServer, wait, type TestClient, type TestServer } from './serverHelpers.js';
 import { sfuPhone } from './sfuPhone.js';
@@ -12,8 +13,12 @@ afterEach(async () => {
   await t?.close();
 });
 
-const start = (ports: [number, number], enabled = true) =>
-  startTestServer({ voice: { iceServers: [], sfu: { enabled, portMin: ports[0], portMax: ports[1], announcedIp: '' } } });
+const start = (ports: [number, number], enabled = true, voice: { announcedIp?: string; localMaxPingMs?: number } = {}) =>
+  startTestServer({ voice: { iceServers: [], localMaxPingMs: voice.localMaxPingMs ?? 40, sfu: { enabled, portMin: ports[0], portMax: ports[1], announcedIp: voice.announcedIp ?? '' } } });
+
+/** The candidates of an SDP: address and priority, in order. */
+const candidates = (sdp: string) =>
+  [...sdp.matchAll(/^a=candidate:\S+ \d+ \S+ (\d+) (\S+) \d+ typ (\S+)/gm)].map((m) => ({ priority: Number(m[1]), address: m[2], type: m[3] }));
 
 /** A lobby with `n` people: the first 4 seated, the rest watching. */
 async function lobbyOf(n: number) {
@@ -101,5 +106,58 @@ describe('the built-in voice server', () => {
     const joined = await solo.emit<{ sfu: boolean }>('voice:join', { lobbyId: l });
     expect(joined.ok && joined.data!.sfu).toBe(false);
     expect(await solo.emit('voice:sfuJoin', { lobbyId: l })).toEqual({ ok: false, error: 'SFU_OFF' });
+  });
+
+  describe('internet first', () => {
+    it('a phone that doesn’t qualify for local routes gets none, and its own local ones are dropped', async () => {
+      t = await start([41240, 41279], true, { localMaxPingMs: 0 });
+      const { cs, lobbyId } = await lobbyOf(1);
+      const join = await cs[0].emit<{ local: { ok: boolean; why: string } }>('voice:join', { lobbyId });
+      expect(join.ok && join.data!.local).toEqual({ ok: false, why: expect.stringMatching(/^ping \d+ ms$/) });
+      const r = await cs[0].emit<{ sdp: string }>('voice:sfuJoin', { lobbyId });
+      expect(r.ok).toBe(true);
+      // Only internet routes are left (werift falls back to a public STUN server to find the router's address).
+      expect(candidates(r.ok ? r.data!.sdp : '').filter((c) => isLocalAddress(c.address))).toEqual([]);
+      expect(t.server.ctx.sfu.allowsLocal(lobbyId, cs[0].userId)).toBe(false);
+    });
+
+    it('after the internet route failed the phone asks again with local routes, and connects', async () => {
+      t = await start([41280, 41319], true, { localMaxPingMs: 0 });
+      const { cs, lobbyId } = await lobbyOf(2);
+      const [a, b] = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId, { local: true }).then((p) => (phones.push(p), p))));
+      expect(t.server.ctx.sfu.allowsLocal(lobbyId, cs[0].userId)).toBe(true);
+      expect(candidates(a.offer).some((c) => isLocalAddress(c.address))).toBe(true);
+      await a.talk(10);
+      await wait(300);
+      expect(b.heard.get(cs[0].userId)?.length).toBeGreaterThanOrEqual(8);
+    });
+
+    it('a phone on IPv4 with a low ping gets both, internet routes ranked first', async () => {
+      t = await start([41320, 41359], true, { announcedIp: '203.0.113.7' });
+      const { cs, lobbyId } = await lobbyOf(1);
+      await cs[0].emit('voice:join', { lobbyId });
+      const r = await cs[0].emit<{ sdp: string }>('voice:sfuJoin', { lobbyId });
+      const list = candidates(r.ok ? r.data!.sdp : '');
+      const pub = list.filter((c) => !isLocalAddress(c.address));
+      const local = list.filter((c) => isLocalAddress(c.address));
+      expect(pub.map((c) => c.address)).toContain('203.0.113.7');
+      expect(local.length).toBeGreaterThan(0);
+      expect(Math.min(...pub.map((c) => c.priority))).toBeGreaterThan(Math.max(...local.map((c) => c.priority)));
+      expect(t.server.ctx.sfu.allowsLocal(lobbyId, cs[0].userId)).toBe(true);
+    });
+
+    it('without one configured, the public address is learnt from how internet phones connect', async () => {
+      t = await start([41360, 41399], true, { localMaxPingMs: 0 });
+      const { cs, lobbyId } = await lobbyOf(1);
+      t.server.ctx.sfu.learnPublicAddress('192.168.1.1'); // a local address: ignored
+      expect(t.server.ctx.sfu.publicAddress).toBeNull();
+      t.server.ctx.sfu.learnPublicAddress('198.51.100.9');
+      expect(t.server.ctx.sfu.publicAddress).toBe('198.51.100.9');
+      await cs[0].emit('voice:join', { lobbyId });
+      const r = await cs[0].emit<{ sdp: string }>('voice:sfuJoin', { lobbyId });
+      const list = candidates(r.ok ? r.data!.sdp : '');
+      expect(list.map((c) => c.address)).toContain('198.51.100.9');
+      expect(list.filter((c) => isLocalAddress(c.address))).toEqual([]);
+    });
   });
 });

@@ -264,6 +264,17 @@ function pathOf(l: LinkReport): string {
 
 const GAME_TRANSPORT: Record<string, string> = { websocket: 'WebSocket over TCP', polling: 'HTTP long-polling over TCP (WebSockets blocked on this network)' };
 
+/**
+ * Voice goes over the internet first; local-network routes only for a phone on IPv4 with a low
+ * ping, or once the internet route failed.
+ */
+export function localRouteText(r: Pick<VoiceReport, 'localRoute' | 'server'>): string {
+  const why = r.localRoute.why ? ` (${r.localRoute.why})` : '';
+  if (r.localRoute.ok) return `allowed, after the internet route${why}`;
+  if (r.server.local) return `added: the internet route didn't connect${why}`;
+  return `not used: internet only${why}`;
+}
+
 /** This phone's side: game connection, voice-server link, microphone. */
 function thisPhone(r: VoiceReport): string {
   const s = r.server;
@@ -275,6 +286,7 @@ function thisPhone(r: VoiceReport): string {
   const lines = [
     `<li class="vd-link vd-mine"><div><b>Game connection</b> · ${r.game.transport ? GAME_TRANSPORT[r.game.transport] ?? r.game.transport : 'offline'}</div></li>`,
     `<li class="vd-link vd-mine"><div><b>Voice server</b> · ${esc(server)}</div>${s.route?.protocol ? `<span>${esc(pathText(s.route, 'server'))}</span>` : ''}${s.stream && streamText(s.stream) ? `<span>Traffic: ${esc(streamText(s.stream))}</span>` : ''}</li>`,
+    `<li class="vd-link vd-mine"><div><b>Local network route</b> · ${esc(localRouteText(r))}</div></li>`,
     `<li class="vd-link vd-mine"><div><b>Microphone</b> · ${r.mic ? `on${r.denoise ? ' · AI noise removal on' : ''} · ${r.sending ? 'sending (you are talking)' : 'nothing sent while you are quiet'}` : 'blocked'}</div></li>`,
     `<li class="vd-link vd-mine"><div><b>STUN/TURN servers</b> · ${r.iceServers}${r.signalError ? ` · last signalling error: ${esc(r.signalError)}` : ''}</div></li>`,
   ];

@@ -17,6 +17,8 @@ export interface Lobby {
   createdAt: number;
   /** When the last connected human went offline; null while anyone is online. */
   allOfflineSince: number | null;
+  /** Team-up: the next game is 2v2 (diagonal partners). Lobbies saved before Team-up lack it. */
+  teams?: boolean;
 }
 
 export interface LobbyUser {
@@ -130,6 +132,7 @@ export class LobbyManager {
         status: l.status,
         players: l.members.length,
         watching: l.spectators.length,
+        teams: Boolean(l.teams),
       }));
   }
 
@@ -157,6 +160,7 @@ export class LobbyManager {
       members: l.members.map((m) => (m.isBot || m.userId === null || !winsOf ? { ...m } : { ...m, wins: winsOf(m.userId) })),
       spectators: l.spectators.map((s) => (winsOf ? { ...s, wins: winsOf(s.userId) } : { ...s })),
       gameId: l.gameId,
+      teams: Boolean(l.teams),
     };
   }
 
@@ -355,6 +359,19 @@ export class LobbyManager {
     return lobby;
   }
 
+  /**
+   * Host: Classic or Team-up for the next game. Everyone else's "ready" is cleared, since the
+   * game they said yes to has changed.
+   */
+  setTeams(userId: number, teams: boolean): Lobby {
+    const lobby = this.hostLobby(userId);
+    if (Boolean(lobby.teams) === teams) return lobby;
+    lobby.teams = teams;
+    for (const m of lobby.members) m.ready = m.isBot;
+    this.changed(lobby);
+    return lobby;
+  }
+
   /** Adds a bot on the seat the host tapped (`color`), or on a random free seat if none was given. */
   addBot(userId: number, color?: Color): Lobby {
     const lobby = this.hostLobby(userId);
@@ -398,6 +415,7 @@ export class LobbyManager {
   checkStart(userId: number): Lobby {
     const lobby = this.hostLobby(userId);
     if (lobby.members.length < 2) throw new AppError('NOT_ENOUGH_PLAYERS');
+    if (lobby.teams && lobby.members.length < MAX_MEMBERS) throw new AppError('TEAMS_NEED_FOUR');
     // The host starting the game counts as being ready.
     if (lobby.members.some((m) => !m.isBot && m.userId !== lobby.hostId && !m.ready)) throw new AppError('NOT_ALL_READY');
     return lobby;

@@ -3,6 +3,7 @@ import { play } from '../sound.js';
 import { state, update } from '../store.js';
 import { KEYS, storage } from '../storage.js';
 import { gameAwards, playerStats, type Award } from '../../shared/awards.js';
+import { winnersOf } from '../../shared/rules.js';
 import type { Color } from '../../shared/types.js';
 import { $, esc } from '../ui.js';
 
@@ -15,7 +16,8 @@ export function resultsScreen(root: HTMLElement): void {
     return;
   }
   const myColor = g.seats.find((s) => s.userId === state.user?.id)?.color;
-  const iWon = g.ranks[0] === myColor;
+  const winners = winnersOf(g);
+  const iWon = Boolean(myColor && winners.includes(myColor));
   const awards = gameAwards(g);
   const awardsOf = (c: Color) => awards.filter((a) => a.colors.includes(c));
   const nameOf = (c: Color) => {
@@ -26,21 +28,24 @@ export function resultsScreen(root: HTMLElement): void {
     .map((color, i) => {
       const seat = g.seats.find((s) => s.color === color)!;
       return `
-        <li class="podium-row p-${color}" style="animation-delay:${200 + i * 140}ms">
-          <span class="place">${PLACES[i]}</span>
+        <li class="podium-row p-${color}${g.teams ? ' team-row' : ''}" style="animation-delay:${200 + i * 140}ms">
+          <span class="place">${g.teams ? (winners.includes(color) ? '1st' : '2nd') : PLACES[i]}</span>
           <span class="pchip-dot">${seat.controller === 'bot' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
-          <span class="podium-name">${esc(seat.username)}${color === myColor ? ' <em>you</em>' : ''}${g.surrendered?.includes(color) ? ' <span title="Surrendered">🏳️</span>' : ''}</span>
-          <span class="podium-awards">${awardsOf(color).map((a) => `<span title="${a.title}">${a.icon}</span>`).join('')}</span>
-          ${i === 0 ? '<span class="crown">👑</span>' : ''}
+          <span class="podium-who">
+            <span class="podium-name"><span class="pn-text">${esc(seat.username)}</span>${color === myColor ? '<em>you</em>' : ''}${g.surrendered?.includes(color) ? '<span title="Surrendered">🏳️</span>' : ''}</span>
+            ${awardsOf(color).length ? `<span class="podium-awards">${awardsOf(color).map((a) => `<span title="${a.title}">${awardIcon(a)}</span>`).join('')}</span>` : ''}
+          </span>
+          ${winners.includes(color) ? '<span class="crown">👑</span>' : ''}
         </li>`;
     })
     .join('');
-  const winner = g.seats.find((s) => s.color === g.ranks[0]);
+  const names = winners.map((c) => esc(g.seats.find((s) => s.color === c)?.username ?? 'Someone'));
+  const heading = g.teams ? (iWon ? 'Your team won!' : `${names.join(' & ')} win!`) : iWon ? 'You won!' : `${names[0] ?? 'Someone'} wins${g.botBattle ? ' the bot battle' : ''}`;
   root.innerHTML = `
     <div class="results">
       ${iWon ? `<div class="confetti">${Array.from({ length: 28 }, (_, i) => `<i style="--i:${i}"></i>`).join('')}</div>` : ''}
       <div class="big-emoji">${iWon ? '🏆' : g.botBattle ? '🤖' : '🎲'}</div>
-      <h2>${iWon ? 'You won!' : `${esc(winner?.username ?? 'Someone')} wins${g.botBattle ? ' the bot battle' : ''}`}</h2>
+      <h2>${heading}</h2>
       <ol class="podium">${rows}</ol>
       ${matchStats(g.ranks, awards, nameOf, (c) => playerStats(g, c))}
       <div class="results-actions">
@@ -62,9 +67,18 @@ export function resultsScreen(root: HTMLElement): void {
 const AWARD_SUB: Partial<Record<Award['key'], string>> = {
   machoHome: 'moustached tokens brought home',
   babyFace: 'fewest moustaches grown · smooth as a baby',
+  risks: 'extra laps + wildcard entries: the biggest risks taken',
+  friendlyFire: 'teammates captured',
 };
 
+/** An award's icon. "Balls of steel" is a drawn steel ball: there is no emoji for one. */
+export function awardIcon(a: Pick<Award, 'key' | 'icon'>): string {
+  return a.key === 'risks' ? '<span class="steel-ball" role="img" aria-label="steel ball"></span>' : a.icon;
+}
+
 const STAT_COLUMNS = [
+  // Every arrival home: a token back from a wildcard entry that made it home again counts twice.
+  { key: 'homeRuns', icon: '🏠', label: 'Home' },
   { key: 'cells', icon: '👣', label: 'Cells' },
   { key: 'captures', icon: '⚔️', label: 'Captures' },
   { key: 'sixes', icon: '🎲', label: 'Sixes' },
@@ -83,7 +97,7 @@ function matchStats(
     .map(
       (a, i) => `
       <li class="award" style="animation-delay:${600 + i * 110}ms">
-        <span class="aw-icon">${a.icon}</span>
+        <span class="aw-icon">${awardIcon(a)}</span>
         <span class="aw-text"><b>${a.title}</b>${AWARD_SUB[a.key] ? `<small class="aw-sub">${AWARD_SUB[a.key]}</small>` : ''}<span>${a.colors.map((c) => `<span class="aw-who n-${c}">${nameOf(c)}</span>`).join(' ')}</span></span>
         ${a.key === 'firstBlood' ? '' : `<span class="aw-val">${a.value}</span>`}
       </li>`,
@@ -94,7 +108,7 @@ function matchStats(
     .map(
       (c) => `
       <tr class="p-${c}">
-        <th scope="row"><span class="st-dot"></span>${nameOf(c)}${statsOf(c).firstBlood ? ' <span title="First blood">🩸</span>' : ''}</th>
+        <th scope="row"><span class="st-dot"></span><span class="st-name">${nameOf(c)}</span>${statsOf(c).firstBlood ? ' <span title="First blood">🩸</span>' : ''}</th>
         ${STAT_COLUMNS.map((col) => {
           const v = statsOf(c)[col.key] ?? 0;
           return `<td class="${v > 0 && v === best[col.key] ? 'best' : ''}">${v}</td>`;

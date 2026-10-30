@@ -1,9 +1,13 @@
 import { BASE, HOME, absoluteSquare, isSafeSquare, pathCells, tokenCell } from '../../shared/board.js';
 import type { GameUpdate } from '../../shared/protocol.js';
+import { distinctChoices, isTeammate, respawnable, winnersOf } from '../../shared/rules.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
   SURRENDER_MS,
+  TEAMMATE,
+  WILDCARD_MS,
+  WILDCARD_STAGGER_MS,
   type Color,
   type GameEvent,
   type GameState,
@@ -13,10 +17,10 @@ import {
   tempoOf,
 } from '../../shared/types.js';
 import { setGameHandler, showError } from '../app.js';
-import { atTempo, hop, reducedMotion, setTempo, sleep, slide } from '../board/animate.js';
+import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide } from '../board/animate.js';
 import { moustacheLevel } from '../../shared/heft.js';
-import { installMoustacheDefs } from '../moustache.js';
-import { TokenLayer, boardSvg } from '../board/render.js';
+import { installMoustacheDefs, moustacheSvg } from '../moustache.js';
+import { TokenLayer, boardSvg, placements } from '../board/render.js';
 import { Dice, dieChip } from '../dice.js';
 import { bindFullscreenButton, canFullscreen, enterFullscreen, isFullscreen } from '../fullscreen.js';
 import { vibrate } from '../haptics.js';
@@ -24,7 +28,7 @@ import { emit } from '../net.js';
 import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
 import { state, subscribe, update } from '../store.js';
-import { uuid } from '../storage.js';
+import { KEYS, storage, uuid } from '../storage.js';
 import { $, COLOR_NAME, ICONS, confirmDialog, el, esc, modal, setHtml, toast } from '../ui.js';
 import { voice } from '../voice.js';
 import { pingText, signalBars } from '../netUi.js';
@@ -38,6 +42,10 @@ const TOP: Color[] = ['red', 'green'];
 const BOTTOM: Color[] = ['blue', 'yellow'];
 const MEDALS = ['🥇', '🥈', '🥉', '4th'];
 const SILENT_ERRORS = new Set(['STALE_VERSION', 'NOT_YOUR_TURN', 'WRONG_PHASE']);
+/** How long to hold your home tokens to open the wildcard entry. */
+const HOLD_MS = 450;
+/** Games whose Team-up line-up was already announced on this phone. */
+const announced = new Set<string>();
 
 export function gameScreen(root: HTMLElement): () => void {
   let gs: PublicGameState | null = state.game;
@@ -68,6 +76,7 @@ export function gameScreen(root: HTMLElement): () => void {
     <div class="board-wrap" id="board-wrap">
       <div class="board" id="board">
         ${boardSvg()}
+        <div class="hold-layer" id="holds"></div>
         <div class="target-layer" id="targets"></div>
         <div class="token-layer" id="tokens"></div>
         <div class="flag-layer" id="flags"></div>
@@ -168,12 +177,76 @@ export function gameScreen(root: HTMLElement): () => void {
       $(root, '#queue').animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 300 });
       return;
     }
+    // Several of my tokens on this square that aren't alike (moustaches, laps left): which one?
+    const from = gs!.tokens[color][tokenId];
+    if (from !== BASE) {
+      const stacked = distinctChoices(gs!.legalMoves.filter((m) => m.dieIndex === pick.dieIndex && !m.lap && gs!.tokens[color][m.tokenId] === from), gs!);
+      if (stacked.length > 1) return chooseStacked(stacked);
+    }
+    void moveToken(tokenId, pick.dieIndex);
+  }
+
+  /** Moves the chosen token with the chosen die: asks which way at its home turn, and before friendly fire. */
+  async function moveToken(tokenId: number, dieIndex: number): Promise<void> {
+    const options = gs!.legalMoves.filter((m) => m.tokenId === tokenId && m.dieIndex === dieIndex);
     // At its home turn on the first lap the token may go round again: ask which way.
-    const lap = candidates.find((m) => m.dieIndex === pick.dieIndex && m.lap);
-    const home = candidates.find((m) => m.dieIndex === pick.dieIndex && !m.lap);
-    if (lap && home) return chooseLap(home, lap);
+    const lap = options.find((m) => m.lap);
+    const home = options.find((m) => !m.lap);
+    if (!home) return;
+    if (lap) return chooseLap(home, lap);
+    if (!(await friendlyFireOk(home))) return;
     play('tap');
-    void send('game:move', { dieIndex: pick.dieIndex, tokenId: pick.tokenId });
+    void send('game:move', { dieIndex, tokenId });
+  }
+
+  /** Team-up: capturing my teammate is allowed, but asked about first. */
+  async function friendlyFireOk(m: LegalMove): Promise<boolean> {
+    const me = mySeat()?.color;
+    const mates = m.captures.filter((c) => me && isTeammate(gs!, me, c.color));
+    if (!mates.length) return true;
+    return confirmDialog(
+      'Capture your teammate?',
+      `That sends ${seatName(mates[0].color)}'s token back to base. You still get a bonus roll, but your moustache shrinks a level.`,
+      'Capture anyway',
+      true,
+    );
+  }
+
+  /** The open "which token moves?" picker, closed if the game moves on. */
+  let stackChooser: { close: () => void; version: number } | null = null;
+
+  /**
+   * Same-colour tokens on one square that aren't alike (different moustaches, or one on its last
+   * lap): big cards to pick from, since the stacked tokens on the board are small.
+   */
+  function chooseStacked(moves: LegalMove[]): void {
+    play('tap');
+    stackChooser?.close();
+    const color = mySeat()!.color;
+    const body = el(`<div class="stack-choice">${moves
+      .map((m) => {
+        const kills = gs!.kills?.[color]?.[m.tokenId] ?? 0;
+        const last = Boolean(gs!.extraLaps?.[color]?.[m.tokenId]);
+        const victims = m.captures.map((c) => `<b class="lap-victim n-${c.color}">${esc(seatName(c.color))}</b>`).join(' ');
+        return `<button class="stack-opt" data-token="${m.tokenId}">
+          ${miniToken(color, kills)}
+          <b>${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}</b>
+          ${last ? '<small class="tag">last lap</small>' : ''}
+          ${victims ? `<span class="lap-badge">⚔ ${victims}</span>` : ''}
+        </button>`;
+      })
+      .join('')}</div>`);
+    const m = modal({ title: 'Which token moves?', body, actions: [{ label: 'Not now' }], onDismiss: () => (stackChooser = null) });
+    stackChooser = { close: m.close, version: gs!.version };
+    body.querySelectorAll<HTMLButtonElement>('.stack-opt').forEach(
+      (b) =>
+        (b.onclick = () => {
+          const dieIndex = moves[0].dieIndex;
+          stackChooser?.close();
+          stackChooser = null;
+          void moveToken(Number(b.dataset.token), dieIndex);
+        }),
+    );
   }
 
   /** The open "home or another lap?" confirm, closed if the game moves on (e.g. the timer plays the turn). */
@@ -203,28 +276,131 @@ export function gameScreen(root: HTMLElement): () => void {
           ${victims ? `<span class="lap-badge">⚔ Captures ${victims}</span>` : '<small>Hunt more, but it can be caught</small>'}
         </button>
       </div>
-      <p class="lap-note">A token can go round only once. Tip: tap the gold or blue marker on the board.</p>
+      <p class="lap-note">Each token gets one extra lap: going round again uses it, so this one can't make a wildcard entry later. Tip: tap the gold or blue marker on the board.</p>
     </div>`);
-    const answer = (goRound: boolean) => {
+    const answer = async (goRound: boolean) => {
       lapChooser?.close();
       lapChooser = null;
+      if (!(await friendlyFireOk(goRound ? lap : home))) return;
       play('tap');
       void send('game:move', { dieIndex: home.dieIndex, tokenId: home.tokenId, lap: goRound });
     };
-    body.querySelectorAll<HTMLButtonElement>('.lap-opt').forEach((b) => (b.onclick = () => answer(b.dataset.go === 'round')));
+    body.querySelectorAll<HTMLButtonElement>('.lap-opt').forEach((b) => (b.onclick = () => void answer(b.dataset.go === 'round')));
     const m = modal({ title: 'Which way?', body, actions: [{ label: 'Not now' }], onDismiss: () => (lapChooser = null) });
     lapChooser = { close: m.close, version: gs!.version };
   }
 
   // Tapping a gold or blue marker on the board chooses that way directly.
-  targets.addEventListener('click', (e) => {
+  targets.addEventListener('click', async (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
     if (!t || !canMove()) return;
     lapChooser?.close();
     lapChooser = null;
+    const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' };
+    const m = gs!.legalMoves.find((x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap);
+    if (m && !(await friendlyFireOk(m))) return;
     play('tap');
-    void send('game:move', { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' });
+    void send('game:move', move);
   });
+
+  // ---------- wildcard entry: hold your home tokens to send some back to base ----------
+
+  const holds = $(root, '#holds');
+  let holdTimer: ReturnType<typeof setTimeout> | null = null;
+  holds.addEventListener('pointerdown', (e) => {
+    const zone = (e.target as HTMLElement).closest<HTMLElement>('.home-hold');
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.add('holding');
+    holdTimer = setTimeout(() => {
+      holdTimer = null;
+      zone.classList.remove('holding');
+      vibrate(15);
+      openWildcard();
+    }, HOLD_MS);
+  });
+  const letGo = (e: Event) => {
+    if (!holdTimer) return;
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    holds.querySelector('.home-hold')?.classList.remove('holding');
+    if (e.type === 'pointerup') toast('Hold your home tokens to send one back: a wildcard entry 🃏');
+  };
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) holds.addEventListener(type, letGo);
+  holds.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  /** The hold zone over my home triangle, while I have tokens there that may go again. */
+  function renderHolds(): void {
+    const me = mySeat()?.color;
+    if (!gs || !me || !respawnable(gs, me).length) return setHtml(holds, '');
+    const [x, y] = tokenCell(me, HOME, 0);
+    setHtml(holds, `<div class="home-hold h-${me}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%" role="button" aria-label="Hold for a wildcard entry"></div>`);
+  }
+
+  /** The open wildcard sheet: kept up to date while the game goes on, closed when nothing is left to pick. */
+  let wildcard: { close: () => void; refresh: () => void } | null = null;
+
+  /** Pick home tokens to send back to base: toggle cards, then Send back. */
+  function openWildcard(): void {
+    const me = mySeat()?.color;
+    if (!gs || !me) return;
+    wildcard?.close();
+    const chosen = new Set<number>();
+    const body = el(`<div class="wildcard-sheet">
+      <p class="wc-note">They go back to base and need a 6 to come out. To win, all 4 must be home again. Each token can do this once, and can't go round again after it.</p>
+      <p class="wc-note wc-rank" hidden></p>
+      <div class="wc-cards"></div>
+      <button class="btn btn-primary btn-xl wc-send" disabled>🃏 Send back</button>
+    </div>`);
+    const cards = $(body, '.wc-cards');
+    const sendBtn = $<HTMLButtonElement>(body, '.wc-send');
+    const paint = () => {
+      const ids = respawnable(gs!, me);
+      if (!ids.length) return wildcard?.close();
+      for (const id of [...chosen]) if (!ids.includes(id)) chosen.delete(id);
+      setHtml(
+        cards,
+        ids
+          .map((id) => {
+            const kills = gs!.kills?.[me]?.[id] ?? 0;
+            return `<button class="wc-card${chosen.has(id) ? ' on' : ''}" data-token="${id}" aria-pressed="${chosen.has(id)}">${miniToken(me, kills)}<b>Token ${id + 1}</b><small>${kills ? `${kills} capture${kills === 1 ? '' : 's'} 🥸` : 'Clean-shaven'}</small></button>`;
+          })
+          .join(''),
+      );
+      cards.querySelectorAll<HTMLButtonElement>('.wc-card').forEach(
+        (b) =>
+          (b.onclick = () => {
+            const id = Number(b.dataset.token);
+            if (chosen.has(id)) chosen.delete(id);
+            else chosen.add(id);
+            play('tap');
+            paint();
+          }),
+      );
+      const place = gs!.ranks.indexOf(me);
+      const rank = $(body, '.wc-rank');
+      rank.hidden = place < 0;
+      rank.textContent = place < 0 ? '' : `You finished ${MEDALS[place]}: you give that place up until all 4 are home again.`;
+      sendBtn.disabled = chosen.size === 0;
+      sendBtn.textContent = chosen.size ? `🃏 Send back (${chosen.size})` : '🃏 Send back';
+    };
+    sendBtn.onclick = async () => {
+      if (!chosen.size) return;
+      const tokens = [...chosen].reduce((mask, id) => mask | (1 << id), 0);
+      wildcard?.close();
+      const r = await emit('game:respawn', { gameId: gs!.id, actionId: uuid(), tokens });
+      if (!r.ok) showError(r.error);
+    };
+    const m = modal({ title: '🃏 Wildcard entry', body, actions: [{ label: 'Cancel' }], onDismiss: () => (wildcard = null) });
+    wildcard = {
+      close: () => {
+        m.close();
+        wildcard = null;
+      },
+      refresh: paint,
+    };
+    paint();
+  }
 
   // ---------- updates from the server ----------
 
@@ -233,6 +409,10 @@ export function gameScreen(root: HTMLElement): () => void {
     if (lapChooser && u.state.version !== lapChooser.version) {
       lapChooser.close();
       lapChooser = null;
+    }
+    if (stackChooser && u.state.version !== stackChooser.version) {
+      stackChooser.close();
+      stackChooser = null;
     }
     if (!gs || u.state.id !== gs.id) {
       gs = u.state;
@@ -353,19 +533,28 @@ export function gameScreen(root: HTMLElement): () => void {
           const el = tokens.get(e.victim, e.tokenId);
           if (!el) break;
           const from = tokenCell(e.victim, e.from, e.tokenId);
-          play('capture');
+          play(e.friendly ? 'friendlyFire' : 'capture');
           vibrate([30, 50, 30]);
           burst(from, e.color);
-          // The capturer savours its meal while the victim reacts on its way home.
-          if (lastMover) tokenEmoji(lastMover, 'yum');
+          if (e.friendly) {
+            // Team-up: eating your own teammate. Allowed, but nobody is proud of it.
+            callout('Friendly fire!', 'Et tu, Brute?');
+          } else {
+            // The capturer savours its meal while the victim reacts on its way home.
+            if (lastMover) tokenEmoji(lastMover, 'yum');
+            setTimeout(() => play('slurp'), 260);
+          }
           tokenEmoji(el, 'ouch');
-          setTimeout(() => play('slurp'), 260);
           await slide(el, from, tokenCell(e.victim, BASE, e.tokenId), 560);
           work.tokens[e.victim][e.tokenId] = BASE;
-          // The capturer's moustache grows a level; the captured token goes home clean-shaven.
+          // The capturer's moustache grows a level (shrinks one for friendly fire); the captured
+          // token goes home clean-shaven.
           work.kills ??= {};
           (work.kills[e.victim] ??= [0, 0, 0, 0])[e.tokenId] = 0;
-          if (lastMove) (work.kills[lastMove.color] ??= [0, 0, 0, 0])[lastMove.tokenId]++;
+          if (lastMove) {
+            const k = (work.kills[lastMove.color] ??= [0, 0, 0, 0]);
+            k[lastMove.tokenId] = e.friendly ? Math.max(0, moustacheLevel(k[lastMove.tokenId]) - 1) : k[lastMove.tokenId] + 1;
+          }
           tokens.sync(work, new Set(), null);
           // The game's first capture: everyone gets the "first blood" banner.
           if (e.firstBlood) await firstBloodBanner(e.color, e.victim);
@@ -374,9 +563,14 @@ export function gameScreen(root: HTMLElement): () => void {
         case 'home':
           play('home');
           burst(tokenCell(e.color, HOME, e.tokenId), e.color);
+          // The first time one of mine gets home, say it can go again.
+          if (e.color === me && !storage.get(KEYS.wildcardTip)) {
+            storage.set(KEYS.wildcardTip, '1');
+            toast('Tip: hold your tokens at home to send one back for a wildcard entry 🃏', 'info', 4500);
+          }
           break;
         case 'rank':
-          toast(`${seatName(e.color)} finished ${MEDALS[e.rank - 1]}`, 'success');
+          toast(work.teams ? `${seatName(e.color)} has all 4 home 🏠` : `${seatName(e.color)} finished ${MEDALS[e.rank - 1]}`, 'success');
           break;
         case 'noMoves':
           if (e.color === me) toast('No moves possible');
@@ -410,6 +604,9 @@ export function gameScreen(root: HTMLElement): () => void {
           await sleep(SURRENDER_MS - 700);
           break;
         }
+        case 'respawn':
+          await wildcardEntry(work, e.color, e.tokenIds, e.unranked);
+          break;
         case 'turn':
           if (e.color === me) {
             play('turn');
@@ -417,7 +614,7 @@ export function gameScreen(root: HTMLElement): () => void {
           }
           break;
         case 'gameOver':
-          play(e.ranks[0] === me ? 'win' : 'home');
+          play(me && winnersOf({ teams: work.teams, ranks: e.ranks }).includes(me) ? 'win' : 'home');
           break;
       }
     }
@@ -459,7 +656,80 @@ export function gameScreen(root: HTMLElement): () => void {
     renderFlags(gs);
     renderChips();
     renderControls(true);
+    renderHolds();
+    wildcard?.refresh();
     if (gs.turn.phase === 'rolling') dice.idle();
+    announceTeams();
+  }
+
+  /** Team-up: once per game, who plays with whom. */
+  function announceTeams(): void {
+    const me = mySeat()?.color;
+    if (!gs?.teams || !me || gs.finished || announced.has(gs.id)) return;
+    announced.add(gs.id);
+    const them = gs.seats.filter((x) => x.color !== me && x.color !== TEAMMATE[me]).map((x) => esc(x.username));
+    toast(`Team-up: you & ${seatName(TEAMMATE[me])} vs ${them.join(' & ')}`, 'info', 4000);
+  }
+
+  /**
+   * A wildcard entry, on every phone: a hazard-striped banner slams across the board, each token
+   * rises from home, spins and flies to its base, and lands with a thud that shakes the board.
+   */
+  async function wildcardEntry(work: GameState, color: Color, ids: number[], unranked?: number): Promise<void> {
+    const me = mySeat()?.color;
+    renderTargets([]);
+    const banner = el(`
+      <div class="wildcard-banner w-${color}" role="status" style="--wc-ms:${atTempo(WILDCARD_MS)}ms">
+        <b>Wildcard entry</b>
+        <small><span class="fb-name n-${color}">${color === me ? 'You' : esc(seatName(color))}</span> ${color === me ? 'are back for more!' : 'is back for more · beware!'}</small>
+      </div>`);
+    fx.appendChild(banner);
+    setTimeout(() => banner.remove(), atTempo(WILDCARD_MS));
+    play('wildcard');
+    vibrate([40, 60, 40, 60, 160]);
+    if (unranked) toast(`${color === me ? 'You' : seatName(color)} gave up ${MEDALS[unranked - 1]} for a wildcard entry!`);
+    await sleep(450);
+    const at = placements(work);
+    await Promise.all(
+      ids.map(async (id, i) => {
+        await sleep(i * WILDCARD_STAGGER_MS);
+        const token = tokens.get(color, id);
+        if (!token) return;
+        const p = at.get(`${color}:${id}`);
+        const base = tokenCell(color, BASE, id);
+        token.classList.add('wildcard-glow');
+        await fly(token, p ? [p.x, p.y] : tokenCell(color, HOME, id), base, 1500);
+        token.classList.remove('wildcard-glow');
+        play('land');
+        shockwave(base, color);
+        if (!reducedMotion()) board.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(5px)' }, { transform: 'translateY(-3px)' }, { transform: 'translateY(0)' }], { duration: 320 });
+      }),
+    );
+    for (const id of ids) {
+      work.tokens[color][id] = BASE;
+      (work.extraLaps ??= {})[color] ??= [0, 0, 0, 0];
+      work.extraLaps[color]![id] = 1;
+    }
+    work.ranks = work.ranks.filter((c) => c !== color || !unranked);
+    tokens.sync(work, new Set(), null);
+    basePulse(color);
+    await sleep(450);
+  }
+
+  function shockwave(cell: readonly [number, number], color: Color): void {
+    const w = el(`<div class="shockwave t-${color}" style="left:${((cell[0] + 0.5) / 15) * 100}%;top:${((cell[1] + 0.5) / 15) * 100}%"></div>`);
+    fx.appendChild(w);
+    setTimeout(() => w.remove(), 800);
+  }
+
+  /** The base the wildcard tokens landed in glows once: here comes trouble. */
+  function basePulse(color: Color): void {
+    const slots = [0, 1, 2, 3].map((i) => tokenCell(color, BASE, i));
+    const x = slots.reduce((a, p) => a + p[0], 0) / 4;
+    const y = slots.reduce((a, p) => a + p[1], 0) / 4;
+    const p = el(`<div class="base-pulse t-${color}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%"></div>`);
+    fx.appendChild(p);
+    setTimeout(() => p.remove(), 1200);
   }
 
   function renderChips(): void {
@@ -480,7 +750,7 @@ export function gameScreen(root: HTMLElement): () => void {
       // changes redraw the chips every few seconds.
       setHtml(
         chip,
-        '<span class="pchip-icon"><span class="pchip-dot"></span><span class="pchip-ping"></span></span>' +
+        '<span class="pchip-icon"><span class="pchip-dot"></span><span class="pchip-mate" hidden></span><span class="pchip-ping"></span></span>' +
           '<span class="pchip-text"><span class="pchip-name"><span class="pn"></span><span class="pchip-sig"></span></span><span class="pchip-sub"></span></span>' +
           '<span class="pchip-timer"><i></i></span>',
       );
@@ -490,6 +760,13 @@ export function gameScreen(root: HTMLElement): () => void {
       if (seat.userId !== null && seat.controller !== 'bot') dot.dataset.talk = String(seat.userId);
       else delete dot.dataset.talk;
       setHtml($(chip, '.pchip-ping'), pingText(seat.userId));
+      // Team-up: a small dot in the partner's colour on the avatar.
+      const mate = $(chip, '.pchip-mate');
+      mate.hidden = !gs!.teams;
+      if (gs!.teams) {
+        mate.className = `pchip-mate m-${TEAMMATE[color]}`;
+        mate.title = `Teammate: ${seatName(TEAMMATE[color])}`;
+      }
       // Name and mic badge apart from the signal bars, which change with every ping.
       setHtml($(chip, '.pn'), `${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}`);
       setHtml($(chip, '.pchip-sig'), signalBars(seat.userId));
@@ -552,7 +829,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
   function chipStatus(seat: Seat, rank: number, homeCount: number): string {
     if (gs!.surrendered?.includes(seat.color)) return '🏳️ surrendered';
-    if (rank >= 0) return MEDALS[rank];
+    if (rank >= 0) return gs!.teams ? '✓ all home' : MEDALS[rank];
     if (!seat.connected) return 'offline';
     if (seat.controller === 'human' && seat.timeouts > 0) return `<b class="warn">missed ${seat.timeouts}/${MAX_MISSED_TURNS}</b>`;
     return `${homeCount}/4 home`;
@@ -785,10 +1062,17 @@ export function gameScreen(root: HTMLElement): () => void {
       });
     } else if (!gs!.finished) {
       const mine = mySeat()!;
+      const spare = respawnable(gs!, mine.color).length;
+      if (spare) item(`🃏 Wildcard entry (${spare} at home)`, () => openWildcard());
       if (!gs!.surrendered?.includes(mine.color) && !gs!.ranks.includes(mine.color)) {
         item('🏳️ Surrender', async () => {
           const others = gs!.seats.filter((s) => s.color !== mine.color && !gs!.ranks.includes(s.color) && !gs!.surrendered?.includes(s.color)).length;
-          const what = others <= 1 ? 'The match ends now and the others win.' : 'You finish below everyone still playing, your tokens go back to base, and you can watch the rest.';
+          const foes = gs!.seats.filter((s) => s.color !== mine.color && s.color !== TEAMMATE[mine.color]).map((s) => s.username);
+          const what = gs!.teams
+            ? `Your team concedes: the match ends now and ${foes.join(' & ')} win.`
+            : others <= 1
+              ? 'The match ends now and the others win.'
+              : 'You finish below everyone still playing, your tokens go back to base, and you can watch the rest.';
           if (!(await confirmDialog('Surrender?', what, '🏳️ Surrender', true))) return;
           const r = await emit('game:surrender', { gameId: gs!.id, actionId: uuid() });
           if (!r.ok) showError(r.error);
@@ -827,6 +1111,11 @@ export function gameScreen(root: HTMLElement): () => void {
     offFs();
     offMute();
   };
+}
+
+/** A small token with its moustache, for the pickers (stacked tokens, wildcard entry). */
+function miniToken(color: Color, kills: number): string {
+  return `<span class="mini-token t-${color}"><span class="tok-body"></span>${moustacheSvg(moustacheLevel(kills))}</span>`;
 }
 
 /** A white flag on a pole, its cloth rippling (SVG path morph; still for reduced motion). */

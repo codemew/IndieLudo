@@ -39,6 +39,11 @@ export class NetStatsTracker {
     if (rttMs !== null) l.rtt = l.rtt === null ? rttMs : l.rtt * (1 - NEW_SAMPLE_WEIGHT) + rttMs * NEW_SAMPLE_WEIGHT;
   }
 
+  /** One socket's smoothed round trip in ms, or null before its first answered ping. */
+  rttOf(socketId: string): number | null {
+    return this.links.get(socketId)?.rtt ?? null;
+  }
+
   /** The user's best connection (a phone can have two tabs open); offline is 0 bars. */
   forUser(userId: number): PlayerNet {
     let best: PlayerNet = { userId, pingMs: null, bars: 0 };

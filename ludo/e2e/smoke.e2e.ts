@@ -179,9 +179,20 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(await alice.$$('.token.legal')).toHaveLength(2);
     await sleep(1500); // longer than the 0.7 s auto-move
     expect(game.tokens[a].slice(0, 2)).toEqual([8, 8]);
-    await tapToken(1); // sacrifice the clean-shaven one
+    // Stacked tokens are small on a phone: tapping either opens a picker with both, large.
+    await tapToken(1);
+    await alice.waitForSelector('.stack-opt');
+    const cards = await alice.$$eval('.stack-opt', (cs) => cs.map((c) => [(c as HTMLElement).dataset.token, c.querySelector('b')!.textContent]));
+    expect(cards).toEqual([
+      ['0', '3 captures'],
+      ['1', 'Clean-shaven'],
+    ]);
+    expect(await alice.$$eval('.stack-opt .mini-token .tok-stache', (s) => s.length)).toBe(1); // only the macho one wears a moustache
+    await shot(alice, 'stack-picker');
+    await tap(alice, '.stack-opt[data-token="1"]'); // sacrifice the clean-shaven one
     await until('the move', () => game.tokens[a][1] === 11);
     expect(game.tokens[a][0]).toBe(8);
+    await sleep(400);
   });
 
   it('bringing a moustached token home wins "Most macho" on the results screen', async () => {

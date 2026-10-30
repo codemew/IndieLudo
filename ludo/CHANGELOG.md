@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`./setup.sh --devinstall`** for a developer machine. It installs only what is missing to develop, debug and test every part of the app: Node.js, all npm packages with the dev tools (`npm ci --include=dev`), Google Chrome or Chromium for the browser tests (and a check that it starts headless), `alsa-utils` (the recordings the voice browser tests use as the fake microphone), emoji and Liberation fonts, `git`, `curl` and the NSS tools for mkcert. Works on apt, dnf/yum, pacman, zypper and apk; it makes no config, build, firewall or service, and leaves `package-lock.json` alone. It lists anything it couldn't install and exits with 1.
+
 ## 3.3.0
 
 ### Added
@@ -22,6 +27,7 @@
   - **Slim roll messages:** checked over sockets against the server's state.
   - **Game screen:** which dice shows where.
 - **Browser tests:** 38 in Chrome, up from 34: a 6-player game with two phones (dice placement, bytes per roll, six places on the results) and a 5-player game with bots. The voice tests now expect the voice server's 10 audio sections.
+
 
 ## 3.2.0
 

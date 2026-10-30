@@ -11,6 +11,7 @@ Copy this folder to the machine (or `git clone` it) and run:
 ./setup.sh --yes      # no questions: random passwords, printed at the end
 ./setup.sh --service  # also install a systemd user service that starts on boot (Linux)
 ./setup.sh --test     # also run the test suite
+./setup.sh --devinstall  # a developer machine: install only what's missing to develop, debug and test (see below)
 ```
 
 The script:
@@ -61,6 +62,28 @@ While the server runs, you can type these commands into it:
 | `quit`   | Stops the server                                 |
 
 ### Development
+
+On a new Linux machine, one command installs everything the commands below need:
+
+```bash
+./setup.sh --devinstall
+```
+
+It only adds what is missing and leaves everything else alone, so it is safe to run again. It sets up no `config.json`, build, firewall or service (that's the host setup above).
+
+| What | Why |
+| ---- | --- |
+| Node.js 22.13+ | The same check and install as the host setup (nvm, or `apk`/Homebrew/`pkg`) |
+| npm packages, **including the dev tools** | vitest, happy-dom, puppeteer-core, tsx, vite, typescript, concurrently and the coverage tool. Installed with `npm ci --include=dev`, so `package-lock.json` is never changed and a `NODE_ENV=production` in your shell doesn't leave them out. No compiler is needed: nothing here builds native code |
+| Google Chrome (or Chromium) | The browser tests drive it headless, with a fake microphone. Found through `CHROME_PATH`, then `/usr/bin/google-chrome`, `chromium`, `chromium-browser`. On Debian and Ubuntu on x86_64 the script installs Google Chrome's own `.deb`, which brings every library Chrome needs. Elsewhere it installs the `chromium` package (Debian, Raspberry Pi OS, Fedora, Arch, openSUSE, Alpine). Ubuntu on other CPUs has no usable Chromium (its package is a snap), so install a Chrome yourself and set `CHROME_PATH`. The script checks that the Chrome it finds really starts headless |
+| `alsa-utils` | Its recordings in `/usr/share/sounds/alsa/` are the voice the browser tests play into the fake microphone. Without them the voice browser tests are skipped |
+| Emoji and Liberation fonts | The app is full of emoji; Chrome needs the fonts to draw them, which shows in screenshots (`E2E_SHOTS=dir`) |
+| `git`, `curl`, `ca-certificates` | Cloning, and fetching nvm and Chrome |
+| NSS tools (`libnss3-tools`) | `npm run cert:mkcert` uses them to trust its certificate authority (HTTPS without the warning) |
+
+It was run on Ubuntu 24.04 (`apt`). Fedora, RHEL, Arch, openSUSE and Alpine use the same list under their own package names but haven't been tried. If anything can't be installed, the script says what is still missing at the end and exits with 1. On macOS and Termux it only does the npm packages.
+
+Not something a script can install: two voice tests (`tests/sfu.integration.test.ts`, "internet first") need a network interface with a private address such as 192.168.x.x or 10.x.x.x, so they fail in containers that only have a public one.
 
 ```bash
 npm run dev     # backend (tsx watch) + Vite with HMR on https://<LAN-IP>:5173

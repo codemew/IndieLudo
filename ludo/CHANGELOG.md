@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`./setup.sh --devinstall`** for a developer machine. It installs what is missing to develop, debug and test every part of the app: Node.js, all npm packages with the dev tools (when any is missing, `node_modules` is rebuilt from `package-lock.json` with `npm ci --include=dev`; extra packages you added don't trigger that), Google Chrome or Chromium for the browser tests (and a check that it starts headless; a Chrome that doesn't, such as Ubuntu's snap stub, is replaced; the Chrome `.deb` also adds Google's apt repository), `alsa-utils` (the recordings the voice browser tests use as the fake microphone), emoji and Liberation fonts, `git`, `curl` and the NSS tools for mkcert. Works on apt, dnf/yum, pacman, zypper and apk; it makes no config, build, firewall or service, and leaves `package-lock.json` alone. It lists anything it couldn't install and exits with 1.
+
 ## 3.3.0
 
 ### Added

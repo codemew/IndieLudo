@@ -6,7 +6,11 @@
 # Works on Debian/Ubuntu/Raspberry Pi OS, Fedora/RHEL, Arch, openSUSE, Alpine, macOS and
 # Android (Termux). Safe to run again: every step checks before it changes anything.
 #
-# Usage: ./setup.sh [--yes] [--service] [--test] [--skip-build] [--help]
+# --devinstall is the other mode: it only installs what is missing for developing, debugging
+# and testing the app (Node.js, npm packages with the dev tools, the system packages and the
+# Chrome the browser tests drive). It sets up no config, build, firewall or service.
+#
+# Usage: ./setup.sh [--yes] [--service] [--test] [--skip-build] [--devinstall] [--help]
 
 set -euo pipefail
 
@@ -19,6 +23,7 @@ ASSUME_YES=0
 INSTALL_SERVICE=0
 RUN_TESTS=0
 SKIP_BUILD=0
+DEV_INSTALL=0
 
 usage() {
   cat <<'EOF'
@@ -26,8 +31,11 @@ Usage: ./setup.sh [options]
 
   --yes, -y      Don't ask questions: generate random passwords, skip the firewall prompt.
   --service      Install a systemd user service so the server starts on boot (Linux).
-  --test         Run the test suite after building.
+  --test         Run the test suite after building (with --devinstall: after installing).
   --skip-build   Install and configure only; don't build.
+  --devinstall   Developer machine: install only what is missing to develop, debug and test
+                 everything (Node.js, all npm packages including dev tools, system packages,
+                 headless Chrome for the browser tests). No config, build, firewall or service.
   --help, -h     Show this help.
 EOF
 }
@@ -38,10 +46,15 @@ for arg in "$@"; do
     --service) INSTALL_SERVICE=1 ;;
     --test) RUN_TESTS=1 ;;
     --skip-build) SKIP_BUILD=1 ;;
+    --devinstall) DEV_INSTALL=1 ;;
     -h | --help) usage; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
+if [[ $DEV_INSTALL -eq 1 && ( $INSTALL_SERVICE -eq 1 || $SKIP_BUILD -eq 1 ) ]]; then
+  echo "--devinstall only installs tools; it can't be combined with --service or --skip-build." >&2
+  exit 2
+fi
 
 cd "$(dirname "$0")"
 APP_DIR="$(pwd)"
@@ -211,6 +224,261 @@ lan_ips() {
 }
 
 # ---------------------------------------------------------------------------
+# --devinstall: what a developer machine needs on top of a host machine. Everything below only
+# adds what is missing, so running it again changes nothing that is already in place.
+#
+#   git, curl        clone/update the project; fetch nvm and Chrome
+#   Chrome/Chromium  the browser tests (e2e/helpers.ts) launch it headless, with a fake microphone
+#   alsa-utils       its /usr/share/sounds/alsa/*.wav recordings are the fake microphone's voice
+#                    (e2e/makeVoiceWav.ts); without them the voice browser tests are skipped
+#   emoji + Liberation fonts   the app is full of emoji; Chrome needs fonts to draw them (screenshots)
+#   NSS tools        `npm run cert:mkcert` (HTTPS without certificate warnings) installs its CA with them
+#   npm packages     vitest, happy-dom, puppeteer-core, tsx, vite, typescript, concurrently, coverage
+#                    (no compiler is needed: nothing in package-lock.json builds native code)
+# ---------------------------------------------------------------------------
+
+DEV_GAPS=()
+gap() { DEV_GAPS+=("$1"); warn "$1"; }
+
+# Refreshes apt's package lists once per run, before the first install (a fresh container image
+# has none, and then even a package's dependencies can't be found).
+APT_UPDATED=0
+apt_update_once() {
+  [[ "$PLATFORM" == apt && $APT_UPDATED -eq 0 ]] || return 0
+  APT_UPDATED=1
+  as_root apt-get update -y || warn "apt-get update failed, trying anyway"
+}
+
+pkg_installed() {
+  case "$PLATFORM" in
+    apt) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed' ;;
+    dnf | yum | zypper) rpm -q "$1" >/dev/null 2>&1 ;;
+    pacman) pacman -Qq "$1" >/dev/null 2>&1 ;;
+    apk) apk info -e "$1" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+pkg_install() {
+  case "$PLATFORM" in
+    apt) as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "$@" ;;
+    dnf) as_root dnf install -y "$@" ;;
+    yum) as_root yum install -y "$@" ;;
+    pacman) as_root pacman -S --needed --noconfirm "$@" ;;
+    zypper) as_root zypper --non-interactive install "$@" ;;
+    apk) as_root apk add --no-cache "$@" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Package names by distribution. "a|b" = a, or b where a doesn't exist (names differ between releases).
+dev_package_list() {
+  case "$PLATFORM" in
+    apt) echo "git curl ca-certificates alsa-utils fonts-noto-color-emoji fonts-liberation libnss3-tools" ;;
+    dnf | yum) echo "git curl ca-certificates alsa-utils google-noto-color-emoji-fonts|google-noto-emoji-color-fonts liberation-fonts nss-tools" ;;
+    pacman) echo "git curl ca-certificates alsa-utils noto-fonts-emoji ttf-liberation nss" ;;
+    zypper) echo "git curl ca-certificates alsa-utils noto-coloremoji-fonts liberation-fonts mozilla-nss-tools" ;;
+    apk) echo "git curl ca-certificates alsa-utils font-noto-emoji font-liberation nss-tools" ;;
+  esac
+}
+
+dev_system_packages() {
+  step "System packages"
+  case "$PLATFORM" in
+    apt | dnf | yum | pacman | zypper | apk) ;;
+    *)
+      warn "No package manager known for '$PLATFORM': install git, curl, Chrome or Chromium, alsa-utils (sound files) and emoji fonts yourself."
+      return
+      ;;
+  esac
+  local item alt alts todo=() found
+  for item in $(dev_package_list); do
+    IFS='|' read -ra alts <<<"$item"
+    found=0
+    for alt in "${alts[@]}"; do
+      if pkg_installed "$alt"; then found=1; break; fi
+    done
+    [[ $found -eq 0 ]] && todo+=("$item")
+  done
+  if [[ ${#todo[@]} -eq 0 ]]; then
+    ok "All system packages are already installed"
+  else
+    echo "  Missing: ${todo[*]}"
+    apt_update_once
+    for item in "${todo[@]}"; do
+      IFS='|' read -ra alts <<<"$item"
+      found=0
+      for alt in "${alts[@]}"; do
+        if pkg_install "$alt"; then found=1; ok "Installed $alt"; break; fi
+      done
+      [[ $found -eq 0 ]] && gap "Could not install ${item//|/ or }; install it by hand."
+    done
+  fi
+  # The fake microphone of the voice browser tests (alsa-utils' recordings).
+  local wav
+  for wav in Front_Left Rear_Right Front_Center Side_Left; do
+    [[ -f "/usr/share/sounds/alsa/$wav.wav" ]] || { gap "/usr/share/sounds/alsa/$wav.wav is missing: the voice browser tests would be skipped (package alsa-utils)."; break; }
+  done
+}
+
+# The same places e2e/helpers.ts looks in (CHROME_PATH first).
+find_chrome() {
+  local p
+  for p in "${CHROME_PATH:-}" /usr/bin/google-chrome /usr/bin/chromium /usr/bin/chromium-browser; do
+    if [[ -n "$p" && -x "$p" ]]; then printf '%s' "$p"; return 0; fi
+  done
+  return 1
+}
+
+chrome_runs() {
+  timeout 60 "$1" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --dump-dom about:blank >/dev/null 2>&1
+}
+
+install_chrome() {
+  local tmp
+  case "$PLATFORM" in
+    apt)
+      # Google Chrome's own .deb (x86_64 only) pulls in every library Chrome needs. On Ubuntu the
+      # `chromium-browser` package is a snap stub that headless tests can't use, hence this first.
+      # (Installing it also adds Google's apt repository and signing key, so Chrome updates with apt.)
+      if [[ "$(uname -m)" == x86_64 ]]; then
+        install_curl
+        apt_update_once
+        tmp="$(mktemp -d)"
+        chmod 755 "$tmp"
+        echo "  Downloading Google Chrome…"
+        if curl -fsSL -o "$tmp/chrome.deb" https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb &&
+          chmod 644 "$tmp/chrome.deb" &&
+          as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmp/chrome.deb"; then
+          rm -rf "$tmp"
+          return 0
+        fi
+        rm -rf "$tmp"
+        warn "Google Chrome did not install; trying the distribution's Chromium"
+      fi
+      # Debian and Raspberry Pi OS have a real `chromium` package. Ubuntu has none (only the snap
+      # stub `chromium-browser`, which would pull in snapd and still not run headless), so there
+      # the answer is Google Chrome, or a Chrome of your own through CHROME_PATH.
+      if apt-cache show chromium 2>/dev/null | grep -q '^Package: chromium$'; then
+        pkg_install chromium
+      else
+        warn "This distribution has no non-snap Chromium package (Google Chrome is x86_64 only)."
+        return 1
+      fi
+      ;;
+    dnf | yum | pacman | zypper | apk) pkg_install chromium ;;
+    *) return 1 ;;
+  esac
+}
+
+dev_browser() {
+  step "Chrome for the browser tests"
+  local chrome=""
+  chrome="$(find_chrome)" || chrome=""
+  # A Chrome that is found but doesn't start headless (Ubuntu's snap stub, say) counts as no Chrome:
+  # install a working one. find_chrome looks for google-chrome before chromium-browser, so once
+  # Chrome is installed it wins over the stub.
+  if [[ -z "$chrome" ]] || { have timeout && ! chrome_runs "$chrome"; }; then
+    [[ -n "$chrome" ]] && warn "$chrome does not start headless; looking for one that does"
+    case "$PLATFORM" in
+      apt | dnf | yum | pacman | zypper | apk) install_chrome || true ;;
+    esac
+    chrome="$(find_chrome)" || {
+      gap "No Chrome or Chromium found: 'npm run test:e2e' is skipped until one is installed (or CHROME_PATH points at one)."
+      return
+    }
+  fi
+  ok "Found $chrome"
+  if have timeout; then
+    if chrome_runs "$chrome"; then
+      ok "It starts headless"
+    else
+      local hint="Install Google Chrome or set CHROME_PATH."
+      # find_chrome puts CHROME_PATH first: an explicit choice is respected, even when it is the broken one.
+      [[ -n "${CHROME_PATH:-}" && "$chrome" == "$CHROME_PATH" ]] && hint="CHROME_PATH is set to it: fix it, or unset it to use /usr/bin/google-chrome."
+      gap "$chrome does not start headless (a snap-packaged Chromium can't). $hint"
+    fi
+  fi
+}
+
+# True when every package package-lock.json asks for (dev ones too) is in node_modules, whole.
+# Extra packages someone added by hand (`npm i tool --no-save`) don't count against it.
+npm_modules_complete() {
+  npm ls --include=dev --json 2>/dev/null | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      try {
+        const problems = (JSON.parse(s).problems || []).filter((p) => /^(missing|invalid):/.test(p));
+        process.exit(problems.length ? 1 : 0);
+      } catch {
+        process.exit(1);
+      }
+    });'
+}
+
+dev_npm_modules() {
+  step "npm packages (with the dev tools)"
+  # --include=dev: vitest, happy-dom, puppeteer-core, tsx, vite and typescript are all dev
+  # dependencies, and a NODE_ENV=production in the environment would otherwise leave them out.
+  if npm_modules_complete; then
+    ok "All npm packages are already installed"
+  else
+    # Not a top-up: `npm ci` rebuilds node_modules from package-lock.json, deleting what was there.
+    # It never writes to the lockfile (`npm install` can rewrite it, which a setup script shouldn't do).
+    echo "  node_modules is incomplete: reinstalling it from package-lock.json"
+    if [[ -f package-lock.json ]]; then
+      if ! npm ci --include=dev --no-audit --no-fund; then
+        gap "npm ci failed. If package.json was changed without updating package-lock.json, run 'npm install' once to update the lockfile, then run this again."
+        return
+      fi
+    elif ! npm install --include=dev --no-audit --no-fund; then
+      gap "npm install failed (see above)."
+      return
+    fi
+    npm_modules_complete && ok "npm packages installed" || gap "npm packages are still incomplete: see 'npm ls'."
+  fi
+  local tool
+  for tool in tsc vite vitest tsx concurrently; do
+    [[ -x "node_modules/.bin/$tool" ]] || gap "node_modules/.bin/$tool is missing."
+  done
+  [[ -d node_modules/puppeteer-core ]] || gap "puppeteer-core is missing."
+}
+
+# Runs with `set -e` off (see the call below): check every step that can fail.
+dev_install() {
+  case "$PLATFORM" in
+    termux | macos) warn "System packages and Chrome aren't installed on $PLATFORM: install Chrome yourself (set CHROME_PATH if it isn't in the usual place). Doing the npm packages only." ;;
+    *)
+      dev_system_packages
+      dev_browser
+      ;;
+  esac
+  dev_npm_modules
+  if [[ $RUN_TESTS -eq 1 ]]; then
+    step "Tests"
+    if npm test; then ok "All tests passed"; else gap "Some tests failed (see above)."; fi
+  fi
+  step "Done"
+  if [[ ${#DEV_GAPS[@]} -gt 0 ]]; then
+    printf '%s  Finished with %d thing(s) still missing:%s\n' "$YELLOW" "${#DEV_GAPS[@]}" "$RESET"
+    local g
+    for g in "${DEV_GAPS[@]}"; do echo "    - $g"; done
+  else
+    ok "Everything for developing, debugging and testing is installed"
+  fi
+  cat <<'EOF'
+
+  npm run dev              server with live reload + Vite with HMR (config.json is created on first start)
+  npm test                 unit and integration tests (npm run test:watch, npm run test:coverage)
+  npm run test:e2e         build, then the browser tests in headless Chrome
+  npm run typecheck        TypeScript check of server and client
+  node --inspect --import tsx src/server/index.ts       debug the server (attach Chrome DevTools or VS Code)
+  npx vitest run --inspect-brk --no-file-parallelism    debug the tests
+EOF
+  [[ ${#DEV_GAPS[@]} -eq 0 ]]
+}
+
+# ---------------------------------------------------------------------------
 
 printf '%sLudo server setup%s  (%s)\n' "$BOLD" "$RESET" "$APP_DIR"
 PLATFORM="$(detect_platform)"
@@ -230,6 +498,14 @@ else
 fi
 have npm || die "npm is missing (it normally ships with Node.js)."
 node -e 'require("node:sqlite")' 2>/dev/null || die "This Node build has no node:sqlite module. Use Node >= $NODE_MIN_MAJOR.$NODE_MIN_MINOR."
+
+if [[ $DEV_INSTALL -eq 1 ]]; then
+  # `exit` with dev_install's status: 0 when nothing is missing, 1 when some piece couldn't be installed.
+  # NOTE: because dev_install is the left side of `&&`, bash turns `set -e` OFF for it and for
+  # everything it calls. A failing command there does not abort the script, so every step that can
+  # fail must be checked on purpose (`if !`, `|| gap …`); don't rely on `set -e` inside these functions.
+  dev_install && exit 0 || exit 1
+fi
 
 step "Dependencies"
 if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi

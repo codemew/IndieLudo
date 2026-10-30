@@ -7,6 +7,7 @@ import express from 'express';
 import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { NET_PING_INTERVAL_MS, NET_PING_TIMEOUT_MS } from '../shared/net.js';
+import { rollUpdateOf } from '../shared/rollUpdate.js';
 import { winnersOf } from '../shared/rules.js';
 import { apiRouter } from './api.js';
 import { compressedAssets } from './assets.js';
@@ -100,7 +101,17 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     autoMoveDelayMs: opts.autoMoveDelayMs,
     animScale: opts.animScale,
     log,
-    onUpdate: (state, events) => io?.to(rooms.game(state.id)).emit('game:state', { state, events }),
+    onUpdate: (state, events) => {
+      if (!io) return;
+      // A roll that only grew the queue: the whole state to the roller's phone, a slim update to
+      // everyone else (they only watch the dice land; the move brings the full state).
+      const slim = rollUpdateOf(state, events);
+      if (!slim) return void io.to(rooms.game(state.id)).emit('game:state', { state, events });
+      const roller = state.seats[state.turn.seat];
+      const rollerRoom = roller.userId !== null && roller.controller !== 'bot' ? rooms.user(roller.userId) : null;
+      if (rollerRoom) io.to(rollerRoom).emit('game:state', { state, events });
+      (rollerRoom ? io.to(rooms.game(state.id)).except(rollerRoom) : io.to(rooms.game(state.id))).emit('game:roll', slim);
+    },
     onGameOver: (state) => {
       for (const seat of state.seats) {
         if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, winnersOf(state).includes(seat.color));

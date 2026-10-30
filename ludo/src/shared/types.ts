@@ -1,10 +1,14 @@
-export type Color = 'red' | 'green' | 'yellow' | 'blue';
+import type { BoardSize } from './board.js';
 
-/** Clockwise turn order; also the order seats are stored in a game. */
+export type Color = 'red' | 'green' | 'yellow' | 'blue' | 'purple' | 'orange';
+
+/** The 4-player board's colours, clockwise (turn order). Other boards: boardOf(n).colors. */
 export const COLORS: readonly Color[] = ['red', 'green', 'yellow', 'blue'];
+/** Every seat colour there is: the 5-player board adds purple, the 6-player board orange too. */
+export const ALL_COLORS: readonly Color[] = ['red', 'green', 'yellow', 'blue', 'purple', 'orange'];
 
-/** Team-up partners sit diagonally opposite: red with yellow, green with blue. */
-export const TEAMMATE: Readonly<Record<Color, Color>> = { red: 'yellow', yellow: 'red', green: 'blue', blue: 'green' };
+/** Team-up (4-player board only) partners sit diagonally opposite: red with yellow, green with blue. */
+export const TEAMMATE: Readonly<Partial<Record<Color, Color>>> = { red: 'yellow', yellow: 'red', green: 'blue', blue: 'green' };
 
 /** How long every phone shows the "first blood" banner; the server waits this out before bots and timers carry on. */
 export const FIRST_BLOOD_MS = 1800;
@@ -25,8 +29,8 @@ export const BOT_BATTLE_TEMPO = 0.4;
 
 /** How many people can watch a lobby's games without a seat. */
 export const MAX_SPECTATORS = 4;
-/** Seats a lobby has. */
-export const MAX_SEATS = 4;
+/** Seats the biggest board has. A lobby has as many seats as its board (4, 5 or 6). */
+export const MAX_SEATS = 6;
 /** Everyone a lobby's voice chat must carry at once: every seat and every spectator. */
 export const MAX_VOICE_PEERS = MAX_SEATS + MAX_SPECTATORS;
 
@@ -89,6 +93,8 @@ export interface GameState {
   extraLaps?: Partial<Record<Color, number[]>>;
   /** Team-up: diagonal partners (TEAMMATE) play together and win together. */
   teams?: boolean;
+  /** The 5- or 6-player board; absent means the 4-player one (and every game saved before the others existed). */
+  board?: 5 | 6;
 }
 
 /** How fast a game's animations and pauses run: 1 normally, faster in a bot battle. */
@@ -231,6 +237,8 @@ export interface PublicLobby {
   gameId: string | null;
   /** Team-up: the next game is 2v2, diagonal partners. */
   teams: boolean;
+  /** Seats, and so the board the next game is played on. */
+  size: BoardSize;
 }
 
 export interface LobbySummary {
@@ -244,6 +252,8 @@ export interface LobbySummary {
   watching: number;
   /** Team-up lobby. */
   teams: boolean;
+  /** Seats (the board): 4, 5 or 6. */
+  size: BoardSize;
 }
 
 /** What the admin panel shows per lobby. */

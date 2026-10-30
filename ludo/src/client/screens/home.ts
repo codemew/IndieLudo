@@ -98,19 +98,20 @@ function renderList(list: HTMLElement, lobbies: LobbySummary[], mine: PublicLobb
   }
   lobbies.forEach((l, i) => {
     const isMine = mine?.id === l.id;
+    const size = l.size ?? 4;
     const card = el<HTMLButtonElement>(`
       <button class="lobby-card" style="animation-delay:${i * 40}ms">
         <div class="lobby-main">
           <div class="lobby-name">🔒 ${esc(l.name)}</div>
-          <div class="lobby-sub">Host ${esc(l.hostName)}${l.watching ? ` · 👀 ${l.watching} watching` : ''}${l.teams ? ' · <span class="badge badge-team">🤝 Team-up</span>' : ''}</div>
+          <div class="lobby-sub">Host ${esc(l.hostName)}${l.watching ? ` · 👀 ${l.watching} watching` : ''}${l.teams ? ' · <span class="badge badge-team">🤝 Team-up</span>' : ''}${size > 4 ? ` · <span class="badge badge-size">👥 ${size} players</span>` : ''}</div>
         </div>
         <div class="lobby-meta">
-          <span class="seats">${'<i class="on"></i>'.repeat(l.players)}${'<i></i>'.repeat(Math.max(0, 4 - l.players))}</span>
-          ${l.status === 'playing' ? '<span class="badge badge-live">In game · 👀 Watch</span>' : `<span class="badge">${l.players}/4</span>`}
+          <span class="seats">${'<i class="on"></i>'.repeat(l.players)}${'<i></i>'.repeat(Math.max(0, size - l.players))}</span>
+          ${l.status === 'playing' ? '<span class="badge badge-live">In game · 👀 Watch</span>' : `<span class="badge">${l.players}/${size}</span>`}
         </div>
       </button>`);
     // A running game or a full lobby can still be watched, while there's room on the side.
-    card.disabled = !isMine && (l.watching ?? 0) >= MAX_SPECTATORS && (l.status === 'playing' || l.players >= 4);
+    card.disabled = !isMine && (l.watching ?? 0) >= MAX_SPECTATORS && (l.status === 'playing' || l.players >= size);
     card.onclick = () => (isMine ? go('lobby') : joinLobbyDialog(l));
     list.appendChild(card);
   });
@@ -118,7 +119,7 @@ function renderList(list: HTMLElement, lobbies: LobbySummary[], mine: PublicLobb
 
 /** Join with the password: on a free seat, or to watch (the only choice once a game runs or the seats are full). */
 function joinLobbyDialog(l: LobbySummary): void {
-  const canSit = l.status === 'waiting' && l.players < 4;
+  const canSit = l.status === 'waiting' && l.players < (l.size ?? 4);
   const canWatch = (l.watching ?? 0) < MAX_SPECTATORS;
   const body = el(`
     <form class="form" autocomplete="off">

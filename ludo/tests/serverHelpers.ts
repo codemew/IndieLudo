@@ -1,5 +1,6 @@
 import { io as ioClient, type Socket } from 'socket.io-client';
-import type { Ack, GameUpdate, Hello } from '../src/shared/protocol.js';
+import type { Ack, GameUpdate, Hello, RollUpdate } from '../src/shared/protocol.js';
+import { applyRollUpdate } from '../src/shared/rollUpdate.js';
 import type { PublicLobby } from '../src/shared/types.js';
 import { DEFAULTS, mergeConfig, type ConfigOverrides } from '../src/server/config.js';
 import { startServer, type LudoServer, type StartOptions } from '../src/server/server.js';
@@ -68,7 +69,10 @@ export interface TestClient {
   emit: <T = unknown>(event: string, payload?: unknown) => Promise<Ack<T>>;
   /** Resolves with the next game:state matching the predicate. */
   nextState: (pred?: (u: GameUpdate) => boolean, timeoutMs?: number) => Promise<GameUpdate>;
+  /** Every game update, slim roll updates included once applied (as a phone does). */
   states: GameUpdate[];
+  /** The slim roll updates as they arrived (someone else rolled). */
+  rolls: RollUpdate[];
   lobbyStates: (PublicLobby | null)[];
   close: () => void;
 }
@@ -86,8 +90,10 @@ export function clientForToken(base: string, token: string, userId: number): Pro
   const socket = connectSocket(base, token);
   const states: GameUpdate[] = [];
   const lobbyStates: (PublicLobby | null)[] = [];
+  const rolls: RollUpdate[] = [];
+  let hello: Hello | undefined;
   const waiters: { pred: (u: GameUpdate) => boolean; resolve: (u: GameUpdate) => void }[] = [];
-  socket.on('game:state', (u: GameUpdate) => {
+  const onState = (u: GameUpdate) => {
     states.push(u);
     for (const w of [...waiters]) {
       if (w.pred(u)) {
@@ -95,19 +101,29 @@ export function clientForToken(base: string, token: string, userId: number): Pro
         w.resolve(u);
       }
     }
+  };
+  socket.on('game:state', onState);
+  // Like a phone: a slim roll update applies to the newest state we have; one that doesn't fit is a bug here.
+  socket.on('game:roll', (u: RollUpdate) => {
+    rolls.push(u);
+    const base = states.at(-1)?.state ?? hello?.game;
+    const next = base && applyRollUpdate(base, u);
+    if (!next) throw new Error(`game:roll v${u.version} doesn't follow v${base?.version}`);
+    onState({ state: next, events: u.events });
   });
   socket.on('lobby:state', (l: PublicLobby | null) => lobbyStates.push(l));
   // Like a real phone: answer the server's pings (it times them, and voice uses the result).
   socket.on('net:ping', (ack: () => void) => ack());
   return new Promise((resolve, reject) => {
     socket.once('connect_error', reject);
-    socket.once('hello', (hello: Hello) =>
+    socket.once('hello', (h: Hello) =>
       resolve({
         socket,
-        hello,
+        hello: (hello = h),
         userId,
         token,
         states,
+        rolls,
         lobbyStates,
         emit: (event, payload = {}) => socket.timeout(4000).emitWithAck(event, payload).catch(() => ({ ok: false, error: 'TIMEOUT' })) as any,
         nextState: (pred = () => true, timeoutMs = 4000) =>

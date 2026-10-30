@@ -52,7 +52,7 @@ beforeEach(() => {
   Object.assign(fake, { joined: true, joining: false, enabled: true, micAvailable: true, muted: false, error: null, linked: { connected: 1, total: 1 }, sfuCount: 1, relayedCount: 0 });
   store.update({
     user: { id: 1, username: 'alice' },
-    lobby: { id: 'L', name: 'Fam', hostId: 1, status: 'waiting', members: [{ color: 'red', userId: 1, username: 'alice', isBot: false, ready: true, connected: true }, { color: 'green', userId: 2, username: 'bob', isBot: false, ready: true, connected: true }], spectators: [{ userId: 3, username: 'zed', connected: true }], gameId: null, teams: false },
+    lobby: { id: 'L', name: 'Fam', hostId: 1, status: 'waiting', members: [{ color: 'red', userId: 1, username: 'alice', isBot: false, ready: true, connected: true }, { color: 'green', userId: 2, username: 'bob', isBot: false, ready: true, connected: true }], spectators: [{ userId: 3, username: 'zed', connected: true }], gameId: null, teams: false, size: 4 },
     voice: { lobbyId: 'L', enabled: true, epoch: 0, bitrateKbps: 12, participants: [{ userId: 1, muted: false }, { userId: 2, muted: true }] },
   });
 });

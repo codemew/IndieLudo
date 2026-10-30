@@ -86,6 +86,7 @@ export class GameManager {
       seats,
       firstSeat: this.randomInt(0, seats.length),
       teams: Boolean(lobby.teams),
+      board: lobby.size,
     });
     if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
     const game: LiveGame = { state, graceTimers: new Map(), seen: new Set(), lastEvents: [] };

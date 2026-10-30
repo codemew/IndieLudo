@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isLocalAddress } from '../src/shared/ice.js';
-import { MAX_VOICE_PEERS } from '../src/shared/types.js';
+import { MAX_SPECTATORS, MAX_VOICE_PEERS } from '../src/shared/types.js';
 import { client, createLobby, startTestServer, wait, type TestClient, type TestServer } from './serverHelpers.js';
 import { sfuPhone } from './sfuPhone.js';
 
@@ -26,8 +26,10 @@ async function lobbyOf(n: number) {
   for (let i = 0; i < n; i++) cs.push(await client(t, `player${i}`));
   clients.push(...cs);
   const lobbyId = await createLobby(cs[0]);
+  if (n > 4 + MAX_SPECTATORS) await cs[0].emit('lobby:size', { size: 6 });
+  const seats = n > 4 + MAX_SPECTATORS ? 6 : 4;
   for (let i = 1; i < n; i++) {
-    const r = await cs[i].emit('lobby:join', { lobbyId, password: 'pw', watch: i >= 4 });
+    const r = await cs[i].emit('lobby:join', { lobbyId, password: 'pw', watch: i >= seats });
     if (!r.ok) throw new Error(r.error);
   }
   return { cs, lobbyId };
@@ -73,7 +75,7 @@ describe('the built-in voice server', () => {
     expect(Math.max(...steps)).toBeLessThanOrEqual(2);
   });
 
-  it(`all ${MAX_VOICE_PEERS} people of a full lobby (4 seats + 4 watching) hear each other at once`, async () => {
+  it(`all ${MAX_VOICE_PEERS} people of a full lobby (6 seats + 4 watching) hear each other at once`, async () => {
     t = await start([41120, 41239]);
     const { cs, lobbyId } = await lobbyOf(MAX_VOICE_PEERS);
     const ps = await Promise.all(cs.map((c) => sfuPhone(c, lobbyId).then((p) => (phones.push(p), p))));

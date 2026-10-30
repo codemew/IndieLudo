@@ -7,7 +7,7 @@ import { winnersOf } from '../../shared/rules.js';
 import type { Color } from '../../shared/types.js';
 import { $, esc } from '../ui.js';
 
-const PLACES = ['1st', '2nd', '3rd', '4th'];
+const PLACES = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
 
 export function resultsScreen(root: HTMLElement): void {
   const g = state.game;

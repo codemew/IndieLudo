@@ -1,4 +1,5 @@
-import type { GameUpdate, Hello } from '../shared/protocol.js';
+import type { GameUpdate, Hello, RollUpdate } from '../shared/protocol.js';
+import { applyRollUpdate } from '../shared/rollUpdate.js';
 import type { PublicGameState, PublicLobby } from '../shared/types.js';
 import { ApiError, api } from './api.js';
 import { connect, disconnect, emit, isConnected } from './net.js';
@@ -14,6 +15,11 @@ import { voice } from './voice.js';
 let gameHandler: ((u: GameUpdate) => void) | null = null;
 export function setGameHandler(fn: ((u: GameUpdate) => void) | null): void {
   gameHandler = fn;
+}
+/** And for slim roll updates, which it applies to the newest state it holds (pending ones included). */
+let rollHandler: ((u: RollUpdate) => void) | null = null;
+export function setRollHandler(fn: ((u: RollUpdate) => void) | null): void {
+  rollHandler = fn;
 }
 
 let firstHello = true;
@@ -79,6 +85,7 @@ function connectSocket(token: string): void {
       s.on('lobby:swapRequest', (r) => onSwapRequest(r));
       s.on('lobby:swapEnded', (e) => onSwapEnded(e));
       s.on('game:state', (u) => onGameUpdate(u));
+      s.on('game:roll', (u) => onRollUpdate(u));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
       s.on('voice:state', (v) => {
         if (v.lobbyId === state.lobby?.id) update({ voice: v });
@@ -158,6 +165,15 @@ function onGameUpdate(u: GameUpdate): void {
   // A new game (or one starting from the lobby) opens the board; a player who went home
   // on purpose stays there and can resume from the lobby card.
   if (isNew || screen === 'lobby') go('game');
+}
+
+/** Someone else rolled. Off the game screen there's nothing to animate: just keep the state current. */
+function onRollUpdate(u: RollUpdate): void {
+  if (state.game?.id !== u.id) return;
+  if (rollHandler) return rollHandler(u);
+  const next = applyRollUpdate(state.game, u);
+  if (next) onGameUpdate({ state: next, events: u.events });
+  else void resyncGame();
 }
 
 /** Coming back to the foreground: refetch the game in case updates were missed. */

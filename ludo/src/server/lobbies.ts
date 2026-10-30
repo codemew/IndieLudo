@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
-import { COLORS, MAX_SEATS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
+import { boardOf, BOARD_SIZES, type BoardSize } from '../shared/board.js';
+import { MAX_SEATS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 
@@ -19,6 +20,8 @@ export interface Lobby {
   allOfflineSince: number | null;
   /** Team-up: the next game is 2v2 (diagonal partners). Lobbies saved before Team-up lack it. */
   teams?: boolean;
+  /** Seats, and the board the next game is played on. Lobbies saved before 5 and 6 seats lack it (4). */
+  size?: BoardSize;
 }
 
 export interface LobbyUser {
@@ -49,6 +52,10 @@ export interface LobbyManagerOptions {
 }
 
 export const MAX_MEMBERS = MAX_SEATS;
+
+/** A lobby's seats (4, 5 or 6) and their colours. */
+const sizeOf = (l: Lobby): BoardSize => l.size ?? 4;
+const colorsOf = (l: Lobby): readonly Color[] => boardOf(sizeOf(l)).colors;
 
 export function hashLobbyPassword(password: string): string {
   const salt = crypto.randomBytes(16);
@@ -133,6 +140,7 @@ export class LobbyManager {
         players: l.members.length,
         watching: l.spectators.length,
         teams: Boolean(l.teams),
+        size: sizeOf(l),
       }));
   }
 
@@ -161,6 +169,7 @@ export class LobbyManager {
       spectators: l.spectators.map((s) => (winsOf ? { ...s, wins: winsOf(s.userId) } : { ...s })),
       gameId: l.gameId,
       teams: Boolean(l.teams),
+      size: sizeOf(l),
     };
   }
 
@@ -176,7 +185,7 @@ export class LobbyManager {
       name,
       hostId: user.id,
       passwordHash: hashLobbyPassword(input.password),
-      members: [{ color: this.randomColor(COLORS), userId: user.id, username: user.username, isBot: false, ready: false, connected: true }],
+      members: [{ color: this.randomColor(boardOf(4).colors), userId: user.id, username: user.username, isBot: false, ready: false, connected: true }],
       spectators: [],
       status: 'waiting',
       gameId: null,
@@ -202,7 +211,7 @@ export class LobbyManager {
       if (lobby.spectators.length >= MAX_SPECTATORS) throw new AppError('TOO_MANY_WATCHING', 409);
     } else {
       if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
-      if (lobby.members.length >= MAX_MEMBERS) throw new AppError('LOBBY_FULL', 409);
+      if (lobby.members.length >= sizeOf(lobby)) throw new AppError('LOBBY_FULL', 409);
     }
     this.leaveWaitingLobby(user.id);
     if (watch) lobby.spectators.push({ userId: user.id, username: user.username, connected: true });
@@ -257,7 +266,7 @@ export class LobbyManager {
     const spectator = lobby?.spectators.find((s) => s.userId === userId);
     if (!lobby || !spectator) throw new AppError('NOT_WATCHING', 409);
     if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
-    if (!COLORS.includes(color)) throw new AppError('INVALID_COLOR');
+    if (!colorsOf(lobby).includes(color)) throw new AppError('INVALID_COLOR');
     if (lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
     lobby.spectators = lobby.spectators.filter((s) => s !== spectator);
     lobby.members.push({ color, userId, username: spectator.username, isBot: false, ready: false, connected: spectator.connected });
@@ -268,7 +277,7 @@ export class LobbyManager {
   setColor(userId: number, color: Color): Lobby {
     const { lobby, member } = this.memberOf(userId);
     if (lobby.status !== 'waiting') throw new AppError('GAME_IN_PROGRESS', 409);
-    if (!COLORS.includes(color)) throw new AppError('INVALID_COLOR');
+    if (!colorsOf(lobby).includes(color)) throw new AppError('INVALID_COLOR');
     if (member.color === color) return lobby;
     if (lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
     // Any swap request involving this player was about the old colour.
@@ -366,7 +375,31 @@ export class LobbyManager {
   setTeams(userId: number, teams: boolean): Lobby {
     const lobby = this.hostLobby(userId);
     if (Boolean(lobby.teams) === teams) return lobby;
+    if (teams && sizeOf(lobby) !== 4) throw new AppError('TEAMS_NEED_FOUR');
     lobby.teams = teams;
+    for (const m of lobby.members) m.ready = m.isBot;
+    this.changed(lobby);
+    return lobby;
+  }
+
+  /**
+   * Host: how many seats (4, 5 or 6), so which board the next game is played on. Team-up is only
+   * for 4. Players on a colour the smaller board lacks move to a free one; a board too small for
+   * everyone seated is refused. Everyone else's "ready" is cleared, as for the mode.
+   */
+  setSize(userId: number, size: BoardSize): Lobby {
+    const lobby = this.hostLobby(userId);
+    if (!BOARD_SIZES.includes(size)) throw new AppError('BAD_PAYLOAD');
+    if (sizeOf(lobby) === size) return lobby;
+    if (lobby.members.length > size) throw new AppError('TOO_MANY_PLAYERS', 409);
+    this.dropSwaps((r) => r.lobbyId === lobby.id, 'cancelled');
+    lobby.size = size;
+    if (size !== 4) lobby.teams = false;
+    const colors = boardOf(size).colors;
+    for (const m of lobby.members.filter((x) => !colors.includes(x.color))) {
+      m.color = this.freeColor(lobby);
+      if (m.isBot) m.username = botName(m.color);
+    }
     for (const m of lobby.members) m.ready = m.isBot;
     this.changed(lobby);
     return lobby;
@@ -375,8 +408,8 @@ export class LobbyManager {
   /** Adds a bot on the seat the host tapped (`color`), or on a random free seat if none was given. */
   addBot(userId: number, color?: Color): Lobby {
     const lobby = this.hostLobby(userId);
-    if (lobby.members.length >= MAX_MEMBERS) throw new AppError('LOBBY_FULL', 409);
-    if (color !== undefined && !COLORS.includes(color)) throw new AppError('INVALID_COLOR');
+    if (lobby.members.length >= sizeOf(lobby)) throw new AppError('LOBBY_FULL', 409);
+    if (color !== undefined && !colorsOf(lobby).includes(color)) throw new AppError('INVALID_COLOR');
     if (color !== undefined && lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
     const seat = color ?? this.freeColor(lobby);
     lobby.members.push({ color: seat, userId: null, username: botName(seat), isBot: true, ready: true, connected: true });
@@ -387,7 +420,7 @@ export class LobbyManager {
   /** A bot on every open seat: with the host watching, that's a bot battle. */
   fillBots(userId: number): Lobby {
     const lobby = this.hostLobby(userId);
-    for (const seat of COLORS) {
+    for (const seat of colorsOf(lobby)) {
       if (!lobby.members.some((m) => m.color === seat)) lobby.members.push({ color: seat, userId: null, username: botName(seat), isBot: true, ready: true, connected: true });
     }
     this.changed(lobby);
@@ -415,7 +448,7 @@ export class LobbyManager {
   checkStart(userId: number): Lobby {
     const lobby = this.hostLobby(userId);
     if (lobby.members.length < 2) throw new AppError('NOT_ENOUGH_PLAYERS');
-    if (lobby.teams && lobby.members.length < MAX_MEMBERS) throw new AppError('TEAMS_NEED_FOUR');
+    if (lobby.teams && (sizeOf(lobby) !== 4 || lobby.members.length < 4)) throw new AppError('TEAMS_NEED_FOUR');
     // The host starting the game counts as being ready.
     if (lobby.members.some((m) => !m.isBot && m.userId !== lobby.hostId && !m.ready)) throw new AppError('NOT_ALL_READY');
     return lobby;
@@ -514,7 +547,7 @@ export class LobbyManager {
 
   /** A random colour nobody in the lobby has: the host isn't always red, nor joiners green. */
   private freeColor(lobby: Lobby): Color {
-    const free = COLORS.filter((c) => !lobby.members.some((m) => m.color === c));
+    const free = colorsOf(lobby).filter((c) => !lobby.members.some((m) => m.color === c));
     if (!free.length) throw new AppError('LOBBY_FULL', 409);
     return this.randomColor(free);
   }

@@ -82,7 +82,8 @@ describe('every cheat attempt is rejected without changing state', () => {
     const lobbyId = await createLobby(host);
     await guest.emit('lobby:join', { lobbyId: lobbyId, password: 'pw' });
     expect(await guest.emit('lobby:color', { color: 'red' })).toEqual({ ok: false, error: 'COLOR_TAKEN' });
-    expect(await guest.emit('lobby:color', { color: 'purple' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await guest.emit('lobby:color', { color: 'pink' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await guest.emit('lobby:color', { color: 'purple' })).toEqual({ ok: false, error: 'INVALID_COLOR' }); // not on the 4-player board
     await guest.emit('lobby:ready', { ready: true });
     await host.emit('lobby:start', {});
     expect(await guest.emit('lobby:color', { color: 'blue' })).toEqual({ ok: false, error: 'GAME_IN_PROGRESS' });

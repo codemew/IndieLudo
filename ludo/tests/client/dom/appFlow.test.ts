@@ -92,6 +92,7 @@ const lobby = (over: Partial<PublicLobby> = {}): PublicLobby => ({
   spectators: [],
   gameId: null,
   teams: false,
+  size: 4,
   ...over,
 });
 

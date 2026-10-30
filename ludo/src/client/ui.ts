@@ -45,7 +45,7 @@ export const ICONS = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>',
 };
 
-export const COLOR_NAME: Record<Color, string> = { red: 'Red', green: 'Green', yellow: 'Yellow', blue: 'Blue' };
+export const COLOR_NAME: Record<Color, string> = { red: 'Red', green: 'Green', yellow: 'Yellow', blue: 'Blue', purple: 'Purple', orange: 'Orange' };
 
 const ERRORS: Record<string, string> = {
   NETWORK: 'No connection. Check your internet.',
@@ -86,7 +86,8 @@ const ERRORS: Record<string, string> = {
   SEAT_EMPTY: 'That seat is free now: just tap it to move there.',
   SAME_SEAT: "That's your own seat.",
   SWAP_EXPIRED: 'That swap request is no longer valid.',
-  TEAMS_NEED_FOUR: 'Team-up needs all 4 seats filled: add bots to the open ones.',
+  TEAMS_NEED_FOUR: 'Team-up needs the 4-player board with all 4 seats filled: add bots to the open ones.',
+  TOO_MANY_PLAYERS: 'Too many players for that board: someone has to watch or leave first.',
   NOT_HOME: 'Only tokens that are home can make a wildcard entry.',
   NO_LAPS_LEFT: 'That token has had its extra lap already.',
   SURRENDERED: "You've surrendered.",

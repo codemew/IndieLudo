@@ -1,7 +1,7 @@
 import type { LocalRoute } from './ice.js';
 import type { NetStats } from './net.js';
-import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, VoiceSlot, VoiceState } from './types.js';
-import { MAX_VOICE_PEERS } from './types.js';
+import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, Turn, VoiceSlot, VoiceState } from './types.js';
+import { ALL_COLORS, MAX_VOICE_PEERS } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
 export type Ack<T = unknown> = { ok: true; data?: T } | { ok: false; error: string };
@@ -41,6 +41,8 @@ export interface ClientToServer {
   'lobby:start': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   /** Host: Classic (false) or Team-up (true) for the next game. */
   'lobby:mode': (p: { teams: boolean }, ack: (r: Ack) => void) => void;
+  /** Host: 4, 5 or 6 seats (the board for the next game). */
+  'lobby:size': (p: { size: number }, ack: (r: Ack) => void) => void;
   'game:roll': (p: RollIntent, ack: (r: Ack) => void) => void;
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   'game:resume': (p: { gameId: string }, ack: (r: Ack<PublicGameState>) => void) => void;
@@ -154,6 +156,19 @@ export interface GameUpdate {
   events?: GameEvent[];
 }
 
+/**
+ * A roll that only grew the queue (the same player rolls again or moves next), sent to everyone
+ * but the roller instead of the whole state: about a tenth of the bytes. The phone applies it to
+ * the state it has; the next full update (the move) brings everything else, legal moves included.
+ */
+export interface RollUpdate {
+  id: string;
+  version: number;
+  serverNow: number;
+  turn: Turn;
+  events: GameEvent[];
+}
+
 export interface ServerToClient {
   hello: (h: Hello) => void;
   'lobby:list': (l: LobbySummary[]) => void;
@@ -165,6 +180,7 @@ export interface ServerToClient {
   /** The lobby you are in was closed by an admin; a `lobby:state` null follows. */
   'lobby:closed': (info: { byAdmin: boolean }) => void;
   'game:state': (u: GameUpdate) => void;
+  'game:roll': (u: RollUpdate) => void;
   'session:revoked': () => void;
   'voice:state': (s: VoiceState) => void;
   /** Server-timed ping; the client just acknowledges. */
@@ -182,7 +198,7 @@ export interface ServerToClient {
 type FieldType = 'string' | 'int' | 'bool' | 'color';
 export type Schema = Record<string, { type: FieldType; max?: number; min?: number; optional?: boolean }>;
 
-const COLOR_SET = new Set(['red', 'green', 'yellow', 'blue']);
+const COLOR_SET = new Set<string>(ALL_COLORS);
 
 /**
  * Strict payload check: every field must be present with the right type, and unknown
@@ -237,6 +253,7 @@ export const SCHEMAS = {
   surrender: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 } },
   respawn: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 }, tokens: { type: 'int', min: 1, max: 15 } },
   lobbyMode: { teams: { type: 'bool' } },
+  lobbySize: { size: { type: 'int', min: 4, max: 6 } },
   sfuJoin: { lobbyId: { type: 'string', max: 64 }, local: { type: 'bool', optional: true } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },
   voiceMute: { lobbyId: { type: 'string', max: 64 }, muted: { type: 'bool' } },

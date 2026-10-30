@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.3.0
+
+### Added
+- **5- and 6-player boards.** The host picks 4, 5 or 6 players in the lobby.
+  - **Shape:** a pentagon or hexagon in the middle with an arm per player. Each arm is today's arm (3 × 6, start square, star, 5-square home column), so every rule carries over; the track is 65 or 78 squares.
+  - **New colours:** purple for the fifth seat and orange for the sixth. On the 6-player board warm and cool colours alternate (red, green, yellow, blue, orange, purple).
+  - **Lobby:** up to 6 seats; the seat cards shrink to three to a row. Shrinking the board is refused while too many are seated, and players on purple or orange move to a free colour. Team-up stays on the 4-player board.
+  - **Game screen:** the board keeps its shape at any screen size, and the player cards sit in rows of three near their bases. Results show up to six places.
+  - **Voice:** up to 10 people in a lobby's voice chat (6 seats and 4 spectators).
+
+### Changed
+- **The dice belongs to the player rolling.** Only they see it in the dock and can tap it. Everyone else (players, spectators) sees the same roll over that player's base on the board; the queue and every effect (sounds, six-streak fire, callouts, 😩) are unchanged.
+- **Slim roll messages.** A roll that only adds to the queue goes out whole to the roller and as about 240 bytes to everyone else (about 2–3 KB before). Their phones apply it to the state they have and ask for the whole state if one was missed.
+
+### Tests
+- **Unit tests:** 587, up from 535; line coverage stays at about 91%.
+  - **Board geometry:** the generator reproduces today's board square for square; the 5- and 6-player tracks are one unbroken loop with no overlaps.
+  - **Rules:** a table run on all three boards, and bots playing 5- and 6-player games to the end.
+  - **Lobby:** the seat-count switch and recolouring.
+  - **Slim roll messages:** checked over sockets against the server's state.
+  - **Game screen:** which dice shows where.
+- **Browser tests:** 38 in Chrome, up from 34: a 6-player game with two phones (dice placement, bytes per roll, six places on the results) and a 5-player game with bots. The voice tests now expect the voice server's 10 audio sections.
+
 ## 3.2.0
 
 ### Added

@@ -2,16 +2,23 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BASE as B, HOME as H } from '../../../src/shared/board.js';
 import { applyMove, applyRespawn, applyRoll, applySurrender, createGameState, legalMoves } from '../../../src/shared/rules.js';
+import type { RollUpdate } from '../../../src/shared/protocol.js';
 import type { Color, GameEvent, GameState, PublicGameState } from '../../../src/shared/types.js';
 import { click, flush, modalButton, setupDom, toasts, topModal } from './harness.js';
 import { resetNet, sentOf } from './fakeNet.js';
 
 vi.mock('../../../src/client/net.js', () => import('./fakeNet.js'));
-const app = vi.hoisted(() => ({ handler: null as null | ((u: { state: PublicGameState; events?: GameEvent[] }) => void), errors: [] as string[] }));
+const app = vi.hoisted(() => ({
+  handler: null as null | ((u: { state: PublicGameState; events?: GameEvent[] }) => void),
+  roll: null as null | ((u: RollUpdate) => void),
+  errors: [] as string[],
+  resyncs: 0,
+}));
 vi.mock('../../../src/client/app.js', () => ({
   setGameHandler: (fn: typeof app.handler) => (app.handler = fn),
+  setRollHandler: (fn: typeof app.roll) => (app.roll = fn),
   showError: (code: string) => app.errors.push(code),
-  resyncGame: vi.fn(),
+  resyncGame: () => void app.resyncs++,
 }));
 const sounds = vi.hoisted(() => [] as string[]);
 vi.mock('../../../src/client/sound.js', () => ({ play: (s: string) => sounds.push(s), isMuted: () => false, setMuted: vi.fn(), unlock: vi.fn(), installUnlockListeners: vi.fn() }));
@@ -44,7 +51,7 @@ function newGame(opts: { teams?: boolean; me?: number; aliceController?: 'human'
 let current: GameState;
 function mount(s: GameState, me = 1): void {
   current = s;
-  store.update({ user: { id: me, username: me === 1 ? 'alice' : 'someone' }, game: pub(s), lobby: { id: 'L', name: 'Fam', hostId: 1, status: 'playing', members: [], spectators: [], gameId: s.id, teams: Boolean(s.teams) } });
+  store.update({ user: { id: me, username: me === 1 ? 'alice' : 'someone' }, game: pub(s), lobby: { id: 'L', name: 'Fam', hostId: 1, status: 'playing', members: [], spectators: [], gameId: s.id, teams: Boolean(s.teams), size: s.board ?? 4 } });
   go('home');
   document.getElementById('app')!.innerHTML = ''; // the screen that left would linger 220 ms
   go('game');
@@ -84,7 +91,7 @@ describe('the board and the dock', () => {
     expect(document.querySelector('.pchip[data-color=red] .pn')!.textContent).toContain('alice');
     expect(document.querySelector('#banner')!.textContent).toBe('Your turn');
     expect(hint()).toBe('Tap the dice to roll');
-    click('.dice');
+    click('#dice-slot .dice');
     await flush();
     expect(sentOf('game:roll')).toEqual([{ gameId: current.id, version: current.version, actionId: expect.any(String) }]);
     expect(document.querySelectorAll('.token')).toHaveLength(8);
@@ -364,5 +371,95 @@ describe('the wildcard entry', () => {
     resync(next);
     await flush(300);
     expect(document.querySelector('#holds .home-hold')).toBeNull();
+  });
+});
+
+describe('whose dice shows where', () => {
+  const dockHidden = () => document.querySelector('#dice-slot')!.classList.contains('dice-hidden');
+  const base = () => document.querySelector<HTMLElement>('.base-dice')!;
+
+  it('my turn: the dock dice, tappable; nothing on the board', async () => {
+    mount(newGame());
+    expect(dockHidden()).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('#dice-slot .dice')!.disabled).toBe(false);
+    expect(base().classList.contains('dice-hidden')).toBe(true);
+    current.tokens.red = [0, B, B, B];
+    await step((s) => applyRoll(s, 6));
+    expect([dockHidden(), base().classList.contains('dice-hidden')]).toEqual([false, true]);
+  });
+
+  it('someone else’s turn: no dock dice, theirs rolls over their base; the queue and effects still show', async () => {
+    mount(newGame(), 2); // bob watches alice (red) roll
+    expect(dockHidden()).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('#dice-slot .dice')!.disabled).toBe(true);
+    expect(base().classList.contains('dice-hidden')).toBe(false);
+    expect(base().querySelector<HTMLElement>('.dice')!.dataset.color).toBe('red');
+    // Over red's base: the top left quarter of the board.
+    expect(parseFloat(base().style.left)).toBeLessThan(30);
+    expect(parseFloat(base().style.top)).toBeLessThan(30);
+    current.tokens.red = [0, B, B, B];
+    await step((s) => applyRoll(s, 6));
+    expect(sounds).toContain('dice');
+    expect(sounds).toContain('six');
+    expect(dockHidden()).toBe(true);
+    expect(document.querySelectorAll('#queue .qchip')).toHaveLength(1);
+    expect(document.querySelector<HTMLButtonElement>('#queue .qchip')!.disabled).toBe(true);
+    await step((s) => applyRoll(s, 6));
+    // Three sixes: the sad face pops up on the board dice, not in the dock.
+    const sad: string[] = [];
+    const watch = new MutationObserver(() => document.querySelectorAll('.dice-emoji.show').forEach((e) => sad.push(e.parentElement!.className)));
+    document.querySelectorAll('.dice-emoji').forEach((e) => watch.observe(e, { attributes: true }));
+    await step((s) => applyRoll(s, 6), 800);
+    watch.disconnect();
+    expect(sounds).toContain('penalty');
+    expect(sad.length).toBeGreaterThan(0);
+    expect(sad.every((c) => c.startsWith('base-dice'))).toBe(true);
+  });
+
+  it('a slim roll update plays like a full one; one that doesn’t follow on asks for the whole state', async () => {
+    mount(newGame(), 2);
+    current.tokens.red = [0, B, B, B];
+    const next = structuredClone(current);
+    const events = applyRoll(next, 3);
+    next.version++;
+    app.roll!({ id: next.id, version: next.version, serverNow: Date.now(), turn: next.turn, events });
+    await flush(600);
+    expect(sounds).toContain('dice');
+    expect(document.querySelectorAll('#queue .qchip')).toHaveLength(1);
+    current = next;
+    app.roll!({ id: next.id, version: next.version + 5, serverNow: Date.now(), turn: next.turn, events });
+    expect(app.resyncs).toBe(1);
+  });
+});
+
+describe('5 and 6 players', () => {
+  const big = (n: 5 | 6, me = 1) => {
+    const colors = n === 5 ? (['red', 'green', 'yellow', 'blue', 'purple'] as Color[]) : (['red', 'green', 'yellow', 'blue', 'orange', 'purple'] as Color[]);
+    const s = createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats: colors.map((c, i) => seat(c, i + 1, `p${i + 1}`)), firstSeat: 0, now: 0, board: n });
+    mount(s, me);
+    return s;
+  };
+
+  it.each([5, 6] as const)('the %i-player board: its squares, a card per seat, the board’s shape', (n) => {
+    big(n);
+    expect(document.querySelectorAll('.board-svg polygon.cell')).toHaveLength(13 * n + 5 * n);
+    expect(document.querySelectorAll('.pchip:not(.pchip-empty)')).toHaveLength(n);
+    expect(document.querySelectorAll('.players-3')).toHaveLength(n === 5 ? 1 : 2);
+    expect(document.querySelectorAll('.token')).toHaveLength(4 * n);
+    const board = document.querySelector<HTMLElement>('#board')!;
+    expect(board.classList.contains(`board-${n}`)).toBe(true);
+    expect(Number(board.style.getPropertyValue('--bw'))).toBeGreaterThan(15);
+  });
+
+  it('a move, a capture and someone else’s roll on the 6-player board', async () => {
+    const s = big(6, 2);
+    s.tokens.red = [0, B, B, B];
+    s.tokens.purple = [78 - 65 + 3, B, B, B]; // purple starts at 65 of 78: this is square 3, three ahead of red's start
+    await step((x) => applyRoll(x, 3));
+    expect(document.querySelector<HTMLElement>('.base-dice .dice')!.dataset.color).toBe('red');
+    await step((x) => applyMove(x, 0, 0), 1500);
+    expect(current.tokens.purple[0]).toBe(B);
+    expect(sounds).toContain('capture');
+    expect(document.querySelector('#banner')!.textContent).toBe("p1's turn"); // a capture earns a bonus roll
   });
 });

@@ -40,12 +40,33 @@ const lobby = (over: Partial<PublicLobby> = {}): PublicLobby => ({
   spectators: [{ userId: 3, username: 'zed', connected: true }],
   gameId: null,
   teams: false,
+  size: 4,
   ...over,
 });
 const seatOf = (color: string) => document.querySelector(`.seat.s-${color}`)!;
 const chip = (color: string, label: string) => [...seatOf(color).querySelectorAll<HTMLButtonElement>('.chip')].find((c) => c.textContent!.includes(label))!;
 
 describe('the lobby screen', () => {
+  it('the host picks 4, 5 or 6 seats: the seats follow, and Team-up is only for 4', async () => {
+    store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
+    show('lobby');
+    expect(document.querySelector('.size-opt.on')!.textContent).toBe('4 players');
+    expect(document.querySelectorAll('.seat')).toHaveLength(4);
+    click('.size-opt[data-size="6"]');
+    await flush();
+    expect(sentOf('lobby:size')).toEqual([{ size: 6 }]);
+    store.update({ lobby: lobby({ size: 6 }) });
+    expect(document.querySelectorAll('.seat')).toHaveLength(6);
+    expect(document.querySelector('.seat.s-orange')).not.toBeNull();
+    expect(document.querySelector<HTMLButtonElement>('.mode-opt[data-teams="1"]')!.disabled).toBe(true);
+    expect(document.querySelector('#mode-note')!.textContent).toContain('Team-up is for 4 players');
+    // Too many seated for a smaller board: that choice is greyed out.
+    const six = ['red', 'green', 'yellow', 'blue', 'orange', 'purple'] as const;
+    store.update({ lobby: lobby({ size: 6, members: six.map((c, i) => member(c, i === 0 ? 1 : null, `p${i}`)) }) });
+    expect(document.querySelector<HTMLButtonElement>('.size-opt[data-size="5"]')!.disabled).toBe(true);
+    expect(document.querySelector('#fill-bots')).toBeNull();
+  });
+
   it('the host: seats, bots, kicking, the mode switch and starting', async () => {
     store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
     show('lobby');
@@ -105,7 +126,7 @@ describe('the lobby screen', () => {
   it('a guest: ready up, swap colours, watch instead, leave', async () => {
     store.update({ user: { id: 2, username: 'bob' }, lobby: lobby() });
     show('lobby');
-    expect(document.querySelectorAll<HTMLButtonElement>('.mode-opt:disabled')).toHaveLength(2);
+    expect(document.querySelectorAll<HTMLButtonElement>('.mode-opt:disabled')).toHaveLength(5); // mode and seats: the host's to pick
     click('.bottom-bar .btn-xl');
     await flush();
     expect(sentOf('lobby:ready')).toEqual([{ ready: true }]);

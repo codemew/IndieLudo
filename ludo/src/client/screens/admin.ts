@@ -199,7 +199,7 @@ export function adminScreen(root: HTMLElement): void {
         <li data-id="${esc(l.id)}">
           <div class="row-main">
             <b>${esc(l.name)} ${l.status === 'playing' ? '<span class="tag tag-ok">playing</span>' : '<span class="tag">waiting</span>'}</b>
-            <span class="muted small">host ${esc(l.hostName)} · ${l.players}/4 · opened ${timeAgo(l.createdAt)}</span>
+            <span class="muted small">host ${esc(l.hostName)} · ${l.players}/${l.size ?? 4} · opened ${timeAgo(l.createdAt)}</span>
             <span class="muted small">${l.members.map((m) => `${m.isBot ? '🤖 ' : m.watching ? '👀 ' : ''}${esc(m.username)}${!m.isBot && !m.connected ? ' (offline)' : ''}`).join(', ')}</span>
           </div>
           <div class="row-actions"><button class="chip chip-danger">Close lobby</button></div>

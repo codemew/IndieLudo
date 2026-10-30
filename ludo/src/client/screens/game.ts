@@ -1,5 +1,6 @@
-import { BASE, HOME, absoluteSquare, isSafeSquare, pathCells, tokenCell } from '../../shared/board.js';
-import type { GameUpdate } from '../../shared/protocol.js';
+import { BASE, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
+import type { GameUpdate, RollUpdate } from '../../shared/protocol.js';
+import { applyRollUpdate } from '../../shared/rollUpdate.js';
 import { distinctChoices, isTeammate, respawnable, winnersOf } from '../../shared/rules.js';
 import {
   FIRST_BLOOD_MS,
@@ -16,11 +17,11 @@ import {
   type Seat,
   tempoOf,
 } from '../../shared/types.js';
-import { setGameHandler, showError } from '../app.js';
+import { resyncGame, setGameHandler, setRollHandler, showError } from '../app.js';
 import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide } from '../board/animate.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { installMoustacheDefs, moustacheSvg } from '../moustache.js';
-import { TokenLayer, boardSvg, placements } from '../board/render.js';
+import { TokenLayer, boardSvg, placements, yardSize } from '../board/render.js';
 import { Dice, dieChip } from '../dice.js';
 import { bindFullscreenButton, canFullscreen, enterFullscreen, isFullscreen } from '../fullscreen.js';
 import { vibrate } from '../haptics.js';
@@ -37,10 +38,13 @@ import { REACTION_MS, pickReaction, type ReactionKind } from '../reactions.js';
 import { threatenedTokens } from '../../shared/threats.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
-/** Corner order around the board, matching each colour's base. */
-const TOP: Color[] = ['red', 'green'];
-const BOTTOM: Color[] = ['blue', 'yellow'];
-const MEDALS = ['🥇', '🥈', '🥉', '4th'];
+/** Player cards in two rows, each near its colour's base on the board. */
+const CARD_ROWS: Record<Board['n'], [Color[], Color[]]> = {
+  4: [['red', 'green'], ['blue', 'yellow']],
+  5: [['red', 'green'], ['purple', 'blue', 'yellow']],
+  6: [['red', 'green', 'yellow'], ['purple', 'orange', 'blue']],
+};
+const MEDALS = ['🥇', '🥈', '🥉', '4th', '5th', '6th'];
 const SILENT_ERRORS = new Set(['STALE_VERSION', 'NOT_YOUR_TURN', 'WRONG_PHASE']);
 /** How long to hold your home tokens to open the wildcard entry. */
 const HOLD_MS = 450;
@@ -54,6 +58,8 @@ export function gameScreen(root: HTMLElement): () => void {
     return () => {};
   }
   const myId = state.user?.id;
+  const geo: Board = boardFor(gs);
+  const [topRow, bottomRow] = CARD_ROWS[geo.n];
   // A bot battle plays at full speed; everything else at the normal pace.
   setTempo(tempoOf(gs));
   let clockOffset = gs.serverNow - Date.now();
@@ -72,18 +78,19 @@ export function gameScreen(root: HTMLElement): () => void {
       <button class="icon-btn" id="fullscreen" aria-label="Fullscreen" hidden></button>
       <button class="icon-btn" id="sound" aria-label="Sound"></button>
     </header>
-    <div class="players">${TOP.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
+    <div class="players players-${topRow.length}">${topRow.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
     <div class="board-wrap" id="board-wrap">
-      <div class="board" id="board">
-        ${boardSvg()}
+      <div class="board board-${geo.n}" id="board" style="--bw:${geo.w};--bh:${geo.h};--yard:${yardSize(geo)}">
+        ${boardSvg(geo)}
         <div class="hold-layer" id="holds"></div>
         <div class="target-layer" id="targets"></div>
         <div class="token-layer" id="tokens"></div>
+        <div class="dice-layer" id="dice-layer"></div>
         <div class="flag-layer" id="flags"></div>
         <div class="fx-layer" id="fx"></div>
       </div>
     </div>
-    <div class="players">${BOTTOM.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
+    <div class="players players-${bottomRow.length}">${bottomRow.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
     <footer class="dock">
       <div class="dock-left">
         <div class="queue" id="queue"></div>
@@ -105,18 +112,40 @@ export function gameScreen(root: HTMLElement): () => void {
   const setFlame = (sixes: number) => (root.dataset.flame = String(Math.min(sixes, 2)));
   const sadFace = el(`<div class="dice-emoji" aria-hidden="true">😩</div>`);
   diceSlot.appendChild(sadFace);
+  // Anyone else's roll plays on a second dice over their base on the board: the dock's dice is
+  // only ever mine to roll.
+  const baseDice = new Dice();
+  baseDice.el.disabled = true;
+  baseDice.el.tabIndex = -1;
+  const baseSlot = el(`<div class="base-dice dice-hidden" aria-hidden="true"></div>`);
+  const baseSad = el(`<div class="dice-emoji" aria-hidden="true">😩</div>`);
+  baseSlot.append(baseDice.el, baseSad);
+  $(root, '#dice-layer').appendChild(baseSlot);
+  const mine = (color: Color) => color === mySeat()?.color;
+  /** Shows the dice of whoever is to roll (null: nobody): mine in the dock, anyone else's over their base. */
+  function showDiceFor(color: Color | null): void {
+    showDice(color !== null && mine(color));
+    baseSlot.classList.toggle('dice-hidden', color === null || mine(color));
+    if (color === null || mine(color)) return;
+    const [x, y] = baseCentre(color, geo);
+    baseSlot.style.left = `${(x / geo.w) * 100}%`;
+    baseSlot.style.top = `${(y / geo.h) * 100}%`;
+    baseDice.el.dataset.color = color;
+  }
   const targets = $(root, '#targets');
   const tokens = new TokenLayer($(root, '#tokens'), (color, id) => onTokenTap(color, id));
 
   // Size the board from its container's content box (never from vh, which jumps with the
-  // keyboard). It must stay exactly square: if flex squeezed one side, the SVG would scale to
-  // the shorter side and the squares would drift away from the tokens.
+  // keyboard). It must keep the board's exact shape (square for 4 players): if flex squeezed one
+  // side, the SVG would scale to the shorter side and the squares would drift away from the tokens.
   const ro = new ResizeObserver(() => {
     const cs = getComputedStyle(wrap);
     const w = wrap.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
     const h = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    const size = Math.floor(Math.min(w, h));
-    board.style.width = board.style.height = `${size}px`;
+    const square = Math.max(0, Math.min(w / geo.w, h / geo.h));
+    board.style.width = `${Math.floor(square * geo.w)}px`;
+    board.style.height = `${Math.floor(square * geo.h)}px`;
+    board.style.setProperty('--cell-px', `${square}px`);
   });
   ro.observe(wrap);
 
@@ -260,7 +289,7 @@ export function gameScreen(root: HTMLElement): () => void {
   function chooseLap(home: LegalMove, lap: LegalMove): void {
     play('tap');
     lapChooser?.close();
-    const toGo = HOME - home.to;
+    const toGo = geo.home - home.to;
     const victims = lap.captures.map((c) => `<b class="lap-victim n-${c.color}">${esc(seatName(c.color))}</b>`).join(' ');
     const body = el(`<div class="lap-choice">
       <div class="lap-opts">
@@ -333,8 +362,8 @@ export function gameScreen(root: HTMLElement): () => void {
   function renderHolds(): void {
     const me = mySeat()?.color;
     if (!gs || !me || !respawnable(gs, me).length) return setHtml(holds, '');
-    const [x, y] = tokenCell(me, HOME, 0);
-    setHtml(holds, `<div class="home-hold h-${me}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%" role="button" aria-label="Hold for a wildcard entry"></div>`);
+    const [x, y] = tokenCell(me, geo.home, 0, geo);
+    setHtml(holds, `<div class="home-hold h-${me}" style="left:${((x + 0.5) / geo.w) * 100}%;top:${((y + 0.5) / geo.h) * 100}%" role="button" aria-label="Hold for a wildcard entry"></div>`);
   }
 
   /** The open wildcard sheet: kept up to date while the game goes on, closed when nothing is left to pick. */
@@ -461,12 +490,12 @@ export function gameScreen(root: HTMLElement): () => void {
       switch (e.type) {
         case 'roll': {
           setDiceColor(e.color);
-          showDice(true);
+          showDiceFor(e.color);
           renderTargets([]);
           play('dice');
           if (e.color === me) vibrate(12);
           work.turn.queue = e.queue;
-          await dice.roll(e.value);
+          await (mine(e.color) ? dice : baseDice).roll(e.value);
           renderQueue(work, false);
           // A usable six sets the dice on fire (a useless one just ends the turn, a third is the penalty).
           const sixes = e.queue.filter((v) => v === 6).length;
@@ -480,16 +509,17 @@ export function gameScreen(root: HTMLElement): () => void {
           await sleep(450);
           if (e.value !== 6) {
             setFlame(0);
-            showDice(false);
+            showDiceFor(null);
           }
           break;
         }
-        case 'penalty':
+        case 'penalty': {
+          const sad = mine(e.color) ? sadFace : baseSad;
           setFlame(0);
-          sadFace.classList.remove('show');
-          void sadFace.offsetWidth;
-          sadFace.classList.add('show');
-          dice.shake();
+          sad.classList.remove('show');
+          void sad.offsetWidth;
+          sad.classList.add('show');
+          (mine(e.color) ? dice : baseDice).shake();
           play('penalty');
           vibrate([60, 40, 60]);
           callout('3 sixes!', 'Turn lost');
@@ -497,15 +527,16 @@ export function gameScreen(root: HTMLElement): () => void {
           work.turn.queue = [];
           renderQueue(work, false);
           await sleep(1700);
-          sadFace.classList.remove('show');
+          sad.classList.remove('show');
           break;
+        }
         case 'move': {
           const el = tokens.get(e.color, e.tokenId);
           if (!el) break;
           lastMover = el;
           lastMove = { color: e.color, tokenId: e.tokenId };
-          const start = tokenCell(e.color, e.from, e.tokenId);
-          const path = pathCells(e.color, e.from, e.to, e.tokenId);
+          const start = tokenCell(e.color, e.from, e.tokenId, geo);
+          const path = pathCells(e.color, e.from, e.to, e.tokenId, geo);
           const idx = work.turn.queue.indexOf(e.die);
           if (idx >= 0) work.turn.queue.splice(idx, 1);
           renderQueue(work, false);
@@ -521,10 +552,10 @@ export function gameScreen(root: HTMLElement): () => void {
           });
           work.tokens[e.color][e.tokenId] = e.to;
           tokens.sync(work, new Set(), null);
-          const abs = absoluteSquare(e.color, e.to);
-          if (abs !== null && isSafeSquare(abs)) {
+          const abs = absoluteSquare(e.color, e.to, geo);
+          if (abs !== null && isSafeSquare(abs, geo)) {
             play('safe');
-            burst(tokenCell(e.color, e.to, e.tokenId), 'gold');
+            burst(tokenCell(e.color, e.to, e.tokenId, geo), 'gold');
             tokenEmoji(el, 'safe');
           }
           break;
@@ -532,7 +563,7 @@ export function gameScreen(root: HTMLElement): () => void {
         case 'capture': {
           const el = tokens.get(e.victim, e.tokenId);
           if (!el) break;
-          const from = tokenCell(e.victim, e.from, e.tokenId);
+          const from = tokenCell(e.victim, e.from, e.tokenId, geo);
           play(e.friendly ? 'friendlyFire' : 'capture');
           vibrate([30, 50, 30]);
           burst(from, e.color);
@@ -545,7 +576,7 @@ export function gameScreen(root: HTMLElement): () => void {
             setTimeout(() => play('slurp'), 260);
           }
           tokenEmoji(el, 'ouch');
-          await slide(el, from, tokenCell(e.victim, BASE, e.tokenId), 560);
+          await slide(el, from, tokenCell(e.victim, BASE, e.tokenId, geo), 560);
           work.tokens[e.victim][e.tokenId] = BASE;
           // The capturer's moustache grows a level (shrinks one for friendly fire); the captured
           // token goes home clean-shaven.
@@ -562,7 +593,7 @@ export function gameScreen(root: HTMLElement): () => void {
         }
         case 'home':
           play('home');
-          burst(tokenCell(e.color, HOME, e.tokenId), e.color);
+          burst(tokenCell(e.color, geo.home, e.tokenId, geo), e.color);
           // The first time one of mine gets home, say it can go again.
           if (e.color === me && !storage.get(KEYS.wildcardTip)) {
             storage.set(KEYS.wildcardTip, '1');
@@ -587,14 +618,14 @@ export function gameScreen(root: HTMLElement): () => void {
           renderTargets([]);
           const slides = e.from.map((p, id) => {
             const el = tokens.get(e.color, id);
-            if (!el || p === HOME || p === BASE) return undefined;
-            return slide(el, tokenCell(e.color, p, id), tokenCell(e.color, BASE, id), 700);
+            if (!el || p === geo.home || p === BASE) return undefined;
+            return slide(el, tokenCell(e.color, p, id, geo), tokenCell(e.color, BASE, id, geo), 700);
           });
           await Promise.all(slides);
           // Back in base, clean-shaven.
           const shaved = work.kills?.[e.color];
           work.tokens[e.color] = work.tokens[e.color].map((p, i) => {
-            if (p === HOME) return p;
+            if (p === geo.home) return p;
             if (shaved) shaved[i] = 0;
             return BASE;
           });
@@ -637,16 +668,16 @@ export function gameScreen(root: HTMLElement): () => void {
   const flagLayer = $(root, '#flags');
   function renderFlags(s: GameState): void {
     const out = s.surrendered ?? [];
-    for (const c of ['red', 'green', 'yellow', 'blue'] as const) board.classList.toggle(`out-${c}`, out.includes(c));
+    for (const c of geo.colors) board.classList.toggle(`out-${c}`, out.includes(c));
     const key = out.join(',');
     if (flagLayer.dataset.key === key) return;
     flagLayer.dataset.key = key;
     flagLayer.innerHTML = out
       .map((c) => {
-        const slots = [0, 1, 2, 3].map((i) => tokenCell(c, BASE, i));
+        const slots = [0, 1, 2, 3].map((i) => tokenCell(c, BASE, i, geo));
         const x = slots.reduce((a, p) => a + p[0], 0) / 4;
         const y = slots.reduce((a, p) => a + p[1], 0) / 4;
-        return `<div class="surrender-flag f-${c}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%" role="img" aria-label="${esc(seatName(c))} surrendered">${whiteFlag()}</div>`;
+        return `<div class="surrender-flag f-${c}" style="left:${((x + 0.5) / geo.w) * 100}%;top:${((y + 0.5) / geo.h) * 100}%" role="img" aria-label="${esc(seatName(c))} surrendered">${whiteFlag()}</div>`;
       })
       .join('');
   }
@@ -658,7 +689,10 @@ export function gameScreen(root: HTMLElement): () => void {
     renderControls(true);
     renderHolds();
     wildcard?.refresh();
-    if (gs.turn.phase === 'rolling') dice.idle();
+    if (gs.turn.phase === 'rolling') {
+      dice.idle();
+      baseDice.idle();
+    }
     announceTeams();
   }
 
@@ -668,7 +702,7 @@ export function gameScreen(root: HTMLElement): () => void {
     if (!gs?.teams || !me || gs.finished || announced.has(gs.id)) return;
     announced.add(gs.id);
     const them = gs.seats.filter((x) => x.color !== me && x.color !== TEAMMATE[me]).map((x) => esc(x.username));
-    toast(`Team-up: you & ${seatName(TEAMMATE[me])} vs ${them.join(' & ')}`, 'info', 4000);
+    toast(`Team-up: you & ${seatName(TEAMMATE[me]!)} vs ${them.join(' & ')}`, 'info', 4000);
   }
 
   /**
@@ -696,9 +730,9 @@ export function gameScreen(root: HTMLElement): () => void {
         const token = tokens.get(color, id);
         if (!token) return;
         const p = at.get(`${color}:${id}`);
-        const base = tokenCell(color, BASE, id);
+        const base = tokenCell(color, BASE, id, geo);
         token.classList.add('wildcard-glow');
-        await fly(token, p ? [p.x, p.y] : tokenCell(color, HOME, id), base, 1500);
+        await fly(token, p ? [p.x, p.y] : tokenCell(color, geo.home, id, geo), base, 1500);
         token.classList.remove('wildcard-glow');
         play('land');
         shockwave(base, color);
@@ -717,17 +751,17 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   function shockwave(cell: readonly [number, number], color: Color): void {
-    const w = el(`<div class="shockwave t-${color}" style="left:${((cell[0] + 0.5) / 15) * 100}%;top:${((cell[1] + 0.5) / 15) * 100}%"></div>`);
+    const w = el(`<div class="shockwave t-${color}" style="left:${((cell[0] + 0.5) / geo.w) * 100}%;top:${((cell[1] + 0.5) / geo.h) * 100}%"></div>`);
     fx.appendChild(w);
     setTimeout(() => w.remove(), 800);
   }
 
   /** The base the wildcard tokens landed in glows once: here comes trouble. */
   function basePulse(color: Color): void {
-    const slots = [0, 1, 2, 3].map((i) => tokenCell(color, BASE, i));
+    const slots = [0, 1, 2, 3].map((i) => tokenCell(color, BASE, i, geo));
     const x = slots.reduce((a, p) => a + p[0], 0) / 4;
     const y = slots.reduce((a, p) => a + p[1], 0) / 4;
-    const p = el(`<div class="base-pulse t-${color}" style="left:${((x + 0.5) / 15) * 100}%;top:${((y + 0.5) / 15) * 100}%"></div>`);
+    const p = el(`<div class="base-pulse t-${color}" style="left:${((x + 0.5) / geo.w) * 100}%;top:${((y + 0.5) / geo.h) * 100}%"></div>`);
     fx.appendChild(p);
     setTimeout(() => p.remove(), 1200);
   }
@@ -743,7 +777,7 @@ export function gameScreen(root: HTMLElement): () => void {
       }
       const rank = gs!.ranks.indexOf(color);
       const active = !gs!.finished && current().color === color;
-      const homeCount = gs!.tokens[color].filter((p) => p === HOME).length;
+      const homeCount = gs!.tokens[color].filter((p) => p === geo.home).length;
       const timed = active && gs!.turn.deadline > 0;
       chip.className = `pchip p-${color}${active ? ' active' : ''}${timed ? ' timed' : ''}${seat.connected ? '' : ' offline'}`;
       // Built once; afterwards only the parts that changed are touched, since pings and voice
@@ -765,7 +799,7 @@ export function gameScreen(root: HTMLElement): () => void {
       mate.hidden = !gs!.teams;
       if (gs!.teams) {
         mate.className = `pchip-mate m-${TEAMMATE[color]}`;
-        mate.title = `Teammate: ${seatName(TEAMMATE[color])}`;
+        mate.title = `Teammate: ${seatName(TEAMMATE[color]!)}`;
       }
       // Name and mic badge apart from the signal bars, which change with every ping.
       setHtml($(chip, '.pn'), `${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}`);
@@ -874,7 +908,7 @@ export function gameScreen(root: HTMLElement): () => void {
     setDiceColor(seat.color);
     dice.el.classList.toggle('can-roll', canRoll());
     dice.el.disabled = !canRoll();
-    if (!animating || force) showDice(!gs.finished && gs.turn.phase === 'rolling');
+    if (!animating || force) showDiceFor(!gs.finished && gs.turn.phase === 'rolling' ? seat.color : null);
 
     let tappable = new Set<string>();
     if (canMove()) {
@@ -988,15 +1022,15 @@ export function gameScreen(root: HTMLElement): () => void {
     const color = mySeat()?.color;
     let html = '';
     const seen = new Set<string>();
-    const at = (c: readonly [number, number]) => `left:${((c[0] + 0.5) / 15) * 100}%;top:${((c[1] + 0.5) / 15) * 100}%`;
+    const at = (c: readonly [number, number]) => `left:${((c[0] + 0.5) / geo.w) * 100}%;top:${((c[1] + 0.5) / geo.h) * 100}%`;
     for (const m of color ? moves : []) {
       const branches = moves.some((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && o.lap);
       if (branches) {
-        const trail = pathCells(color!, m.from, m.to, m.tokenId).slice(0, -1);
+        const trail = pathCells(color!, m.from, m.to, m.tokenId, geo).slice(0, -1);
         html += trail.map((c) => `<div class="trail ${m.lap ? 'round' : 'home'}" style="${at(c)}"></div>`).join('');
       }
-      const [x, y] = tokenCell(color!, m.to, m.tokenId);
-      const key = m.to === HOME ? 'home' : `${x},${y}`;
+      const [x, y] = tokenCell(color!, m.to, m.tokenId, geo);
+      const key = m.to === geo.home ? 'home' : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-lap="${m.lap ? 1 : 0}" role="button" aria-label="${m.lap ? 'Go round again' : 'Head home'}"` : '';
@@ -1016,8 +1050,8 @@ export function gameScreen(root: HTMLElement): () => void {
       { duration: 200 + 35 * k },
     );
     if (k < 2) return;
-    const left = ((cell[0] + 0.5) / 15) * 100;
-    const top = ((cell[1] + 0.85) / 15) * 100;
+    const left = ((cell[0] + 0.5) / geo.w) * 100;
+    const top = ((cell[1] + 0.85) / geo.h) * 100;
     for (const dir of [-1, 1]) {
       for (let i = 0; i < Math.min(3, k - 1); i++) {
         const p = el(`<span class="fx-dust" style="left:${left}%;top:${top}%"></span>`);
@@ -1034,7 +1068,7 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   function burst(cell: readonly [number, number], color: Color | 'gold'): void {
-    const b = el(`<div class="burst t-${color}" style="left:${((cell[0] + 0.5) / 15) * 100}%;top:${((cell[1] + 0.5) / 15) * 100}%">${'<i></i>'.repeat(8)}</div>`);
+    const b = el(`<div class="burst t-${color}" style="left:${((cell[0] + 0.5) / geo.w) * 100}%;top:${((cell[1] + 0.5) / geo.h) * 100}%">${'<i></i>'.repeat(8)}</div>`);
     fx.appendChild(b);
     setTimeout(() => b.remove(), 900);
   }
@@ -1088,8 +1122,20 @@ export function gameScreen(root: HTMLElement): () => void {
     }
   }
 
+  /**
+   * Someone else rolled: a slim update (rollUpdate.ts) applied to the newest state we have.
+   * If it doesn't follow on from that, we missed something: fetch the whole state.
+   */
+  function onRoll(u: RollUpdate): void {
+    const base = pending.at(-1)?.state ?? gs;
+    const next = base && applyRollUpdate(base, u);
+    if (next) onUpdate({ state: next, events: u.events });
+    else void resyncGame();
+  }
+
   installMoustacheDefs();
   setGameHandler(onUpdate);
+  setRollHandler(onRoll);
   renderAll();
   warnThreatened(false);
   if (gs.finished) queueMicrotask(() => go('results'));
@@ -1105,6 +1151,7 @@ export function gameScreen(root: HTMLElement): () => void {
     destroyed = true;
     setTempo(1);
     setGameHandler(null);
+    setRollHandler(null);
     ro.disconnect();
     offVoice();
     offStore();

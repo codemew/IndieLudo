@@ -2,6 +2,7 @@ import { lookup } from 'node:dns/promises';
 import type { Server, Socket } from 'socket.io';
 import { isIPv4, isLocalAddress, localRouteFor, type LocalRoute } from '../shared/ice.js';
 import { RELAY_LIMITS, SCHEMAS, matchesSchema, type Ack, type ClientToServer, type Hello, type Schema, type ServerToClient, type VoiceFramesOut, type VoiceSignalKind } from '../shared/protocol.js';
+import type { BoardSize } from '../shared/board.js';
 import type { Color } from '../shared/types.js';
 import type { Ctx } from './context.js';
 import type { Lobby } from './lobbies.js';
@@ -222,6 +223,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('lobby:removeBot', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.removeBot(userId, p.color as Color));
     on('lobby:fillBots', SCHEMAS.empty, () => void ctx.lobbies.fillBots(userId));
     on('lobby:mode', SCHEMAS.lobbyMode, (p) => void ctx.lobbies.setTeams(userId, p.teams));
+    on('lobby:size', SCHEMAS.lobbySize, (p) => void ctx.lobbies.setSize(userId, p.size as BoardSize));
     on('lobby:spectate', SCHEMAS.empty, () => void ctx.lobbies.spectate(userId));
     on('lobby:sit', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.sit(userId, p.color as Color));
 

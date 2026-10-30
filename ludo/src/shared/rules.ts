@@ -1,6 +1,6 @@
-import { BASE, HOME, LAP2_FIRST, LAP2_LAST, LAST_TRACK, absoluteSquare, isSafeSquare, isSecondLap } from './board.js';
+import { BASE, boardFor, boardOf, absoluteSquare, isSafeSquare, isSecondLap, type Board, type BoardSize } from './board.js';
 import { moustacheLevel } from './heft.js';
-import { COLORS, TEAMMATE, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
+import { TEAMMATE, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
 
 /**
  * Pure Ludo rules engine. Functions mutate the given state in place and return
@@ -24,16 +24,20 @@ export function createGameState(opts: {
   seats: Omit<Seat, 'timeouts'>[];
   firstSeat?: number;
   now?: number;
-  /** Team-up: 2v2, diagonal partners. Needs all four seats. */
+  /** Team-up: 2v2, diagonal partners. Needs all four seats of the 4-player board. */
   teams?: boolean;
+  /** The 4- (default), 5- or 6-player board. */
+  board?: BoardSize;
 }): GameState {
+  const { colors } = boardOf(opts.board);
   const seats = [...opts.seats]
-    .sort((a, b) => COLORS.indexOf(a.color) - COLORS.indexOf(b.color))
+    .sort((a, b) => colors.indexOf(a.color) - colors.indexOf(b.color))
     .map((s) => ({ ...s, timeouts: 0 }));
-  if (seats.length < 2 || seats.length > 4) throw new RuleError('BAD_SEAT_COUNT');
+  if (seats.length < 2 || seats.length > colors.length) throw new RuleError('BAD_SEAT_COUNT');
+  if (seats.some((s) => !colors.includes(s.color))) throw new RuleError('INVALID_COLOR');
   if (new Set(seats.map((s) => s.color)).size !== seats.length) throw new RuleError('DUPLICATE_COLOR');
-  if (opts.teams && seats.length !== 4) throw new RuleError('TEAMS_NEED_FOUR');
-  const tokens = { red: [], green: [], yellow: [], blue: [] } as Record<Color, number[]>;
+  if (opts.teams && (seats.length !== 4 || colors.length !== 4)) throw new RuleError('TEAMS_NEED_FOUR');
+  const tokens = { red: [], green: [], yellow: [], blue: [], purple: [], orange: [] } as Record<Color, number[]>;
   for (const s of seats) tokens[s.color] = Array(TOKENS_PER_PLAYER).fill(BASE);
   return {
     id: opts.id,
@@ -47,6 +51,7 @@ export function createGameState(opts: {
     createdAt: opts.now ?? Date.now(),
     firstBlood: false,
     ...(opts.teams && { teams: true }),
+    ...(opts.board && opts.board !== 4 && { board: opts.board }),
   };
 }
 
@@ -82,7 +87,7 @@ export function isTeammate(state: Pick<GameState, 'teams'>, a: Color, b: Color):
 export function winnersOf(state: Pick<GameState, 'teams' | 'ranks'>): Color[] {
   const first = state.ranks[0];
   if (!first) return [];
-  return state.teams ? [first, TEAMMATE[first]] : [first];
+  return state.teams ? [first, TEAMMATE[first]!] : [first];
 }
 
 export function currentColor(state: GameState): Color {
@@ -107,7 +112,7 @@ function endGame(state: GameState, events: GameEvent[], winner?: Color): void {
       ...team.filter((c) => !state.ranks.includes(c) && !surrendered.includes(c)),
       ...surrendered.filter((c) => team.includes(c)),
     ];
-    const winners = order([winner, TEAMMATE[winner]]);
+    const winners = order([winner, TEAMMATE[winner]!]);
     state.ranks = [...winners, ...order(state.seats.map((s) => s.color).filter((c) => !winners.includes(c)))];
   } else {
     for (const s of state.seats.filter((x) => !isPlayerDone(state, x.color))) {
@@ -134,11 +139,12 @@ export function applySurrender(state: GameState, color: Color): GameEvent[] {
   if (state.finished) throw new RuleError('GAME_OVER');
   if (!state.seats.some((s) => s.color === color)) throw new RuleError('NOT_SEATED');
   if (isPlayerDone(state, color)) throw new RuleError('ALREADY_OUT');
+  const { home } = boardFor(state);
   const events: GameEvent[] = [{ type: 'surrender', color, from: [...state.tokens[color]] }];
   state.surrendered = [...(state.surrendered ?? []), color];
   const kills = killsOf(state, color);
   state.tokens[color] = state.tokens[color].map((p, i) => {
-    if (p === HOME) return p;
+    if (p === home) return p;
     kills[i] = 0;
     return BASE;
   });
@@ -156,7 +162,7 @@ export function applySurrender(state: GameState, color: Color): GameEvent[] {
 }
 
 function allHome(state: GameState, color: Color): boolean {
-  return state.tokens[color].every((p) => p === HOME);
+  return state.tokens[color].every((p) => p === boardFor(state).home);
 }
 
 /**
@@ -165,7 +171,8 @@ function allHome(state: GameState, color: Color): boolean {
  */
 export function respawnable(state: GameState, color: Color): number[] {
   if (state.finished || state.surrendered?.includes(color) || !state.seats.some((s) => s.color === color)) return [];
-  return state.tokens[color].flatMap((p, i) => (p === HOME && hasExtraLap(state, color, i) ? [i] : []));
+  const { home } = boardFor(state);
+  return state.tokens[color].flatMap((p, i) => (p === home && hasExtraLap(state, color, i) ? [i] : []));
 }
 
 /**
@@ -180,7 +187,7 @@ export function applyRespawn(state: GameState, color: Color, tokenIds: number[])
   if (state.surrendered?.includes(color)) throw new RuleError('SURRENDERED');
   const ids = [...new Set(tokenIds)];
   if (!ids.length || ids.length !== tokenIds.length || ids.some((i) => !Number.isInteger(i) || i < 0 || i >= TOKENS_PER_PLAYER)) throw new RuleError('BAD_TOKENS');
-  if (ids.some((i) => state.tokens[color][i] !== HOME)) throw new RuleError('NOT_HOME');
+  if (ids.some((i) => state.tokens[color][i] !== boardFor(state).home)) throw new RuleError('NOT_HOME');
   if (ids.some((i) => !hasExtraLap(state, color, i))) throw new RuleError('NO_LAPS_LEFT');
   const laps = extraLapsOf(state, color);
   for (const i of ids) {
@@ -199,32 +206,33 @@ export function applyRespawn(state: GameState, color: Color, tokenIds: number[])
  * home column on its first lap may instead go round the board once more (`lap`), unless it has
  * used its extra lap already (`canLap` false).
  */
-export function targetsFor(progress: number, die: number, canLap = true): { to: number; lap?: true }[] {
+export function targetsFor(progress: number, die: number, canLap = true, b: Board = boardOf(4)): { to: number; lap?: true }[] {
   if (progress === BASE) return die === SIX ? [{ to: 0 }] : [];
   const t = progress + die;
-  if (isSecondLap(progress)) {
-    if (t <= LAP2_LAST) return [{ to: t }];
-    const column = t - LAP2_LAST - 1 + LAST_TRACK + 1; // past its last track square: into the home column
-    return column <= HOME ? [{ to: column }] : [];
+  if (isSecondLap(progress, b)) {
+    if (t <= b.lap2Last) return [{ to: t }];
+    const column = t - b.lap2Last - 1 + b.last + 1; // past its last track square: into the home column
+    return column <= b.home ? [{ to: column }] : [];
   }
-  if (progress >= HOME) return [];
-  if (canLap && progress <= LAST_TRACK && t > LAST_TRACK) return [{ to: t }, { to: t - LAST_TRACK - 1 + LAP2_FIRST, lap: true }];
-  return t <= HOME ? [{ to: t }] : [];
+  if (progress >= b.home) return [];
+  if (canLap && progress <= b.last && t > b.last) return [{ to: t }, { to: t - b.last - 1 + b.lap2First, lap: true }];
+  return t <= b.home ? [{ to: t }] : [];
 }
 
 /** Where a token would end up with the given die heading home, or null if it cannot move. */
-export function targetProgress(progress: number, die: number): number | null {
-  return targetsFor(progress, die)[0]?.to ?? null;
+export function targetProgress(progress: number, die: number, b: Board = boardOf(4)): number | null {
+  return targetsFor(progress, die, true, b)[0]?.to ?? null;
 }
 
 function capturesAt(state: GameState, mover: Color, to: number): LegalMove['captures'] {
-  const abs = absoluteSquare(mover, to);
-  if (abs === null || isSafeSquare(abs)) return [];
+  const b = boardFor(state);
+  const abs = absoluteSquare(mover, to, b);
+  if (abs === null || isSafeSquare(abs, b)) return [];
   const captures: LegalMove['captures'] = [];
   for (const seat of state.seats) {
     if (seat.color === mover) continue;
     state.tokens[seat.color].forEach((p, tokenId) => {
-      if (absoluteSquare(seat.color, p) === abs) captures.push({ color: seat.color, tokenId });
+      if (absoluteSquare(seat.color, p, b) === abs) captures.push({ color: seat.color, tokenId });
     });
   }
   return captures;
@@ -237,7 +245,7 @@ export function legalMoves(state: GameState): LegalMove[] {
   const moves: LegalMove[] = [];
   state.turn.queue.forEach((die, dieIndex) => {
     state.tokens[color].forEach((from, tokenId) => {
-      for (const { to, lap } of targetsFor(from, die, hasExtraLap(state, color, tokenId))) {
+      for (const { to, lap } of targetsFor(from, die, hasExtraLap(state, color, tokenId), boardFor(state))) {
         moves.push({ dieIndex, die, tokenId, from, to, captures: capturesAt(state, color, to), ...(lap && { lap }) });
       }
     });
@@ -277,7 +285,7 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   if (value === SIX) {
     // A six nobody can use (every token left is already in the home lane, where even the
     // first square + 6 overshoots) earns no extra roll: the turn is simply over.
-    if (!state.tokens[color].some((p) => targetProgress(p, SIX) !== null)) {
+    if (!state.tokens[color].some((p) => targetProgress(p, SIX, boardFor(state)) !== null)) {
       events.push({ type: 'noMoves', color, discarded: [...turn.queue] });
       turn.queue = [];
       endTurn(state, events);
@@ -323,7 +331,7 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
   for (const c of move.captures) {
     const from = state.tokens[c.color][c.tokenId];
     // Caught on its second lap: it starts over from base like any captured token, extra lap back.
-    if (isSecondLap(from)) extraLapsOf(state, c.color)[c.tokenId] = 0;
+    if (isSecondLap(from, boardFor(state))) extraLapsOf(state, c.color)[c.tokenId] = 0;
     killsOf(state, c.color)[c.tokenId] = 0;
     if (isTeammate(state, color, c.color)) {
       // Friendly fire (Team-up): still a bonus roll, but the capturer's moustache shrinks a level,
@@ -353,7 +361,7 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
     turn.bonus++;
   }
 
-  if (move.to === HOME) {
+  if (move.to === boardFor(state).home) {
     events.push({ type: 'home', color, tokenId });
     // Every arrival counts, so a token back from a wildcard entry that makes it home again counts twice.
     mine.homeRuns = (mine.homeRuns ?? 0) + 1;
@@ -363,7 +371,7 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
       state.ranks.push(color);
       events.push({ type: 'rank', color, rank: state.ranks.length });
       // Team-up ends when both partners are home; a classic game when one player is left.
-      if (state.teams ? state.ranks.includes(TEAMMATE[color]) : state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
+      if (state.teams ? state.ranks.includes(TEAMMATE[color]!) : state.seats.filter((s) => !isPlayerDone(state, s.color)).length <= 1) {
         endGame(state, events, color);
         return events;
       }

@@ -1,4 +1,5 @@
-import { MAX_SEATS, MAX_SPECTATORS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
+import { BOARD_SIZES, type BoardSize } from '../../shared/board.js';
+import { MAX_SPECTATORS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
 import { showError } from '../app.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
@@ -10,8 +11,15 @@ import { pingText, signalBars } from '../netUi.js';
 import { askSwap, cancelSwap } from '../swapUi.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 
-/** Seats laid out like the board: red top-left, green top-right, blue bottom-left, yellow bottom-right. */
-const SEAT_ORDER: Color[] = ['red', 'green', 'blue', 'yellow'];
+/**
+ * Seats laid out like the board. 4 players: red top-left, green top-right, blue bottom-left,
+ * yellow bottom-right. 5 and 6: clockwise round the board, two to a row.
+ */
+const SEAT_ORDER: Record<BoardSize, Color[]> = {
+  4: ['red', 'green', 'blue', 'yellow'],
+  5: ['red', 'green', 'yellow', 'blue', 'purple'],
+  6: ['red', 'green', 'yellow', 'blue', 'orange', 'purple'],
+};
 
 export function lobbyScreen(root: HTMLElement): () => void {
   root.innerHTML = `
@@ -28,6 +36,9 @@ export function lobbyScreen(root: HTMLElement): () => void {
       <div class="mode-switch" id="mode" role="radiogroup" aria-label="Game mode">
         <button class="mode-opt" data-teams="0" role="radio">🎲 Classic</button>
         <button class="mode-opt" data-teams="1" role="radio">🤝 Team-up</button>
+      </div>
+      <div class="mode-switch size-switch" id="size" role="radiogroup" aria-label="Players">
+        ${BOARD_SIZES.map((n) => `<button class="mode-opt size-opt" data-size="${n}" role="radio">${n} players</button>`).join('')}
       </div>
       <p class="muted small center mode-note" id="mode-note"></p>
       <div class="seat-grid" id="seats"></div>
@@ -53,7 +64,8 @@ export function lobbyScreen(root: HTMLElement): () => void {
     if (!r.ok) showError(r.error);
   };
 
-  root.querySelectorAll<HTMLButtonElement>('.mode-opt').forEach((b) => (b.onclick = () => void act('lobby:mode', { teams: b.dataset.teams === '1' })));
+  root.querySelectorAll<HTMLButtonElement>('#mode .mode-opt').forEach((b) => (b.onclick = () => void act('lobby:mode', { teams: b.dataset.teams === '1' })));
+  root.querySelectorAll<HTMLButtonElement>('.size-opt').forEach((b) => (b.onclick = () => void act('lobby:size', { size: Number(b.dataset.size) })));
 
   const render = () => {
     const lobby = state.lobby;
@@ -74,20 +86,32 @@ export function lobbyScreen(root: HTMLElement): () => void {
         ? 'Tap an open seat to move or add a bot, or ⇄ to swap colours with a player.'
         : 'Tap an open seat to move, or ⇄ to swap colours with a player.';
 
-    // Classic or Team-up: the host picks; everyone sees which.
-    root.querySelectorAll<HTMLButtonElement>('.mode-opt').forEach((b) => {
+    // Classic or Team-up, and 4, 5 or 6 players: the host picks; everyone sees which.
+    const size = lobby.size ?? 4;
+    root.querySelectorAll<HTMLButtonElement>('#mode .mode-opt').forEach((b) => {
       const on = (b.dataset.teams === '1') === lobby.teams;
       b.classList.toggle('on', on);
       b.setAttribute('aria-checked', String(on));
-      b.disabled = !isHost;
+      // Team-up is 2 vs 2, so only on the 4-player board.
+      b.disabled = !isHost || (b.dataset.teams === '1' && size !== 4);
+    });
+    root.querySelectorAll<HTMLButtonElement>('.size-opt').forEach((b) => {
+      const n = Number(b.dataset.size);
+      const on = n === size;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+      b.disabled = !isHost || (!on && lobby.members.length > n);
     });
     $(root, '#mode-note').textContent = lobby.teams
       ? 'Team-up: 2 vs 2. Diagonal partners (Red + Yellow vs Green + Blue) win together when both are home. Needs all 4 seats.'
-      : 'Classic: everyone for themselves.';
+      : size === 4
+        ? 'Classic: everyone for themselves.'
+        : `Classic on the ${size}-player board: everyone for themselves. Team-up is for 4 players.`;
 
     const seats = $(root, '#seats');
     seats.innerHTML = '';
-    for (const color of SEAT_ORDER) {
+    seats.classList.toggle('seats-many', size > 4);
+    for (const color of SEAT_ORDER[size]) {
       const m = lobby.members.find((x) => x.color === color);
       seats.appendChild(seatCard(color, m, { me, isHost, watching, hostId: lobby.hostId, act, teams: lobby.teams, myColor: mine?.color }));
     }
@@ -98,7 +122,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
 
     const actions = $(root, '#actions');
     actions.innerHTML = '';
-    const free = 4 - lobby.members.length;
+    const free = size - lobby.members.length;
     const extras = el(`<div class="lobby-extras"></div>`);
     if (mine && lobby.spectators.length < MAX_SPECTATORS) {
       const b = el<HTMLButtonElement>(`<button class="chip" id="spectate">👀 Watch instead</button>`);
@@ -113,7 +137,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
     if (extras.childElementCount) actions.appendChild(extras);
     if (isHost) {
       const notReady = lobby.members.filter((m) => !m.isBot && m.userId !== me && !m.ready).length;
-      const enough = lobby.teams ? lobby.members.length === MAX_SEATS : lobby.members.length >= 2;
+      const enough = lobby.teams ? lobby.members.length === 4 : lobby.members.length >= 2;
       const botBattle = enough && lobby.members.every((m) => m.isBot);
       const btn = el<HTMLButtonElement>(`<button class="btn btn-primary btn-xl" id="start">${botBattle ? '🤖 Start bot battle' : 'Start game'}</button>`);
       btn.disabled = !enough || notReady > 0;

@@ -106,8 +106,15 @@ npm run typecheck
 
 ## Rules
 
-- **Board:** the classic layout with 2–4 players. Turns go clockwise: red → green → yellow → blue.
-- **Mode:** the host picks **🎲 Classic** (everyone for themselves) or **🤝 Team-up** in the lobby. See [Team-up](#team-up).
+- **Board:** the host picks **4, 5 or 6 players** in the lobby (new lobbies start at 4). A game can start with fewer players than seats; the empty seats are skipped.
+  - **4 players:** the classic square board. Turns go clockwise: red → green → yellow → blue.
+  - **5 players:** a pentagon in the middle with five arms. Red → green → yellow → blue → purple.
+  - **6 players:** a hexagon with six arms. Red → green → yellow → blue → orange → purple, so warm and cool colours alternate.
+  - **The same arms everywhere:** each arm is 3 squares wide and 6 long, with the start square, the star and the 5-square home column where they are today, and 13 track squares per player. A lap is 52, 65 or 78 squares, and from start to home is 56, 69 or 82 steps. The bases sit in the gaps between the arms.
+  - **On the phone:** the 5- and 6-player boards are wider than the square one, so their squares are about 79% and 87% of the 4-player size. With three players to a row, the player cards are smaller.
+  - **Shrinking the board** in the lobby is refused while more players are seated than it holds. Anyone on purple or orange moves to a free colour.
+- **Mode:** the host picks **🎲 Classic** (everyone for themselves) or **🤝 Team-up** in the lobby. Team-up is only on the 4-player board. See [Team-up](#team-up).
+- **The dice:** only the player whose turn it is sees the dice in the dock and can tap it. Everyone else sees that player's dice roll over their base on the board, and their rolls appear in the queue. Bots' dice roll over their bases too.
 - **Colours** belong to players. Every phone draws each player in the same colour on the same board orientation.
 - **Leaving base** takes a 6.
 - **Finishing** takes the exact roll; a die that would overshoot cannot be used.
@@ -116,7 +123,7 @@ npm run typecheck
   - **On the second lap:** the token moves, captures and can be captured like any other, and wears a dashed white ring. At the end of that lap it turns home; it can't go round a third time.
   - **Two laps at most:** each token gets one extra lap. Going round again uses it, and so does a [wildcard entry](#wildcard-entry). A token captured during its second lap starts over fresh, with its extra lap back.
   - **Bots and the timer:** they head home, unless going round would capture someone.
-- **Safe squares** are the 4 start squares and the 4 stars. No token can be captured there.
+- **Safe squares** are each player's start square and star (8 on the 4-player board, 10 or 12 on the others). No token can be captured there.
 - **Surrender:** a player can give up at any time, not just on their turn, from the game menu (**🏳️ Surrender**, with a confirm).
   - **Their tokens:** any not yet home go back to base, clean-shaven and greyed out, and a white flag waves over that base on every phone. Nobody can capture them any more.
   - **The game:** the player takes no more turns and can watch the rest. If only one player is left, the match ends there.
@@ -224,7 +231,7 @@ The lobby shows each player's lifetime wins (🏆) beside their name.
 
 ## Voice chat
 
-Everyone in a lobby, up to 8 people (4 seats and 4 spectators), is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it by leaving the lobby or being kicked. It also ends when the lobby closes or the host turns it off.
+Everyone in a lobby, up to 10 people (6 seats and 4 spectators), is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it by leaving the lobby or being kicked. It also ends when the lobby closes or the host turns it off.
 
 - **Mute yourself:** the mic button is on the lobby screen, the game screen, and the home screen while you're in a lobby. It's green when you're live and red when you're muted. The browser asks for the microphone the first time. If you block it, you still hear everyone and show as muted, the button turns amber, and tapping it asks again.
 - **Who is in:** a small mic badge next to each name, on the lobby seats and the game's player cards. It's green when that person is live and red when muted. It pulses while your phone is still connecting to theirs.
@@ -337,6 +344,7 @@ Everyone in a lobby, up to 8 people (4 seats and 4 spectators), is automatically
 
 ## Data use and connection
 
+- **Slim roll messages:** a roll that only adds to the queue sends the whole game state to the roller's phone alone. Everyone else gets a slim update of about 240 bytes (the new turn and the roll) instead of the whole state (about 2–3 KB), and their phone applies it to the state it has. The move that follows goes to everyone whole. A phone that missed an update asks for the whole state.
 - **Compressed messages:** game messages over the WebSocket are compressed, and the compressor remembers earlier messages. Each game update repeats most of the one before, so a 1.5 KB update costs about 50 bytes. A phone watching a whole 4‑bot game receives about 50 KB instead of about 1.5 MB.
 - **Nothing sent twice:**
   - The lobby list on the home screen goes out only when it changes, not when someone gets ready or a phone drops offline.
@@ -408,7 +416,7 @@ Environment variables override the file. The available ones are `LUDO_CONFIG`, `
 ## Project layout
 
 ```
-src/shared/   board geometry, pure rules engine (wildcard entry, Team-up), awards, voice route
+src/shared/   board geometry (4, 5 and 6 players), pure rules engine (wildcard entry, Team-up), slim roll updates, awards, voice route
               ranking (ice.ts), socket protocol and schemas (used by server and client)
 src/server/   express + socket.io, config, sqlite, access gate, sessions, lobbies, game manager, bots, TLS
 src/client/   vanilla TS screens, SVG board, WAAPI token animations, 3D CSS dice, WebAudio sounds,

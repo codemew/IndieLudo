@@ -280,3 +280,60 @@ describe('bots on the seat you tap', () => {
     expect(restarted.get(l.id)!.members.find((m) => m.isBot)).toMatchObject({ color: 'blue', username: 'Bot Blue' });
   });
 });
+
+describe('4, 5 or 6 seats', () => {
+  const dave = { id: 4, username: 'dave' };
+  const erin = { id: 5, username: 'erin' };
+  const finn = { id: 6, username: 'finn' };
+  const gus = { id: 7, username: 'gus' };
+
+  it('new lobbies have 4 seats; the host can make it 5 or 6, which brings purple and orange', () => {
+    const l = create();
+    expect(lm.toPublic(l).size).toBe(4);
+    expect(lm.summaries()[0].size).toBe(4);
+    expect(() => lm.setColor(alice.id, 'purple')).toThrow('INVALID_COLOR');
+    lm.join(bob, l.id, 'pw');
+    expect(() => lm.setSize(bob.id, 6)).toThrow('NOT_HOST');
+    lm.setReady(bob.id, true);
+    lm.setSize(alice.id, 6);
+    expect(lm.toPublic(l).size).toBe(6);
+    expect(l.members.find((m) => m.userId === bob.id)!.ready).toBe(false); // the game they agreed to changed
+    lm.setColor(alice.id, 'orange');
+    for (const u of [carol, dave, erin, finn]) lm.join(u, l.id, 'pw');
+    expect(new Set(l.members.map((m) => m.color)).size).toBe(6);
+    expect(() => lm.join(gus, l.id, 'pw')).toThrow('LOBBY_FULL');
+    expect(() => lm.addBot(alice.id)).toThrow('LOBBY_FULL');
+    expect(lm.setSize(alice.id, 6)).toBe(l); // no change
+    expect(() => lm.setSize(alice.id, 7 as 6)).toThrow('BAD_PAYLOAD');
+  });
+
+  it('a smaller board: refused while too many are seated; players on purple or orange move to a free colour', () => {
+    const l = create();
+    lm.setSize(alice.id, 6);
+    lm.setColor(alice.id, 'purple');
+    lm.join(bob, l.id, 'pw');
+    lm.addBot(alice.id, 'orange');
+    lm.addBot(alice.id, 'green');
+    lm.join(carol, l.id, 'pw');
+    expect(() => lm.setSize(alice.id, 4)).toThrow('TOO_MANY_PLAYERS');
+    lm.removeBot(alice.id, 'green');
+    lm.setSize(alice.id, 4);
+    expect(l.members.every((m) => ['red', 'green', 'yellow', 'blue'].includes(m.color))).toBe(true);
+    expect(new Set(l.members.map((m) => m.color)).size).toBe(4);
+    expect(l.members.find((m) => m.userId === alice.id)!.color).toBe('green');
+    expect(l.members.find((m) => m.isBot)!.username).toBe('Bot Blue'); // a bot is named after its seat
+  });
+
+  it('bots fill every seat of the board; Team-up only with 4 seats', () => {
+    const l = create();
+    lm.setTeams(alice.id, true);
+    lm.setSize(alice.id, 5);
+    expect(l.teams).toBe(false);
+    expect(() => lm.setTeams(alice.id, true)).toThrow('TEAMS_NEED_FOUR');
+    lm.fillBots(alice.id);
+    expect(l.members.map((m) => m.color).sort()).toEqual(['blue', 'green', 'purple', 'red', 'yellow']);
+    expect(lm.checkStart(alice.id)).toBe(l);
+    l.teams = true; // a lobby saved oddly: still refused at the start
+    expect(() => lm.checkStart(alice.id)).toThrow('TEAMS_NEED_FOUR');
+  });
+});

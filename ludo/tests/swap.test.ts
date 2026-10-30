@@ -142,7 +142,7 @@ describe('colour swaps over sockets', () => {
     expect(await guest.emit('lobby:swapAnswer', { from: host.userId, accept: true })).toEqual({ ok: false, error: 'SWAP_EXPIRED' });
     // Nobody can answer for someone else, or forge a payload.
     expect(await host.emit('lobby:swapAnswer', { from: guest.userId, accept: true })).toEqual({ ok: false, error: 'SWAP_EXPIRED' });
-    expect(await host.emit('lobby:swapAsk', { color: 'purple' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await host.emit('lobby:swapAsk', { color: 'pink' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
   });
 });
 
@@ -166,7 +166,7 @@ describe('bots over sockets', () => {
     const bots = host.lobbyStates.at(-1)!.members.filter((m) => m.isBot);
     expect(bots.map((m) => m.color).sort()).toEqual([...free].sort());
     for (const m of bots) expect(m.username).toBe(`Bot ${m.color[0].toUpperCase()}${m.color.slice(1)}`);
-    expect(await host.emit('lobby:addBot', { color: 'purple' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
+    expect(await host.emit('lobby:addBot', { color: 'pink' })).toEqual({ ok: false, error: 'BAD_PAYLOAD' });
     expect(await host.emit('lobby:addBot', { color: free[0] })).toEqual({ ok: false, error: 'LOBBY_FULL' });
   });
 });

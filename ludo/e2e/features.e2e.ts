@@ -1,7 +1,8 @@
 /**
- * Browser tests for v3.2: the wildcard entry (hold your home tokens), Team-up, the stacked-token
- * picker's neighbours (the lap markers, which must take real taps), and the results screen with
- * long names and many awards. Run with `npm run test:e2e`.
+ * Browser tests for v3.2 and v3.3: the wildcard entry (hold your home tokens), Team-up, the
+ * stacked-token picker's neighbours (the lap markers, which must take real taps), the results
+ * screen with long names and many awards, and the 5- and 6-player boards with the dice shown
+ * only to the player rolling. Run with `npm run test:e2e`.
  */
 import type { Page } from 'puppeteer-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -264,6 +265,147 @@ describe.skipIf(!CHROME || !BUILT)('results with long names and many awards', ()
     expect(await w.$('.award .steel-ball')).not.toBeNull();
     expect(await w.$$eval('.stats-table thead th[scope=col]', (h) => h.map((x) => x.textContent))).toContain('🏠Home');
     await shot(w, 'results-long-names');
+    expect(t.errors).toEqual([]);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT)('5 and 6 players, and whose dice shows where', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let alice: Page;
+  let bob: Page;
+  let game: GameState;
+  /** Socket.IO frames bob's phone receives: which event, and how many bytes. */
+  const frames: { event: string; bytes: number; version: number }[] = [];
+  beforeAll(async () => {
+    t = await setup();
+    [alice, bob] = await t.lobby(['alice', 'bob']);
+    const cdp = await bob.createCDPSession();
+    await cdp.send('Network.enable');
+    cdp.on('Network.webSocketFrameReceived', (e) => {
+      const data = e.response.payloadData;
+      const m = /^42\["(game:\w+)",.*?"version":(\d+)/.exec(data);
+      if (m) frames.push({ event: m[1], bytes: data.length, version: Number(m[2]) });
+    });
+  });
+  afterAll(() => t?.close());
+
+  it('the host makes it 6 seats: everyone sees purple and orange seats, and Team-up greys out', async () => {
+    await tap(alice, '.size-opt[data-size="6"]');
+    for (const p of [alice, bob]) await until('6 seats', async () => (await p.$$eval('.seat', (s) => s.length)) === 6);
+    expect(await alice.$eval('.mode-opt[data-teams="1"]', (b) => (b as HTMLButtonElement).disabled)).toBe(true);
+    expect(await bob.$('.seat.s-purple')).not.toBeNull();
+    await shot(alice, 'six-lobby');
+    await tap(bob, '.bottom-bar .btn');
+    await tap(alice, '#fill-bots');
+    await alice.waitForSelector('#start:not(:disabled)');
+    await tap(alice, '#start');
+    await Promise.all([alice.waitForSelector('.screen-game'), bob.waitForSelector('.screen-game')]);
+    game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+    expect(game.board).toBe(6);
+    for (const p of [alice, bob]) {
+      expect(await p.$$eval('.board-svg polygon.cell', (c) => c.length)).toBe(78 + 30);
+      expect(await p.$$eval('.pchip:not(.pchip-empty)', (c) => c.length)).toBe(6);
+    }
+    // The board keeps its shape and fits the phone: taller than wide, nothing sideways.
+    const box = await alice.$eval('#board', (b) => b.getBoundingClientRect().toJSON());
+    expect(box.height / box.width).toBeCloseTo(19.86 / 17.2, 1);
+    expect(box.right).toBeLessThanOrEqual(390);
+    expect(await alice.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
+
+  it('on alice’s turn only she has the dice to tap; bob sees it roll over her base', async () => {
+    await until("alice's turn", () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling', 20_000);
+    await alice.waitForSelector('#dice-slot:not(.dice-hidden) .dice.can-roll');
+    expect(await alice.$eval('.base-dice', (b) => b.classList.contains('dice-hidden'))).toBe(true);
+    await until('bob sees the base dice', async () => (await bob.$eval('.base-dice', (b) => b.classList.contains('dice-hidden'))) === false);
+    expect(await bob.$eval('#dice-slot', (s) => s.classList.contains('dice-hidden'))).toBe(true);
+    expect(await bob.$eval('.base-dice .dice', (d) => (d as HTMLElement).dataset.color)).toBe('red');
+    // Over red's base: the top left of the board.
+    const [board, dice] = await Promise.all([bob.$eval('#board', (b) => b.getBoundingClientRect().toJSON()), bob.$eval('.base-dice .dice', (b) => b.getBoundingClientRect().toJSON())]);
+    expect(dice.left - board.left).toBeLessThan(board.width / 2);
+    expect(dice.top - board.top).toBeLessThan(board.height / 2);
+    await shot(alice, 'six-my-turn');
+    await shot(bob, 'six-their-turn');
+
+    frames.length = 0;
+    const v = game.version;
+    t.dice.push(6, 3);
+    await tap(alice, '.dice.can-roll');
+    await until('the 6', () => game.version === v + 1);
+    await alice.waitForSelector('.dice.can-roll');
+    await tap(alice, '.dice.can-roll');
+    await until('the 3', () => game.turn.phase === 'moving');
+    await until('bob has both rolls', async () => (await bob.$$eval('#queue .qchip', (q) => q.length)) === 2);
+    await shot(bob, 'six-their-queue');
+    const rolls = frames.filter((f) => f.event === 'game:roll');
+    expect(rolls.map((f) => f.version)).toEqual([v + 1, v + 2]);
+    expect(frames.filter((f) => f.event === 'game:state' && f.version > v)).toEqual([]);
+    // Compared with the whole state, which is what every phone got for each roll before.
+    const slim = Math.max(...rolls.map((f) => f.bytes));
+    const whole = JSON.stringify({ state: t.server.ctx.games.publicState(game) }).length;
+    console.log(`per roll, to bob: ${slim} B (the whole state: ${whole} B)`);
+    expect(slim).toBeLessThan(500);
+    expect(slim / whole).toBeLessThan(0.25);
+    // Her move reaches everyone whole.
+    await alice.waitForSelector('.token.legal');
+    await alice.$eval('.token.legal', (x) => (x as HTMLElement).click());
+    await until('bob gets the move', () => frames.some((f) => f.event === 'game:state' && f.version === v + 3), 8000);
+  });
+
+  it('the last one home with one player left: results for six', async () => {
+    // Both people play their turns (the bots play theirs) until it's alice's roll again.
+    await until(
+      "alice's turn again",
+      async () => {
+        const who = game.seats[game.turn.seat].color;
+        if (who === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll'))) return true;
+        for (const p of who === 'red' ? [alice] : who === 'green' ? [bob] : []) {
+          await p.$eval('.dice.can-roll', (d) => (d as HTMLElement).click()).catch(() => {});
+          await p.$eval('.token.legal', (x) => (x as HTMLElement).click()).catch(() => {});
+        }
+        return false;
+      },
+      40_000,
+    );
+    await alice.waitForSelector('.dice.can-roll');
+    for (const c of ['green', 'yellow', 'blue', 'orange'] as Color[]) game.tokens[c] = [82, 82, 82, 82]; // home on the 6-player board
+    game.ranks = ['green', 'yellow', 'blue', 'orange'];
+    game.tokens.red = [82, 82, 82, 81];
+    t.dice.push(1);
+    await tap(alice, '.dice.can-roll');
+    await Promise.all([alice.waitForSelector('.results', { timeout: 15_000 }), bob.waitForSelector('.results', { timeout: 15_000 })]);
+    expect(await alice.$$eval('.podium-row .place', (ps) => ps.map((x) => x.textContent))).toEqual(['1st', '2nd', '3rd', '4th', '5th', '6th']);
+    expect(await alice.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    await sleep(1500); // the results slide in
+    await shot(alice, 'six-results');
+    expect(t.errors).toEqual([]);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT)('a 5-player game', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  afterAll(() => t?.close());
+
+  it('alice and four bots on the 5-player board; on a bot’s turn its dice rolls over its base', async () => {
+    t = await setup();
+    const [alice] = await t.lobby(['alice']);
+    await tap(alice, '.size-opt[data-size="5"]');
+    await until('5 seats', async () => (await alice.$$eval('.seat', (s) => s.length)) === 5);
+    await tap(alice, '#fill-bots');
+    await alice.waitForSelector('#start:not(:disabled)');
+    await tap(alice, '#start');
+    await alice.waitForSelector('.screen-game');
+    const game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+    expect(game.board).toBe(5);
+    expect(await alice.$$eval('.board-svg polygon.cell', (c) => c.length)).toBe(65 + 25);
+    await shot(alice, 'five-board');
+    // A bot's turn: alice has no dice in her dock, the bot's rolls on the board. (Her 1 can't
+    // bring anything out of base, so the turn passes.)
+    await tap(alice, '.dice.can-roll');
+    await until("a bot's turn", () => game.seats[game.turn.seat].color !== 'red', 20_000);
+    await until('the base dice', async () => (await alice.$eval('.base-dice', (b) => b.classList.contains('dice-hidden'))) === false, 8000);
+    expect(await alice.$eval('#dice-slot', (s) => s.classList.contains('dice-hidden'))).toBe(true);
+    await shot(alice, 'five-bot-turn');
     expect(t.errors).toEqual([]);
   });
 });

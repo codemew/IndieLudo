@@ -19,6 +19,10 @@
   --yellow-d: #a87400;
   --blue: #1463ff;
   --blue-d: #0033a8;
+  --purple: #9333ea;
+  --purple-d: #581c87;
+  --orange: #ff7a00;
+  --orange-d: #a34700;
 
   --board-bg: #fffaf0;
   --cell: #ffffff;
@@ -610,6 +614,12 @@ h3 {
 .sq.c-blue {
   background: var(--blue);
 }
+.sq.c-purple {
+  background: var(--purple);
+}
+.sq.c-orange {
+  background: var(--orange);
+}
 .splash-die {
   position: absolute;
   inset: 50% auto auto 50%;
@@ -953,6 +963,12 @@ h3 {
 .seat.s-blue {
   --c: var(--blue);
 }
+.seat.s-purple {
+  --c: var(--purple);
+}
+.seat.s-orange {
+  --c: var(--orange);
+}
 .seat-open {
   border-style: dashed;
   background: color-mix(in srgb, var(--c) 7%, transparent);
@@ -1075,6 +1091,12 @@ h3 {
 .b-blue {
   --c: var(--blue);
 }
+.b-purple {
+  --c: var(--purple);
+}
+.b-orange {
+  --c: var(--orange);
+}
 
 .players {
   display: grid;
@@ -1121,6 +1143,14 @@ h3 {
 .pchip.p-blue,
 .podium-row.p-blue {
   --c: var(--blue);
+}
+.pchip.p-purple,
+.podium-row.p-purple {
+  --c: var(--purple);
+}
+.pchip.p-orange,
+.podium-row.p-orange {
+  --c: var(--orange);
 }
 .pchip.active {
   background: color-mix(in srgb, var(--c) 20%, var(--surface));
@@ -1222,7 +1252,7 @@ h3 {
 }
 .surrender-flag {
   position: absolute;
-  width: calc(100% / 15 * 3.1);
+  width: calc(100% / var(--bw, 15) * 3.1);
   transform: translate(-25%, -70%);
   transform-origin: 20% 100%;
   filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35));
@@ -1242,7 +1272,9 @@ h3 {
 .board.out-red .token.t-red,
 .board.out-green .token.t-green,
 .board.out-yellow .token.t-yellow,
-.board.out-blue .token.t-blue {
+.board.out-blue .token.t-blue,
+.board.out-purple .token.t-purple,
+.board.out-orange .token.t-orange {
   opacity: 0.45;
   filter: grayscale(0.7);
 }
@@ -1270,6 +1302,12 @@ h3 {
 .c-blue {
   fill: var(--blue);
 }
+.c-purple {
+  fill: var(--purple);
+}
+.c-orange {
+  fill: var(--orange);
+}
 .cell {
   stroke: var(--grid);
   stroke-width: 0.035;
@@ -1292,6 +1330,12 @@ h3 {
 }
 .slot.c-blue {
   stroke: var(--blue);
+}
+.slot.c-purple {
+  stroke: var(--purple);
+}
+.slot.c-orange {
+  stroke: var(--orange);
 }
 .star {
   fill: none;
@@ -1328,8 +1372,8 @@ h3 {
   position: absolute;
   left: 0;
   top: 0;
-  width: calc(100% / 15);
-  height: calc(100% / 15);
+  width: calc(100% / var(--bw, 15));
+  height: calc(100% / var(--bh, 15));
   margin: 0;
   padding: 0;
   border: 0;
@@ -1369,6 +1413,16 @@ h3 {
 .burst.t-blue {
   --c: var(--blue);
   --cd: var(--blue-d);
+}
+.token.t-purple,
+.burst.t-purple {
+  --c: var(--purple);
+  --cd: var(--purple-d);
+}
+.token.t-orange,
+.burst.t-orange {
+  --c: var(--orange);
+  --cd: var(--orange-d);
 }
 .tok-body {
   position: absolute;
@@ -1548,6 +1602,12 @@ h3 {
 .queue[data-color='blue'] {
   --qc: var(--blue);
 }
+.queue[data-color='purple'] {
+  --qc: var(--purple);
+}
+.queue[data-color='orange'] {
+  --qc: var(--orange);
+}
 .qchip {
   position: relative;
   padding: 3px;
@@ -1662,6 +1722,12 @@ h3 {
 }
 .dice[data-color='blue'] {
   --dc: var(--blue);
+}
+.dice[data-color='purple'] {
+  --dc: var(--purple);
+}
+.dice[data-color='orange'] {
+  --dc: var(--orange);
 }
 .dice:disabled {
   cursor: default;
@@ -1868,6 +1934,12 @@ h3 {
 }
 .confetti i:nth-child(4n + 3) {
   background: var(--blue);
+}
+.confetti i:nth-child(6n + 5) {
+  background: var(--purple);
+}
+.confetti i:nth-child(6n) {
+  background: var(--orange);
 }
 @keyframes fall {
   to {
@@ -2188,8 +2260,8 @@ h3 {
 .target {
   --c: var(--accent);
   position: absolute;
-  width: calc(100% / 15 * 0.8);
-  height: calc(100% / 15 * 0.8);
+  width: calc(100% / var(--bw, 15) * 0.8);
+  height: calc(100% / var(--bh, 15) * 0.8);
   transform: translate(-50%, -50%);
   border-radius: 50%;
   /* White ring + coloured glow: readable on white squares and on the player's own coloured ones. */
@@ -2209,6 +2281,12 @@ h3 {
 }
 .target.t-blue {
   --c: var(--blue);
+}
+.target.t-purple {
+  --c: var(--purple);
+}
+.target.t-orange {
+  --c: var(--orange);
 }
 @keyframes target-pulse {
   50% {
@@ -2878,6 +2956,12 @@ button.me:active {
 .fb-name.n-blue {
   --c: var(--blue);
 }
+.fb-name.n-purple {
+  --c: var(--purple);
+}
+.fb-name.n-orange {
+  --c: var(--orange);
+}
 .fb-arrow {
   opacity: 0.85;
 }
@@ -3019,6 +3103,14 @@ button.me:active {
 .aw-who.n-blue,
 .stats-table .p-blue {
   --c: var(--blue);
+}
+.aw-who.n-purple,
+.stats-table .p-purple {
+  --c: var(--purple);
+}
+.aw-who.n-orange,
+.stats-table .p-orange {
+  --c: var(--orange);
 }
 .aw-val {
   font-size: 20px;
@@ -3163,6 +3255,12 @@ button.me:active {
 }
 .swap-dot.s-blue {
   --c: var(--blue);
+}
+.swap-dot.s-purple {
+  --c: var(--purple);
+}
+.swap-dot.s-orange {
+  --c: var(--orange);
 }
 /* Time left to answer. */
 .swap-timer {
@@ -3313,8 +3411,8 @@ button.me:active {
 
 .trail {
   position: absolute;
-  width: calc(100% / 15 * 0.28);
-  height: calc(100% / 15 * 0.28);
+  width: calc(100% / var(--bw, 15) * 0.28);
+  height: calc(100% / var(--bh, 15) * 0.28);
   transform: translate(-50%, -50%);
   border-radius: 50%;
   border: 1.5px solid #fff;
@@ -3343,7 +3441,7 @@ button.me:active {
   place-items: center;
   color: #fff;
   font-weight: 900;
-  font-size: calc(100% / 15 * 0.5);
+  font-size: calc(100% / var(--bw, 15) * 0.5);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 /* "Which way?" — two option cards coloured like the trails on the board. */
@@ -3506,7 +3604,7 @@ button.me:active {
 .home-hold {
   --c: var(--accent);
   position: absolute;
-  width: calc(100% / 15 * 1.9);
+  width: calc(100% / var(--bw, 15) * 1.9);
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
   border-radius: 50%;
@@ -3529,6 +3627,12 @@ button.me:active {
 }
 .home-hold.h-blue {
   --c: var(--blue);
+}
+.home-hold.h-purple {
+  --c: var(--purple);
+}
+.home-hold.h-orange {
+  --c: var(--orange);
 }
 /* Holding: a ring closes in as the hold completes. */
 .home-hold::after {
@@ -3630,6 +3734,14 @@ button.me:active {
   --c: var(--blue);
   --cd: var(--blue-d);
 }
+.mini-token.t-purple {
+  --c: var(--purple);
+  --cd: var(--purple-d);
+}
+.mini-token.t-orange {
+  --c: var(--orange);
+  --cd: var(--orange-d);
+}
 
 /* The banner: hazard stripes top and bottom, in the player's colour: beware. */
 .wildcard-banner {
@@ -3665,6 +3777,12 @@ button.me:active {
 .wildcard-banner.w-blue {
   --c: var(--blue);
 }
+.wildcard-banner.w-purple {
+  --c: var(--purple);
+}
+.wildcard-banner.w-orange {
+  --c: var(--orange);
+}
 .wildcard-banner b {
   font-size: clamp(24px, 8.5vw, 40px);
   font-weight: 900;
@@ -3691,7 +3809,7 @@ button.me:active {
 .shockwave {
   --c: var(--accent);
   position: absolute;
-  width: calc(100% / 15 * 1.2);
+  width: calc(100% / var(--bw, 15) * 1.2);
   aspect-ratio: 1;
   border-radius: 50%;
   border: 3px solid var(--c);
@@ -3703,7 +3821,7 @@ button.me:active {
 .base-pulse {
   --c: var(--accent);
   position: absolute;
-  width: calc(100% / 15 * 5.3);
+  width: calc(100% / var(--bw, 15) * var(--yard, 5.3));
   aspect-ratio: 1;
   border-radius: 22%;
   transform: translate(-50%, -50%);
@@ -3726,6 +3844,14 @@ button.me:active {
 .shockwave.t-blue,
 .base-pulse.t-blue {
   --c: var(--blue);
+}
+.shockwave.t-purple,
+.base-pulse.t-purple {
+  --c: var(--purple);
+}
+.shockwave.t-orange,
+.base-pulse.t-orange {
+  --c: var(--orange);
 }
 @keyframes shockwave {
   to {
@@ -3819,9 +3945,23 @@ button.me:active {
 .team-dot.d-blue {
   background: var(--blue);
 }
+.team-dot.d-purple {
+  background: var(--purple);
+}
+.team-dot.d-orange {
+  background: var(--orange);
+}
 .badge-team {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--text);
+}
+.badge-size {
+  background: color-mix(in srgb, var(--orange) 22%, transparent);
+  color: var(--text);
+}
+/* Two switches in a row: game mode, then seats. */
+.size-switch {
+  margin-top: 8px;
 }
 /* The partner's colour, as a small dot on the player's avatar. */
 .pchip-icon {
@@ -3848,6 +3988,12 @@ button.me:active {
 }
 .pchip-mate.m-blue {
   background: var(--blue);
+}
+.pchip-mate.m-purple {
+  background: var(--purple);
+}
+.pchip-mate.m-orange {
+  background: var(--orange);
 }
 
 /* ---------- results: the steel ball, and long names that stay inside their rows ---------- */
@@ -3962,4 +4108,149 @@ button.me:active {
   max-width: 100%;
   text-align: center;
   overflow-wrap: anywhere;
+}
+
+/* ---------- 5- and 6-player boards ---------- */
+/* Drawn as polygons (render.ts): rounded by a stroke the colour of their fill. */
+.b-outline {
+  stroke: var(--board-bg);
+  stroke-linejoin: round;
+}
+polygon.b-inner {
+  stroke: #fff;
+  stroke-linejoin: round;
+}
+.yard {
+  stroke-linejoin: round;
+}
+.yard.c-red {
+  stroke: var(--red);
+}
+.yard.c-green {
+  stroke: var(--green);
+}
+.yard.c-yellow {
+  stroke: var(--yellow);
+}
+.yard.c-blue {
+  stroke: var(--blue);
+}
+.yard.c-purple {
+  stroke: var(--purple);
+}
+.yard.c-orange {
+  stroke: var(--orange);
+}
+/* Only the 4-player board is square: the others aren't, so no rounded corners on the box. */
+.board-5,
+.board-5 .board-svg,
+.board-6,
+.board-6 .board-svg {
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.board-5 .board-svg,
+.board-6 .board-svg {
+  filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.45));
+}
+/* Three player cards to a row: smaller, and the middle one reads left to right. */
+.players-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 6px;
+}
+.players-3 .pchip {
+  gap: 5px;
+  height: 54px;
+  padding: 6px 7px 8px;
+}
+.players-3 .pchip:nth-child(2) {
+  flex-direction: row;
+  border-left: 4px solid var(--c);
+  border-right: 1px solid var(--border);
+  text-align: left;
+}
+.players-3 .pchip:nth-child(3) {
+  flex-direction: row-reverse;
+  border-left: 1px solid var(--border);
+  border-right: 4px solid var(--c);
+  text-align: right;
+}
+.players-3 .pchip-dot {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+}
+.players-3 .pchip-name {
+  font-size: 12px;
+}
+.players-3 .pchip-sub {
+  font-size: 10.5px;
+}
+
+/* Five or six seats in the lobby: three to a row, smaller cards, so Start stays in reach. */
+.seats-many {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.seats-many .seat {
+  min-height: 0;
+  padding: 10px 6px 8px;
+  gap: 5px;
+  border-radius: 16px;
+  font-size: 13px;
+}
+.seats-many .seat-token {
+  width: 38px;
+  height: 38px;
+  font-size: 16px;
+  border-width: 2px;
+}
+.seats-many .seat-tags,
+.seats-many .seat-actions {
+  gap: 4px;
+}
+.seats-many .chip {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+/* ---------- someone else's dice: over their base on the board ---------- */
+.dice-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+.base-dice {
+  position: absolute;
+  width: 0;
+  height: 0;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.25s ease, transform 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.base-dice .dice {
+  --size: calc(var(--cell-px, 24px) * 1.6);
+  --half: calc(var(--cell-px, 24px) * 0.8);
+  position: absolute;
+  left: calc(var(--size) / -2);
+  top: calc(var(--size) / -2);
+  pointer-events: none;
+}
+.base-dice .dice:disabled {
+  opacity: 1;
+}
+.base-dice .dice-emoji {
+  font-size: calc(var(--cell-px, 24px) * 1.5);
+}
+.base-dice.dice-hidden {
+  opacity: 0;
+  transform: scale(0.4) rotate(-25deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .base-dice {
+    transition: none;
+  }
 }

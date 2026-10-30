@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from 'puppeteer-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { MAX_VOICE_PEERS } from '../src/shared/types.js';
 import { BUILT, CHROME, SHOTS, setup, shot, sleep, tap, until } from './helpers.js';
 import { makeVoiceWav } from './makeVoiceWav.js';
 
@@ -26,10 +27,10 @@ const watchPcs = async (p: Page): Promise<void> => {
   })()`);
 };
 
-/** Packets sent and received on the page's voice-server connection (the one with 8 audio sections). */
+/** Packets sent and received on the page's voice-server connection (the one with an audio section per voice slot, plus the mic). */
 const sfuStats = (p: Page) =>
   p.evaluate(`(async () => {
-    const pc = window.__pcs.find((x) => x.connectionState !== 'closed' && (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === 8);
+    const pc = window.__pcs.find((x) => x.connectionState !== 'closed' && (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === ${MAX_VOICE_PEERS});
     if (!pc) return null;
     let sent = 0, got = 0;
     (await pc.getStats()).forEach((s) => {
@@ -172,7 +173,7 @@ describe.skipIf(!CHROME || !BUILT || !WAV)('voice goes over the internet first',
 
   it('the first offer has internet routes only; voice still connects (adding local ones after 5 s if it must)', async () => {
     for (const p of phones) await until('the voice server link', async () => (await sfuStats(p))?.state === 'connected', 25_000);
-    const offers = (await phones[0].evaluate(`window.__pcs.filter((x) => (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === 8).map((x) => x.remoteDescription.sdp)`)) as string[];
+    const offers = (await phones[0].evaluate(`window.__pcs.filter((x) => (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === ${MAX_VOICE_PEERS}).map((x) => x.remoteDescription.sdp)`)) as string[];
     const hosts = (sdp: string) => [...sdp.matchAll(/^a=candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ host/gm)].map((m) => m[1]);
     expect(hosts(offers[0]).filter((a) => /^(10|127|192\.168|172\.(1[6-9]|2\d|3[01]))\./.test(a))).toEqual([]);
     expect(hosts(offers[0])).toContain('203.0.113.7');
@@ -197,7 +198,7 @@ describe.skipIf(!CHROME || !BUILT || !WAV)('voice details and reconnecting by it
   const made = () => phones[0].evaluate('window.__pcs.length') as Promise<number>;
   /** Alice is on the voice server again over a new connection, and bob gets her voice through it. */
   const backWithin = async (what: string, ms: number, t0: number, before: number) => {
-    const fresh = `window.__pcs.slice(${before}).some((x) => x.connectionState === 'connected' && (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === 8)`;
+    const fresh = `window.__pcs.slice(${before}).some((x) => x.connectionState === 'connected' && (x.remoteDescription?.sdp.match(/^m=audio/gm) ?? []).length === ${MAX_VOICE_PEERS})`;
     await until(`${what}: back on the voice server`, async () => t.server.ctx.sfu.isConnected(lobbyId, aliceId) && (await phones[0].evaluate(fresh)) === true, ms);
     recovery[what] = Date.now() - t0;
     // Then her voice reaches bob again (once the test voice is talking: nothing is sent in its silent part).

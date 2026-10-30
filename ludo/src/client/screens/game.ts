@@ -802,7 +802,7 @@ export function gameScreen(root: HTMLElement): () => void {
         mate.title = `Teammate: ${seatName(TEAMMATE[color]!)}`;
       }
       // Name and mic badge apart from the signal bars, which change with every ping.
-      setHtml($(chip, '.pn'), `${esc(seat.username)}${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}`);
+      setHtml($(chip, '.pn'), `<span class="pn-name">${esc(seat.username)}</span>${seat.userId === myId ? ' <em>you</em>' : ''}${voiceBadge(seat.userId)}`);
       setHtml($(chip, '.pchip-sig'), signalBars(seat.userId));
       setHtml($(chip, '.pchip-sub'), chipStatus(seat, rank, homeCount));
       // The timer bar restarts only for a new deadline, not on every redraw.

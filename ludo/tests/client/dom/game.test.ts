@@ -85,6 +85,16 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('the board and the dock', () => {
+  it('keeps the name in its own ellipsis span, apart from the "you" tag', () => {
+    const g = newGame();
+    g.seats[0]!.username = 'a-very-long-player-name-that-will-not-fit-in-the-chip';
+    mount(g);
+    const pn = document.querySelector('.pchip[data-color=red] .pn')!;
+    expect(pn.querySelector('.pn-name')!.textContent).toBe('a-very-long-player-name-that-will-not-fit-in-the-chip');
+    expect(pn.querySelector('.pn-name em')).toBeNull();
+    expect(pn.querySelector(':scope > em')!.textContent).toBe('you');
+  });
+
   it('shows every player, whose turn it is, and rolls with a tap on the dice', async () => {
     mount(newGame());
     expect(document.querySelectorAll('.pchip:not(.pchip-empty)')).toHaveLength(2);

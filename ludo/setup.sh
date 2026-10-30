@@ -240,6 +240,15 @@ lan_ips() {
 DEV_GAPS=()
 gap() { DEV_GAPS+=("$1"); warn "$1"; }
 
+# Refreshes apt's package lists once per run, before the first install (a fresh container image
+# has none, and then even a package's dependencies can't be found).
+APT_UPDATED=0
+apt_update_once() {
+  [[ "$PLATFORM" == apt && $APT_UPDATED -eq 0 ]] || return 0
+  APT_UPDATED=1
+  as_root apt-get update -y || warn "apt-get update failed, trying anyway"
+}
+
 pkg_installed() {
   case "$PLATFORM" in
     apt) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed' ;;
@@ -295,7 +304,7 @@ dev_system_packages() {
     ok "All system packages are already installed"
   else
     echo "  Missing: ${todo[*]}"
-    [[ "$PLATFORM" == apt ]] && { as_root apt-get update -y || warn "apt-get update failed, trying anyway"; }
+    apt_update_once
     for item in "${todo[@]}"; do
       IFS='|' read -ra alts <<<"$item"
       found=0
@@ -331,8 +340,10 @@ install_chrome() {
     apt)
       # Google Chrome's own .deb (x86_64 only) pulls in every library Chrome needs. On Ubuntu the
       # `chromium-browser` package is a snap stub that headless tests can't use, hence this first.
+      # (Installing it also adds Google's apt repository and signing key, so Chrome updates with apt.)
       if [[ "$(uname -m)" == x86_64 ]]; then
         install_curl
+        apt_update_once
         tmp="$(mktemp -d)"
         chmod 755 "$tmp"
         echo "  Downloading Google Chrome…"
@@ -362,8 +373,13 @@ install_chrome() {
 
 dev_browser() {
   step "Chrome for the browser tests"
-  local chrome
-  if ! chrome="$(find_chrome)"; then
+  local chrome=""
+  chrome="$(find_chrome)" || chrome=""
+  # A Chrome that is found but doesn't start headless (Ubuntu's snap stub, say) counts as no Chrome:
+  # install a working one. find_chrome looks for google-chrome before chromium-browser, so once
+  # Chrome is installed it wins over the stub.
+  if [[ -z "$chrome" ]] || { have timeout && ! chrome_runs "$chrome"; }; then
+    [[ -n "$chrome" ]] && warn "$chrome does not start headless; looking for one that does"
     case "$PLATFORM" in
       apt | dnf | yum | pacman | zypper | apk) install_chrome || true ;;
     esac
@@ -382,21 +398,41 @@ dev_browser() {
   fi
 }
 
+# True when every package package-lock.json asks for (dev ones too) is in node_modules, whole.
+# Extra packages someone added by hand (`npm i tool --no-save`) don't count against it.
+npm_modules_complete() {
+  npm ls --include=dev --json 2>/dev/null | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d)).on("end", () => {
+      try {
+        const problems = (JSON.parse(s).problems || []).filter((p) => /^(missing|invalid):/.test(p));
+        process.exit(problems.length ? 1 : 0);
+      } catch {
+        process.exit(1);
+      }
+    });'
+}
+
 dev_npm_modules() {
   step "npm packages (with the dev tools)"
   # --include=dev: vitest, happy-dom, puppeteer-core, tsx, vite and typescript are all dev
   # dependencies, and a NODE_ENV=production in the environment would otherwise leave them out.
-  if npm ls --include=dev --silent >/dev/null 2>&1; then
+  if npm_modules_complete; then
     ok "All npm packages are already installed"
   else
-    # `npm ci` installs exactly what package-lock.json says and never writes to it (`npm install`
-    # can rewrite the lockfile, which a tracked file shouldn't suffer from a setup script).
+    # Not a top-up: `npm ci` rebuilds node_modules from package-lock.json, deleting what was there.
+    # It never writes to the lockfile (`npm install` can rewrite it, which a setup script shouldn't do).
+    echo "  node_modules is incomplete: reinstalling it from package-lock.json"
     if [[ -f package-lock.json ]]; then
-      npm ci --include=dev --no-audit --no-fund
-    else
-      npm install --include=dev --no-audit --no-fund
+      if ! npm ci --include=dev --no-audit --no-fund; then
+        gap "npm ci failed. If package.json was changed without updating package-lock.json, run 'npm install' once to update the lockfile, then run this again."
+        return
+      fi
+    elif ! npm install --include=dev --no-audit --no-fund; then
+      gap "npm install failed (see above)."
+      return
     fi
-    npm ls --include=dev --silent >/dev/null 2>&1 && ok "npm packages installed" || gap "npm packages are still incomplete: see 'npm ls'."
+    npm_modules_complete && ok "npm packages installed" || gap "npm packages are still incomplete: see 'npm ls'."
   fi
   local tool
   for tool in tsc vite vitest tsx concurrently; do
@@ -405,6 +441,7 @@ dev_npm_modules() {
   [[ -d node_modules/puppeteer-core ]] || gap "puppeteer-core is missing."
 }
 
+# Runs with `set -e` off (see the call below): check every step that can fail.
 dev_install() {
   case "$PLATFORM" in
     termux | macos) warn "System packages and Chrome aren't installed on $PLATFORM: install Chrome yourself (set CHROME_PATH if it isn't in the usual place). Doing the npm packages only." ;;
@@ -461,6 +498,9 @@ node -e 'require("node:sqlite")' 2>/dev/null || die "This Node build has no node
 
 if [[ $DEV_INSTALL -eq 1 ]]; then
   # `exit` with dev_install's status: 0 when nothing is missing, 1 when some piece couldn't be installed.
+  # NOTE: because dev_install is the left side of `&&`, bash turns `set -e` OFF for it and for
+  # everything it calls. A failing command there does not abort the script, so every step that can
+  # fail must be checked on purpose (`if !`, `|| gap …`); don't rely on `set -e` inside these functions.
   dev_install && exit 0 || exit 1
 fi
 

@@ -153,7 +153,7 @@ npm run typecheck
   - **The game:** the player takes no more turns and can watch the rest. If only one player is left, the match ends there.
   - **Final places:** players who finished, then the last one still playing, then those who surrendered (the last to give up ranks highest). The podium marks them with 🏳️.
 - **Your tokens sharing a square:** when they wear different moustaches (or one is on its last lap), the game always waits for your pick, so you can send a clean-shaven token forward and keep the macho one safe. Tapping either opens a small see-through speech bubble on that square, with each token drawn large (its moustache, and a dashed ring on its last lap) and no text. Tap one to move it; tap anywhere else (that tap only closes it), or press Esc, to close the bubble. Bots and the timer move the smaller moustache.
-- **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base (two stacked tokens are both captured), and earns a **bonus roll** for each token captured. Each captured token also grows the capturer's moustache a level.
+- **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base (two stacked tokens are both captured), and earns a **bonus roll** for each token captured. Capturing your own teammate earns no bonus roll. Each captured token also grows the capturer's moustache a level.
 - **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
 - **A useless six ends the turn:** when every token a player has left is in the home lane, a 6 can never be used, because even the first lane square plus 6 overshoots home. The 6 then ends the turn at once instead of giving another roll.
 - **Queued rolls and the three‑sixes penalty:**
@@ -179,7 +179,7 @@ A token that has reached home can be sent back to base to play it again: **hold 
 
 - **Teams:** 2 vs 2, diagonal partners: **Red + Yellow** against **Green + Blue**. Pick your team by your seat; the host can add a bot as a teammate or an opponent. All four seats must be filled.
 - **Winning:** a team wins when both partners have all four tokens home; the game ends there. A partner who finishes first sits out.
-- **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you still get the bonus roll, but your moustache **shrinks a level**, and it counts only for 🗡️ Backstabber, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
+- **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you **don't** get a bonus roll, and your moustache **shrinks a level**, and it counts only for 🗡️ Backstabber, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
 - **Surrender:** concedes for the team: the match ends and the other team wins.
 - **Results:** "Your team won!" for both winners; both get a lifetime win.
 

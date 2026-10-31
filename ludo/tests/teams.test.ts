@@ -81,7 +81,7 @@ describe('Team-up rules', () => {
     expect(s.ranks).toEqual(['yellow']);
   });
 
-  it('friendly fire: allowed, a bonus roll, but the capturer’s moustache shrinks a level and it counts for nothing else', () => {
+  it('friendly fire: allowed, no bonus roll, the capturer’s moustache shrinks a level and it counts for nothing else', () => {
     const s = withQueue(teamGame(), [3]);
     s.tokens.red = [10, BASE, BASE, BASE];
     s.tokens.yellow = [39, BASE, BASE, BASE]; // absolute (26 + 39) % 52 = 13: a start square, safe
@@ -99,8 +99,8 @@ describe('Team-up rules', () => {
     expect(s.firstBlood).toBe(false);
     expect(statsOf(s, 'red')).toMatchObject({ captures: 0, friendlyFire: 1, staches: 0, revenges: 0, firstBlood: false });
     expect(statsOf(s, 'yellow').owed).toEqual({});
-    expect(s.turn.phase).toBe('rolling'); // the bonus roll
-    expect(currentColor(s)).toBe('red');
+    expect(s.turn.bonus).toBe(0); // no bonus roll for capturing a teammate
+    expect(currentColor(s)).not.toBe('red'); // the queue is spent, so the turn passes on
   });
 
   it('friendly fire on a clean-shaven capturer leaves it clean-shaven; a second-lap victim gets its extra lap back', () => {
@@ -128,7 +128,8 @@ describe('Team-up rules', () => {
     ]);
     expect(s.kills!.red![0]).toBe(2); // 2 → 3 for green, back to 2 for yellow
     expect(statsOf(s, 'red')).toMatchObject({ captures: 1, friendlyFire: 1, firstBlood: true });
-    expect(s.turn.bonus).toBe(1); // two bonus rolls: one taken now, one waiting
+    expect(s.turn.bonus).toBe(0); // the one bonus roll (for the opponent) is taken now; the teammate earns none
+    expect(currentColor(s)).toBe('red');
   });
 
   it('bots never capture a teammate when anything else is possible, but will when it is the only move', () => {

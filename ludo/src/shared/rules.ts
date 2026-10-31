@@ -334,7 +334,7 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
     if (isSecondLap(from, boardFor(state))) extraLapsOf(state, c.color)[c.tokenId] = 0;
     killsOf(state, c.color)[c.tokenId] = 0;
     if (isTeammate(state, color, c.color)) {
-      // Friendly fire (Team-up): still a bonus roll, but the capturer's moustache shrinks a level,
+      // Friendly fire (Team-up): no bonus roll, and the capturer's moustache shrinks a level,
       // and it counts for "Backstabber" rather than as a capture (or first blood, or a revenge).
       kills[tokenId] = Math.max(0, moustacheLevel(kills[tokenId]) - 1);
       mine.friendlyFire = (mine.friendlyFire ?? 0) + 1;
@@ -356,9 +356,9 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
       }
       theirs.owed[color] = (theirs.owed[color] ?? 0) + 1;
       events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, ...(firstBlood && { firstBlood: true as const }) });
+      turn.bonus++;
     }
     state.tokens[c.color][c.tokenId] = BASE;
-    turn.bonus++;
   }
 
   if (move.to === boardFor(state).home) {

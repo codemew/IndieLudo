@@ -186,11 +186,12 @@ describe.skipIf(!CHROME || !BUILT)('Team-up', () => {
     expect(game.kills!.red![0]).toBe(2);
     expect(game.stats?.red?.friendlyFire).toBe(1);
     expect(game.stats?.red?.captures).toBe(0);
+    expect(game.turn.bonus).toBe(0); // no bonus roll for a teammate
     await until('the callout', async () => (await bob.$$eval('.callout b', (cs) => cs.map((c) => c.textContent))).includes('Friendly fire!'), 6000);
   });
 
   it('both partners home: their team wins, on everyone’s results', async () => {
-    await until("alice's bonus roll", async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 15_000);
+    await until("alice's next turn", async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 15_000);
     game.tokens.yellow = [H, H, H, H];
     game.ranks = ['yellow'];
     game.tokens.red = [H, H, H, 55];

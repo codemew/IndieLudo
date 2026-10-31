@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Turn one player's voice down, or off, for yourself.** Tap and hold a player's card (in the game, and on the lobby's seats and watchers) and the same see-through comic-book bubble used for the token choices opens on it, with four round choices: 100%, 60%, 30% and off. The line above says *"Name · only for you"* because that is what it is: it changes how loud that player is on your phone only, nothing is sent to the server and nobody else's volume changes (not theirs, not anyone's). Your choice is remembered on this phone, per player, so it holds in later games and lobbies too. A small speaker beside their mic badge (amber turned down, red muted) shows who you changed, and the bubble marks the current choice. It works on every way a voice can arrive: the built-in voice server (each of its receive slots follows whoever holds it), a direct link, and relayed voice. A right-click, the menu key, or Enter on the focused card do the same as a hold, so a keyboard works too. Your own card, bots, and any card while the host has voice chat off are not holdable. On iPhones, which don't let a page set an audio element's volume, a level between off and full plays through a gain node instead (off and 100% need nothing special).
+- The token bubble is now a shared piece (`bubble.ts`): the board's choices and the volume choice use the same placement, dismissal and keyboard rules.
+
 ## 3.5.0
 
 ### Added

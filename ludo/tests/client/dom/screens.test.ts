@@ -293,7 +293,7 @@ describe('the results screen', () => {
     expect(router.currentScreen()).toBe('lobby');
   });
 
-  describe('turn probability', () => {
+  describe('dice luck', () => {
     const withRolls = (rolls: Record<string, number[] | undefined>) => {
       finished({});
       const g = store.state.game!;

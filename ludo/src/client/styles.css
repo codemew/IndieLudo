@@ -3206,7 +3206,7 @@ button.me:active {
   background: var(--c);
 }
 
-/* Match stats | Turn probability: two tabs over one table each. */
+/* Match stats | Dice luck: two tabs over one table each. */
 .stat-tabs {
   display: flex;
   gap: 4px;
@@ -3242,7 +3242,7 @@ button.me:active {
 [role='tabpanel'][hidden] {
   display: none;
 }
-/* Turn probability: each cell fills from the bottom with the player's colour by its share
+/* Dice luck: each cell fills from the bottom with the player's colour by its share
    (a quarter of the cell per 12.5%), so the shape of a row can be read at a glance. */
 .odds-table thead th {
   font-size: 12px;

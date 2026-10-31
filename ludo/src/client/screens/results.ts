@@ -152,7 +152,7 @@ function matchStats(
         <thead><tr><th></th>${STAT_COLUMNS.map((col) => `<th scope="col" title="${col.label}">${col.icon}<small>${col.label}</small></th>`).join('')}</tr></thead>
         <tbody>${statRows}</tbody>
       </table>`;
-  // Turn probability: how each player's rolls split over 1s…6s. Hidden for a game saved before rolls were counted.
+  // Dice luck: how each player's rolls split over 1s…6s. Hidden for a game saved before rolls were counted.
   const counts = order.map((c) => rollsOf(c));
   const anyRolls = counts.some((n) => n.some((x) => x > 0));
   const oddsRows = order
@@ -180,7 +180,7 @@ function matchStats(
         anyRolls
           ? `<div class="stat-tabs" role="tablist" aria-label="Match numbers">
         <button class="stat-tab" role="tab" id="tab-stats" aria-selected="true" aria-controls="panel-stats">Match stats</button>
-        <button class="stat-tab" role="tab" id="tab-odds" aria-selected="false" aria-controls="panel-odds" tabindex="-1">Turn probability</button>
+        <button class="stat-tab" role="tab" id="tab-odds" aria-selected="false" aria-controls="panel-odds" tabindex="-1">Dice luck</button>
       </div>
       <div role="tabpanel" id="panel-stats" aria-labelledby="tab-stats">${statsTable}</div>
       <div role="tabpanel" id="panel-odds" aria-labelledby="tab-odds" hidden>${oddsTable}</div>`

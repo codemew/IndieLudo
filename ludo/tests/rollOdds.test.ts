@@ -1,4 +1,4 @@
-/** Turn probability: every roll is counted by face, on the server and in the phones' copy, and shown as shares that add up to 100. */
+/** Dice luck: every roll is counted by face, on the server and in the phones' copy, and shown as shares that add up to 100. */
 import { describe, expect, it } from 'vitest';
 import { BASE, HOME } from '../src/shared/board.js';
 import { applyRollUpdate, rollUpdateOf } from '../src/shared/rollUpdate.js';

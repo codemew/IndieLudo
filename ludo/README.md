@@ -216,7 +216,7 @@ Every capture grows the capturing token's moustache a level, and makes it heavie
 
 ## End of game: awards and stats
 
-The results screen shows awards, each player's award icons on the podium, and under the awards two tabs: **Match stats** (everyone's numbers) and **Turn probability** (for each player, the percent of their rolls that came up 1s, 2s … 6s; each row adds up to 100, a fair die gives about 17% each, the biggest share is highlighted, and the number of rolls is under the name). The server counts the stats (every roll included, also sixes lost to the three-sixes penalty) while the game is played, so they can't be faked, and they're saved with the game. A game saved before rolls were counted has no Turn probability tab.
+The results screen shows awards, each player's award icons on the podium, and under the awards two tabs: **Match stats** (everyone's numbers) and **Dice luck** (for each player, the percent of their rolls that came up 1s, 2s … 6s; each row adds up to 100, a fair die gives about 17% each, the biggest share is highlighted, and the number of rolls is under the name). The server counts the stats (every roll included, also sixes lost to the three-sixes penalty) while the game is played, so they can't be faked, and they're saved with the game. A game saved before rolls were counted has no Dice luck tab.
 
 | Stat | Award | What counts |
 |---|---|---|

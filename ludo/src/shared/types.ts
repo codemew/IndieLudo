@@ -111,7 +111,7 @@ export interface PlayerStats {
   captures: number;
   /** Sixes rolled, including ones lost to the three-sixes penalty. */
   sixes: number;
-  /** Every roll by face (index 0 = ones … 5 = sixes), for the results screen's turn probability. Missing in older games. */
+  /** Every roll by face (index 0 = ones … 5 = sixes), for the results screen's dice luck. Missing in older games. */
   rolls?: number[];
   /** Captures of a player who had captured you and you hadn't paid back yet. */
   revenges: number;

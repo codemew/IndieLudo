@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Added
-- **Turn probability on the results screen.** Under the awards there are now two tabs, *Match stats* and *Turn probability*. The second lists every player with the percent of their rolls that came up 1s, 2s, 3s, 4s, 5s and 6s (whole percents that always add up to exactly 100), a fill in each cell that rises with the share, the biggest share of each row highlighted, and the number of rolls under the name; press a cell for the exact count. It reads the real rolls: the server now counts every roll by face for each player (sixes lost to the three-sixes penalty and sixes nobody could use included), and phones keep the same count when they get the short roll updates. The tabs work from the keyboard (one Tab stop, arrow keys, Home/End). A game saved before this version has no counts, so its results have no Turn probability tab.
+- **Dice luck on the results screen.** Under the awards there are now two tabs, *Match stats* and *Dice luck*. The second lists every player with the percent of their rolls that came up 1s, 2s, 3s, 4s, 5s and 6s (whole percents that always add up to exactly 100), a fill in each cell that rises with the share, the biggest share of each row highlighted, and the number of rolls under the name; press a cell for the exact count. It reads the real rolls: the server now counts every roll by face for each player (sixes lost to the three-sixes penalty and sixes nobody could use included), and phones keep the same count when they get the short roll updates. The tabs work from the keyboard (one Tab stop, arrow keys, Home/End). A game saved before this version has no counts, so its results have no Dice luck tab.
 
 ## 3.4.0
 

@@ -1,4 +1,5 @@
 import type { DB } from './db.js';
+import { isAvatarId } from '../shared/avatars.js';
 import { AppError } from './errors.js';
 
 export interface User {
@@ -8,6 +9,7 @@ export interface User {
   last_seen: number;
   games_played: number;
   wins: number;
+  avatar: string;
 }
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -52,6 +54,14 @@ export class UserService {
     const existing = this.getByName(name);
     if (existing && existing.id !== id) throw new AppError('USERNAME_TAKEN', 409);
     const r = this.db.prepare('UPDATE users SET username = ? WHERE id = ?').run(name, id);
+    if (r.changes === 0) throw new AppError('NOT_FOUND', 404);
+    return this.get(id)!;
+  }
+
+  /** Picks the player's avatar (an id from shared/avatars.ts), or '' for none. */
+  setAvatar(id: number, avatar: unknown): User {
+    if (avatar !== '' && !isAvatarId(avatar)) throw new AppError('INVALID_AVATAR');
+    const r = this.db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, id);
     if (r.changes === 0) throw new AppError('NOT_FOUND', 404);
     return this.get(id)!;
   }

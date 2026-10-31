@@ -20,8 +20,8 @@ export function adminRouter(ctx: Ctx): express.Router {
   r.patch('/users/:id', (req, res) => {
     const id = idParam(req.params.id);
     const user = ctx.users.rename(id, req.body?.username);
-    ctx.lobbies.renameUser(id, user.username);
-    ctx.games.renameUser(id, user.username);
+    ctx.lobbies.updateUser(id, user);
+    ctx.games.updateUser(id, user);
     res.json(user);
   });
 

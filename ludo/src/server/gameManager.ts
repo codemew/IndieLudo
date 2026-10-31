@@ -77,6 +77,7 @@ export class GameManager {
       color: m.color,
       userId: m.userId,
       username: m.username,
+      ...(m.avatar && { avatar: m.avatar }),
       controller: m.isBot ? 'bot' : 'human',
       connected: m.isBot || m.connected,
     }));
@@ -261,11 +262,14 @@ export class GameManager {
     this.touch(game);
   }
 
-  renameUser(userId: number, username: string): void {
+  /** The player changed their name or avatar ('' = none): games in progress show it right away. */
+  updateUser(userId: number, profile: { username: string; avatar: string }): void {
     for (const game of this.games.values()) {
       const seat = game.state.seats.find((s) => s.userId === userId);
       if (seat) {
-        seat.username = username;
+        seat.username = profile.username;
+        if (profile.avatar) seat.avatar = profile.avatar;
+        else delete seat.avatar;
         this.touch(game, false);
       }
     }

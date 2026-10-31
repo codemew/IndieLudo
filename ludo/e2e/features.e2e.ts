@@ -38,7 +38,7 @@ describe.skipIf(!CHROME || !BUILT)('wildcard entry and real taps on the board', 
   let a: Color;
   let aliceId: number;
   /** Re-sends the game to every phone after the test changed it on the server. */
-  const nudge = () => t.server.ctx.games.renameUser(aliceId, 'alice');
+  const nudge = () => t.server.ctx.games.updateUser(aliceId, { username: 'alice', avatar: t.server.ctx.users.get(aliceId)!.avatar });
   const turnOf = () => game.seats[game.turn.seat].color;
 
   beforeAll(async () => {

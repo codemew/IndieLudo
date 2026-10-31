@@ -13,6 +13,7 @@ import { iceServersFor } from './turn.js';
 interface SocketData {
   userId: number;
   username: string;
+  avatar: string;
   sessionId: number;
   ip: string;
   bucket: TokenBucket;
@@ -79,6 +80,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     socket.data = {
       userId: auth.user.id,
       username: auth.user.username,
+      avatar: auth.user.avatar,
       sessionId: auth.session.id,
       ip,
       bucket: new TokenBucket(BUCKET_CAPACITY, BUCKET_REFILL_PER_SEC),
@@ -108,7 +110,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     }
     const hello: Hello = {
       appVersion: ctx.appVersion,
-      user: { id: userId, username: socket.data.username },
+      user: { id: userId, username: socket.data.username, avatar: socket.data.avatar },
       lobby: lobby ? ctx.lobbies.toPublic(lobby) : null,
       game: game ? ctx.games.publicState(game) : null,
     };
@@ -170,9 +172,12 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     // The current name, not the one this socket connected with: the player may have renamed
     // themselves since (the home screen's name tag), and a lobby they join must show the new one.
     const me = () => {
-      const fresh = ctx.users.get(userId)?.username;
-      if (fresh) socket.data.username = fresh;
-      return { id: userId, username: socket.data.username };
+      const fresh = ctx.users.get(userId);
+      if (fresh) {
+        socket.data.username = fresh.username;
+        socket.data.avatar = fresh.avatar;
+      }
+      return { id: userId, username: socket.data.username, avatar: socket.data.avatar };
     };
     /** Joins all of this user's sockets to the lobby room, then sends them the state they missed. */
     const joinLobbyRoom = (lobby: Lobby) => {

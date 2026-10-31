@@ -95,6 +95,22 @@ describe('the board and the dock', () => {
     expect(pn.querySelector(':scope > em')!.textContent).toBe('you');
   });
 
+  it('shows each player\'s animal on their chip, updates when it changes, and keeps the initial without one', async () => {
+    const g = newGame();
+    g.seats[0]!.avatar = 'fox';
+    mount(g);
+    const dot = (c: string) => document.querySelector(`.pchip[data-color=${c}] .pchip-dot`)!;
+    expect(dot('red').textContent).toBe('🦊');
+    expect(dot('red').classList.contains('has-avatar')).toBe(true);
+    expect(dot('green').textContent).toBe(g.seats[1]!.username[0]!.toUpperCase());
+    expect(dot('green').classList.contains('has-avatar')).toBe(false);
+    await step((next) => {
+      next.seats[0]!.avatar = 'owl';
+      return [];
+    }, 50);
+    expect(dot('red').textContent).toBe('🦉');
+  });
+
   it('shows every player, whose turn it is, and rolls with a tap on the dice', async () => {
     mount(newGame());
     expect(document.querySelectorAll('.pchip:not(.pchip-empty)')).toHaveLength(2);

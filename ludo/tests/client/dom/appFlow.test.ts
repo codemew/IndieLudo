@@ -5,6 +5,7 @@
  * is faked: a stand-in socket.io socket and a scripted fetch.
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { AVATARS } from '../../../src/shared/avatars.js';
 import { createGameState, legalMoves } from '../../../src/shared/rules.js';
 import type { PublicGameState, PublicLobby } from '../../../src/shared/types.js';
 import { click, flush, modalButton, setupDom, toasts, topModal } from './harness.js';
@@ -160,6 +161,66 @@ describe('the app, end to end', () => {
     modalButton('Save');
     await waitFor('renamed', () => document.querySelector('#me-name')!.textContent === 'alice2');
     expect(toasts()).toContain("You're now alice2");
+    // Profile: pick an animal; the preview and the home tag change, only the avatar is sent.
+    click('#me');
+    await flush(80);
+    const grid = topModal().querySelector('.avatar-grid')!;
+    expect(grid.querySelectorAll('.avatar-opt').length).toBeGreaterThan(24);
+    expect(grid.querySelector('.avatar-opt.on')!.getAttribute('data-avatar')).toBe('');
+    expect(document.querySelector('#avatar')!.textContent).toBe('A');
+    click('.avatar-opt[data-avatar="cat"]', topModal());
+    expect(topModal().querySelector('#avatar-preview')!.textContent).toBe('🐱');
+    expect(grid.querySelector('.avatar-opt.on')!.getAttribute('aria-checked')).toBe('true');
+    let sent: unknown;
+    http['PATCH /api/me'] = (b) => ((sent = b), [200, { user: { id: 1, username: 'alice2', avatar: 'cat' } }]);
+    modalButton('Save');
+    await waitFor('the avatar', () => document.querySelector('#avatar')!.textContent === '🐱');
+    expect(sent).toEqual({ avatar: 'cat' });
+    expect(document.querySelector('#avatar')!.classList.contains('has-avatar')).toBe(true);
+    // Keyboard: one tab stop for the group (the selected one), arrows move the pick, and the "none" tile follows the typed name.
+    click('#me');
+    await flush(80);
+    const radios = () => [...topModal().querySelectorAll<HTMLButtonElement>('.avatar-opt')];
+    expect(radios().filter((b) => b.tabIndex === 0).map((b) => b.dataset.avatar)).toEqual(['cat']);
+    const key = (k: string) => radios().find((b) => b.tabIndex === 0)!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    radios().find((b) => b.tabIndex === 0)!.focus();
+    key('ArrowRight');
+    expect(radios().filter((b) => b.tabIndex === 0).map((b) => b.dataset.avatar)).toEqual(['rabbit']);
+    expect(document.activeElement).toBe(radios().find((b) => b.dataset.avatar === 'rabbit'));
+    key('Home');
+    expect(radios().find((b) => b.tabIndex === 0)!.dataset.avatar).toBe('');
+    key('ArrowLeft'); // wraps round to the last one
+    expect(radios().find((b) => b.tabIndex === 0)!.dataset.avatar).toBe(AVATARS[AVATARS.length - 1].id);
+    expect(radios()[0].textContent).toBe('A');
+    const nameBox = topModal().querySelector('input') as HTMLInputElement;
+    nameBox.value = 'zed';
+    nameBox.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(radios()[0].textContent).toBe('Z');
+    modalButton('Cancel');
+    await flush(250);
+    // A stored avatar that is not on the list any more: the "none" tile is checked and is the tab stop.
+    const store = await import('../../../src/client/store.js');
+    store.update({ user: { ...store.state.user!, avatar: 'retired' } });
+    click('#me');
+    await flush(80);
+    expect(radios().filter((b) => b.tabIndex === 0).map((b) => b.dataset.avatar)).toEqual(['']);
+    modalButton('Cancel');
+    await flush(250);
+    store.update({ user: { ...store.state.user!, avatar: 'cat' } });
+    // Saving nothing new sends nothing; a rejected avatar shows its message and keeps the dialog.
+    click('#me');
+    await flush(80);
+    sent = undefined;
+    modalButton('Save');
+    await flush(40);
+    expect(sent).toBeUndefined();
+    click('#me');
+    await flush(80);
+    click('.avatar-opt[data-avatar="dog"]', topModal());
+    http['PATCH /api/me'] = () => [400, { error: 'INVALID_AVATAR' }];
+    modalButton('Save');
+    await waitFor('the error', () => topModal().querySelector('.form-error')!.textContent === 'That avatar is not available.');
+    modalButton('Cancel');
     // Create a lobby: checked first, then sent.
     click('#create');
     await flush(10);

@@ -157,6 +157,65 @@ describe('the lobby screen', () => {
   });
 });
 
+describe('avatars', () => {
+  it('lobby seats and watchers show the animal; those without one show their initial; bots keep the robot', () => {
+    store.update({
+      user: { id: 1, username: 'alice' },
+      lobby: lobby({
+        members: [member('red', 1, 'alice', { avatar: 'fox' }), member('green', 2, 'bob'), member('yellow', null, 'Bot Yellow')],
+        spectators: [{ userId: 3, username: 'zed', avatar: 'owl', connected: true }, { userId: 4, username: 'yan', connected: true }],
+      }),
+    });
+    show('lobby');
+    const face = (sel: string) => document.querySelector(sel)!;
+    expect(face('.seat.s-red .seat-token').textContent).toBe('🦊');
+    expect(face('.seat.s-red .seat-token').classList.contains('has-avatar')).toBe(true);
+    expect(face('.seat.s-green .seat-token').textContent).toBe('B');
+    expect(face('.seat.s-green .seat-token').classList.contains('has-avatar')).toBe(false);
+    expect(face('.seat.s-yellow .seat-token').textContent).toBe('🤖');
+    expect(face('.watcher[data-user="3"] .watcher-dot').textContent).toBe('🦉');
+    expect(face('.watcher[data-user="4"] .watcher-dot').textContent).toBe('Y');
+    // A change made elsewhere (the server resends the lobby) is painted at once.
+    store.update({ lobby: lobby({ members: [member('red', 1, 'alice', { avatar: 'panda' }), member('green', 2, 'bob')] }) });
+    expect(face('.seat.s-red .seat-token').textContent).toBe('🐼');
+  });
+
+  it('the podium shows the animal of each player', () => {
+    const seats = (['red', 'green', 'yellow', 'blue'] as const).map((color, i) => ({
+      color,
+      userId: i + 1,
+      username: ['alice', 'bob', 'carol', 'dan'][i],
+      ...(i === 0 ? { avatar: 'dog' } : {}),
+      controller: 'human' as const,
+      connected: true,
+    }));
+    const g = createGameState({ id: 'R', lobbyId: 'L', seats, now: 0 });
+    g.finished = true;
+    g.ranks = ['red', 'green', 'yellow', 'blue'];
+    store.update({ user: { id: 1, username: 'alice' }, game: { ...g, legalMoves: [], serverNow: 0 }, lobby: lobby() });
+    show('results');
+    const dots = [...document.querySelectorAll('.podium-row .pchip-dot')].map((d) => d.textContent);
+    expect(dots).toEqual(['🐶', 'B', 'C', 'D']);
+  });
+
+  it('the podium shows a seat a bot took over as the player it was, and a bot seat as 🤖', () => {
+    const seats = (['red', 'green', 'yellow', 'blue'] as const).map((color, i) => ({
+      color,
+      userId: i === 3 ? null : i + 1,
+      username: ['alice', 'bob', 'carol', 'Bot Blue'][i],
+      ...(i === 1 ? { avatar: 'owl' } : {}),
+      controller: (['human', 'takeover', 'human', 'bot'] as const)[i],
+      connected: true,
+    }));
+    const g = createGameState({ id: 'R', lobbyId: 'L', seats, now: 0 });
+    g.finished = true;
+    g.ranks = ['red', 'green', 'yellow', 'blue'];
+    store.update({ user: { id: 1, username: 'alice' }, game: { ...g, legalMoves: [], serverNow: 0 }, lobby: lobby() });
+    show('results');
+    expect([...document.querySelectorAll('.podium-row .pchip-dot')].map((d) => d.textContent)).toEqual(['A', '🦉', 'C', '🤖']);
+  });
+});
+
 describe('colour swaps', () => {
   it('being asked: a prompt, answered; ended by the asker; asking a bot swaps at once', async () => {
     const swap = await import('../../../src/client/swapUi.js');

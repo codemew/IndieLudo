@@ -19,6 +19,7 @@ import {
 } from '../../shared/types.js';
 import { resyncGame, setGameHandler, setRollHandler, showError } from '../app.js';
 import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide } from '../board/animate.js';
+import { avatarFace } from '../../shared/avatars.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { installMoustacheDefs, moustacheSvg } from '../moustache.js';
 import { TokenLayer, boardSvg, placements, yardSize } from '../board/render.js';
@@ -877,7 +878,8 @@ export function gameScreen(root: HTMLElement): () => void {
           '<span class="pchip-timer"><i></i></span>',
       );
       const dot = $(chip, '.pchip-dot');
-      setHtml(dot, seat.controller !== 'human' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? ''));
+      setHtml(dot, seat.controller !== 'human' ? '🤖' : esc(avatarFace(seat.avatar, seat.username)));
+      dot.classList.toggle('has-avatar', seat.controller === 'human' && Boolean(seat.avatar));
       // Talking rings (talkUi.ts) for anyone in the voice chat.
       if (seat.userId !== null && seat.controller !== 'bot') dot.dataset.talk = String(seat.userId);
       else delete dot.dataset.talk;

@@ -40,6 +40,8 @@ export interface Seat {
   color: Color;
   userId: number | null;
   username: string;
+  /** The player's avatar id (shared/avatars.ts); absent or '' shows their initial. */
+  avatar?: string;
   controller: Controller;
   connected: boolean;
   /** Consecutive missed turns; MAX_MISSED_TURNS hands the seat to a takeover bot. */
@@ -166,6 +168,7 @@ export interface LobbyMember {
   color: Color;
   userId: number | null;
   username: string;
+  avatar?: string;
   isBot: boolean;
   ready: boolean;
   connected: boolean;
@@ -177,6 +180,7 @@ export interface LobbyMember {
 export interface LobbySpectator {
   userId: number;
   username: string;
+  avatar?: string;
   connected: boolean;
   wins?: number;
 }

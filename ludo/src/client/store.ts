@@ -2,7 +2,7 @@ import type { NetStats } from '../shared/net.js';
 import type { Color, LobbySummary, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
 
 export interface AppState {
-  user: { id: number; username: string; gamesPlayed?: number; wins?: number } | null;
+  user: { id: number; username: string; avatar?: string; gamesPlayed?: number; wins?: number } | null;
   isAdmin: boolean;
   lobbies: LobbySummary[];
   lobby: PublicLobby | null;

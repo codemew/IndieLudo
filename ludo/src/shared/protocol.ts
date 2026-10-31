@@ -145,7 +145,7 @@ export interface VoiceFramesIn {
 export interface Hello {
   /** The version the server is running, so a phone on an older build can offer to update. */
   appVersion: string;
-  user: { id: number; username: string };
+  user: { id: number; username: string; avatar?: string };
   lobby: PublicLobby | null;
   game: PublicGameState | null;
 }

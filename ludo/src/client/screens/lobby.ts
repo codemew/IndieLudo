@@ -1,4 +1,5 @@
 import { BOARD_SIZES, type BoardSize } from '../../shared/board.js';
+import { avatarFace } from '../../shared/avatars.js';
 import { MAX_SPECTATORS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
 import { showError } from '../app.js';
 import { emit } from '../net.js';
@@ -228,7 +229,7 @@ function seatCard(
   const isMe = m.userId === ctx.me;
   const card = el(`
     <div class="seat s-${color} ${isMe ? 'seat-me' : ''} ${m.connected ? '' : 'seat-offline'}"${m.isBot || m.userId === null ? '' : ` data-user="${m.userId}"`}>
-      <div class="seat-token"${m.isBot || m.userId === null ? '' : ` data-talk="${m.userId}"`}>${m.isBot ? '🤖' : esc(m.username[0]?.toUpperCase() ?? '')}</div>
+      <div class="seat-token${m.avatar && !m.isBot ? ' has-avatar' : ''}"${m.isBot || m.userId === null ? '' : ` data-talk="${m.userId}"`}>${m.isBot ? '🤖' : esc(avatarFace(m.avatar, m.username))}</div>
       <div class="seat-name">${esc(m.username)}${isMe ? ' <span class="you">you</span>' : ''}${m.isBot ? '' : ` <span class="seat-wins" title="${m.wins ?? 0} win${m.wins === 1 ? '' : 's'}">🏆 ${m.wins ?? 0}</span>`}<span class="seat-vc"></span></div>
       ${m.isBot ? '' : `<div class="seat-net"></div>`}
       <div class="seat-tags">
@@ -272,7 +273,7 @@ function renderWatchers(box: HTMLElement, lobby: PublicLobby, ctx: { me: number;
     const isMe = s.userId === ctx.me;
     const row = el(`
       <div class="watcher ${isMe ? 'watcher-me' : ''} ${s.connected ? '' : 'seat-offline'}" data-user="${s.userId}">
-        <span class="watcher-dot" data-talk="${s.userId}">${esc(s.username[0]?.toUpperCase() ?? '')}</span>
+        <span class="watcher-dot${s.avatar ? ' has-avatar' : ''}" data-talk="${s.userId}">${esc(avatarFace(s.avatar, s.username))}</span>
         <span class="watcher-name">${esc(s.username)}${isMe ? ' <span class="you">you</span>' : ''}${s.userId === lobby.hostId ? ' <span class="tag">👑 host</span>' : ''}<span class="seat-vc"></span></span>
         <span class="seat-net"></span>
       </div>`);

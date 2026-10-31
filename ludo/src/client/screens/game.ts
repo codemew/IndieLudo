@@ -212,7 +212,7 @@ export function gameScreen(root: HTMLElement): () => void {
     const from = gs!.tokens[color][tokenId];
     if (from !== BASE) {
       const stacked = distinctChoices(gs!.legalMoves.filter((m) => m.dieIndex === pick.dieIndex && !m.lap && gs!.tokens[color][m.tokenId] === from), gs!);
-      if (stacked.length > 1) return chooseStacked(stacked);
+      if (stacked.length > 1) return chooseStacked(stacked, tokenId);
     }
     void moveToken(tokenId, pick.dieIndex);
   }
@@ -252,7 +252,7 @@ export function gameScreen(root: HTMLElement): () => void {
    * (they overlap there). No title and no captions: the moustaches say it. Tap outside, press
    * Escape or let the game move on to dismiss it.
    */
-  function chooseStacked(moves: LegalMove[]): void {
+  function chooseStacked(moves: LegalMove[], tappedId: number): void {
     play('tap');
     stackChooser?.close();
     const color = mySeat()!.color;
@@ -271,38 +271,80 @@ export function gameScreen(root: HTMLElement): () => void {
     </div>`);
     bubbles.appendChild(bubble);
 
-    // Above the square, kept inside the screen; below it when there is no room above.
+    // Above the square, kept inside the screen; below it when there is no room above (the
+    // header, with its safe-area inset and fullscreen changes, is the top limit).
     const place = () => {
       const br = board.getBoundingClientRect();
       const cell = { w: br.width / geo.w, h: br.height / geo.h };
       const w = bubble.offsetWidth;
       const h = bubble.offsetHeight;
       const tail = 11;
+      const margin = 8;
       const centre = (cx + 0.5) * cell.w;
-      const left = Math.min(Math.max(centre - w / 2, 8 - br.left), Math.max(8 - br.left, window.innerWidth - 8 - br.left - w));
-      const above = br.top + cy * cell.h - h - tail >= 60; // 60: the header
+      const left = Math.min(Math.max(centre - w / 2, margin - br.left), Math.max(margin - br.left, window.innerWidth - margin - br.left - w));
+      const topLimit = ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4;
+      const above = br.top + cy * cell.h - h - tail >= topLimit;
+      const top = above ? cy * cell.h - h - tail : Math.min((cy + 1) * cell.h + tail, window.innerHeight - margin - br.top - h);
       bubble.classList.toggle('below', !above);
       bubble.style.left = `${left}px`;
-      bubble.style.top = `${above ? cy * cell.h - h - tail : (cy + 1) * cell.h + tail}px`;
+      bubble.style.top = `${top}px`;
       bubble.style.setProperty('--tail-x', `${Math.min(Math.max(centre - left, 20), Math.max(20, w - 20))}px`);
     };
     place();
+    // Rotating the phone or the address bar sliding away resizes things: follow the square.
+    const watch = new ResizeObserver(place);
+    watch.observe(board);
+    window.addEventListener('resize', place);
 
-    const close = () => {
+    // The tap that closes the bubble from outside must not also press what is under it (another
+    // token, a marker): swallow the click that follows that pointerdown, and only that one.
+    const swallowNextClick = () => {
+      let timer: ReturnType<typeof setTimeout>;
+      const stop = () => {
+        clearTimeout(timer);
+        document.removeEventListener('click', swallow, true);
+        document.removeEventListener('pointerup', released, true);
+        document.removeEventListener('pointercancel', released, true);
+      };
+      const swallow = (e: Event) => {
+        e.stopPropagation();
+        e.preventDefault();
+        stop();
+      };
+      // The click comes right after the finger lifts; if none does (a drag), give up soon after.
+      const released = () => {
+        clearTimeout(timer);
+        timer = setTimeout(stop, 350);
+      };
+      document.addEventListener('click', swallow, true);
+      document.addEventListener('pointerup', released, true);
+      document.addEventListener('pointercancel', released, true);
+      timer = setTimeout(stop, 1500);
+    };
+
+    let closed = false;
+    const close = (opts: { refocus?: boolean } = {}) => {
+      if (closed) return;
+      closed = true;
       bubble.remove();
+      watch.disconnect();
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', escape);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('resize', place);
       if (stackChooser?.close === close) stackChooser = null;
+      if (opts.refocus) tokens.get(color, tappedId)?.focus({ preventScroll: true });
     };
     const outside = (e: Event) => {
-      if (!bubble.contains(e.target as Node)) close();
+      if (bubble.contains(e.target as Node)) return;
+      close();
+      swallowNextClick();
     };
-    const escape = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && close({ refocus: true });
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape);
-    window.addEventListener('resize', close);
     stackChooser = { close, version: gs!.version };
+    // Keyboard and switch users land in the bubble, not behind it at the end of the board.
+    bubble.querySelector<HTMLButtonElement>('.stack-opt')?.focus({ preventScroll: true });
 
     bubble.querySelectorAll<HTMLButtonElement>('.stack-opt').forEach(
       (b) =>

@@ -205,6 +205,20 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(Math.min(...taps.map((t) => Math.min(t[0], t[1])))).toBeGreaterThanOrEqual(44); // big enough for a thumb
     expect(taps[1][2] - taps[0][3]).toBeGreaterThanOrEqual(8); // and apart: no mistaken taps
     await shot(alice, 'stack-picker');
+    // A real tap on the stacked token itself closes the bubble and does not reopen it (or move anything).
+    const at = await alice.$eval('.token.legal', (t) => {
+      const r = t.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await alice.touchscreen.tap(at.x, at.y);
+    await sleep(500);
+    expect(await alice.$('.stack-bubble')).toBeNull();
+    expect(game.tokens[a].slice(0, 2)).toEqual([8, 8]);
+    // Open it again with a real touch: focus moves into the bubble, but no keyboard focus ring is drawn for a finger.
+    await alice.touchscreen.tap(at.x, at.y);
+    await alice.waitForSelector('.stack-bubble .stack-opt');
+    expect(await alice.evaluate(() => document.activeElement?.classList.contains('stack-opt'))).toBe(true);
+    expect(await alice.evaluate(() => document.activeElement?.matches(':focus-visible'))).toBe(false);
     await tap(alice, '.stack-opt[data-token="1"]'); // sacrifice the clean-shaven one
     await until('the move', () => game.tokens[a][1] === 11);
     expect(game.tokens[a][0]).toBe(8);

@@ -4284,7 +4284,8 @@ polygon.b-inner {
 .bubble-layer {
   position: absolute;
   inset: 0;
-  z-index: 30;
+  /* Above the dice (30), flag (35) and effects (40) layers: a flag or a capture burst can't cover it. */
+  z-index: 45;
   pointer-events: none;
 }
 .stack-bubble {
@@ -4313,28 +4314,41 @@ polygon.b-inner {
   display: flex;
   gap: 10px;
 }
-/* The tail: a white triangle with the bubble's tint on top, pointing at the square. */
-.stack-tail {
+/*
+ * The tail, in two pieces with the bubble's own see-through tint: a white outline (a triangle with
+ * the inside cut out) and, from the bubble's ::after, the tinted inside. The same tint as the body, so
+ * it reads as one shape. (It can't be blurred: a blurred element only sees what is behind it up to its
+ * parent's blurred edge, so inside the blurred bubble nothing of the board would show.)
+ */
+.stack-tail,
+.stack-bubble::after {
+  content: '';
   position: absolute;
   left: var(--tail-x, 50%);
   top: 100%;
   width: 22px;
   height: 12px;
-  margin: 0 0 0 -11px;
+  margin-left: -11px;
+  pointer-events: none;
+}
+.stack-tail {
   background: rgba(255, 255, 255, 0.9);
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  clip-path: polygon(0 0, 22px 0, 11px 12px, 0 0, 3.6px 0, 11px 8.1px, 18.4px 0, 3.6px 0);
 }
-.stack-tail::after {
-  content: '';
-  position: absolute;
-  inset: 0 3px 3.5px;
-  background: rgba(14, 20, 44, 0.78);
-  clip-path: polygon(0 0, 100% 0, 50% 100%);
+.stack-bubble::after {
+  background: rgba(14, 20, 44, 0.5);
+  clip-path: polygon(3.6px 0, 18.4px 0, 11px 8.1px);
 }
-.stack-bubble.below .stack-tail {
+.stack-bubble.below .stack-tail,
+.stack-bubble.below::after {
   top: auto;
   bottom: 100%;
   transform: rotate(180deg);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .stack-bubble::after {
+    background: rgba(14, 20, 44, 0.82);
+  }
 }
 /* 48 px targets, 10 px apart: far bigger than the board's stacked tokens, so a tap lands on the one meant. */
 .stack-opt {

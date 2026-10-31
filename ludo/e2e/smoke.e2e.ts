@@ -112,20 +112,43 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(board.markers.sort()).toEqual(['0', '1']);
 
     await tapToken(0);
-    await alice.waitForSelector('.lap-opts');
-    const cards = await alice.$$eval('.lap-opt', (cs) => cs.map((c) => c.querySelector('b')!.textContent));
+    await alice.waitForSelector('.stack-bubble .lap-opt');
+    // A small bubble on the token's square, with two pictures and no words, coloured like the board's trails.
+    const cards = await alice.$$eval('.lap-opt', (cs) => cs.map((c) => c.getAttribute('aria-label')));
     expect(cards).toEqual(['Head home', 'Go round again']);
-    expect(await alice.$eval('.lap-opt.home', (c) => c.textContent)).toContain('3 squares to finish');
-    expect(await alice.$eval('.lap-opt.round', (c) => c.textContent)).not.toMatch(/squares/); // the distance round is the player's risk to judge
-    await sleep(600); // the sheet slides up
-    const sheet = await alice.$eval('.modal', (m) => m.getBoundingClientRect().bottom <= innerHeight + 1);
-    expect(sheet, 'the whole choice, with "Not now", fits on a phone screen').toBe(true);
+    const look = await alice.evaluate(() => {
+      const b = document.querySelector('.stack-bubble')!;
+      const r = b.getBoundingClientRect();
+      const opts = [...b.querySelectorAll('.lap-opt')].map((o) => o.getBoundingClientRect());
+      return {
+        text: b.textContent!.replace(/\s/g, ''),
+        inBoard: Boolean(b.closest('#board')),
+        modal: Boolean(document.querySelector('.modal')),
+        fits: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight,
+        narrow: r.width < innerWidth * 0.5,
+        colours: [...b.querySelectorAll('.bubble-ico')].map((i) => getComputedStyle(i).backgroundColor),
+        sizes: opts.map((o) => Math.min(o.width, o.height)),
+        gap: opts[1].left - opts[0].right,
+      };
+    });
+    expect(look.text).toBe('🏠↻');
+    expect(look.inBoard).toBe(true);
+    expect(look.modal).toBe(false);
+    expect(look.fits).toBe(true);
+    expect(look.narrow).toBe(true);
+    expect(look.colours).toEqual(['rgb(245, 180, 0)', 'rgb(0, 194, 224)']); // gold home, blue round again
+    expect(Math.min(...look.sizes)).toBeGreaterThanOrEqual(44);
+    expect(look.gap).toBeGreaterThanOrEqual(8);
     await shot(alice, 'lap-choice');
   });
 
-  it('"Not now" closes the choice without moving', async () => {
-    await alice.$$eval('.modal .btn', (bs) => (bs.find((x) => x.textContent!.includes('Not now')) as HTMLElement).click());
-    await until('the choice to close', async () => (await alice.$('.lap-choice')) === null);
+  it('a tap outside the bubble closes it without moving', async () => {
+    const corner = await alice.$eval('#board', (b) => {
+      const r = b.getBoundingClientRect();
+      return { x: r.left + r.width * 0.06, y: r.top + r.height * 0.06 }; // inside the red yard
+    });
+    await alice.touchscreen.tap(corner.x, corner.y);
+    await until('the bubble to close', async () => (await alice.$('.stack-bubble')) === null);
     await sleep(300);
     expect(game.tokens[a][0]).toBe(48);
     expect(await alice.$$('.token.legal')).toHaveLength(1);
@@ -133,11 +156,11 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
 
   it('"Go round again" sends the token round: it passes its start and gets the dashed ring', async () => {
     await tapToken(0);
-    await alice.waitForSelector('.lap-opt.round');
+    await alice.waitForSelector('.stack-bubble .lap-opt.round');
     await tap(alice, '.lap-opt.round');
     await until('the move', () => game.tokens[a][0] === 59);
     for (const p of [alice, bob]) await p.waitForSelector(`.token.t-${a}.lap2[aria-label$="token 1"]`, { timeout: 5000 });
-    expect(await alice.$('.lap-choice')).toBeNull();
+    expect(await alice.$('.stack-bubble')).toBeNull();
   });
 
   it('tapping the gold marker on the board heads home without the dialog', async () => {
@@ -145,7 +168,7 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     await alice.waitForSelector('.target.home[data-token="1"]');
     await tap(alice, '.target.home[data-token="1"]');
     await until('the move', () => game.tokens[a][1] === 53);
-    expect(await alice.$('.lap-choice')).toBeNull();
+    expect(await alice.$('.stack-bubble')).toBeNull();
   });
 
   it('landing on two opponent tokens on an ordinary square captures both, and the moustache grows two levels', async () => {

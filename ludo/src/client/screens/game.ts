@@ -243,30 +243,30 @@ export function gameScreen(root: HTMLElement): () => void {
     );
   }
 
-  /** The open token bubble, closed if the game moves on. */
-  let stackChooser: { close: () => void; version: number } | null = null;
+  /** The open choice bubble (stacked tokens, or head home / go round again), closed if the game moves on. */
+  let chooser: { close: () => void; version: number } | null = null;
+
+  interface BubbleOption {
+    /** Classes and attributes of the option's button. */
+    cls: string;
+    attrs: string;
+    /** Its picture. Nothing is written on screen: `label` is for screen readers. */
+    html: string;
+    label: string;
+    pick: () => void;
+  }
 
   /**
-   * Same-colour tokens on one square that aren't alike (different moustaches, or one on its last
-   * lap): a small speech bubble on that square with one token each, drawn larger than the board's
-   * (they overlap there). No title and no captions: the moustaches say it. Tap outside, press
-   * Escape or let the game move on to dismiss it.
+   * A small speech bubble on a square with one round picture to tap per choice: see-through, softly
+   * blurred, its tail pointing at the square. No title, no captions, no buttons: tap one to choose;
+   * tap anywhere else (that tap only closes it), press Esc or let the game move on to dismiss it.
    */
-  function chooseStacked(moves: LegalMove[], tappedId: number): void {
+  function openBubble(cell: readonly [number, number], tapped: { color: Color; id: number }, options: BubbleOption[]): void {
     play('tap');
-    stackChooser?.close();
-    const color = mySeat()!.color;
-    const [cx, cy] = tokenCell(color, gs!.tokens[color][moves[0].tokenId], moves[0].tokenId, geo);
-    const bubble = el(`<div class="stack-bubble" role="group" aria-label="Choose a token">
-      <div class="stack-row">${moves
-        .map((m) => {
-          const kills = gs!.kills?.[color]?.[m.tokenId] ?? 0;
-          const last = Boolean(gs!.extraLaps?.[color]?.[m.tokenId]);
-          // For screen readers only; nothing is written on screen.
-          const label = `${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}`;
-          return `<button class="stack-opt${last ? ' last-lap' : ''}" data-token="${m.tokenId}" aria-label="${label}">${miniToken(color, kills)}</button>`;
-        })
-        .join('')}</div>
+    chooser?.close();
+    const [cx, cy] = cell;
+    const bubble = el(`<div class="stack-bubble" role="group" aria-label="Choose">
+      <div class="stack-row">${options.map((o) => `<button class="bubble-opt ${o.cls}" ${o.attrs} aria-label="${o.label}">${o.html}</button>`).join('')}</div>
       <i class="stack-tail"></i>
     </div>`);
     bubbles.appendChild(bubble);
@@ -331,8 +331,8 @@ export function gameScreen(root: HTMLElement): () => void {
       document.removeEventListener('pointerdown', outside, true);
       document.removeEventListener('keydown', escape);
       window.removeEventListener('resize', place);
-      if (stackChooser?.close === close) stackChooser = null;
-      if (opts.refocus) tokens.get(color, tappedId)?.focus({ preventScroll: true });
+      if (chooser?.close === close) chooser = null;
+      if (opts.refocus) tokens.get(tapped.color, tapped.id)?.focus({ preventScroll: true });
     };
     const outside = (e: Event) => {
       if (bubble.contains(e.target as Node)) return;
@@ -342,67 +342,68 @@ export function gameScreen(root: HTMLElement): () => void {
     const escape = (e: KeyboardEvent) => e.key === 'Escape' && close({ refocus: true });
     document.addEventListener('pointerdown', outside, true);
     document.addEventListener('keydown', escape);
-    stackChooser = { close, version: gs!.version };
+    chooser = { close, version: gs!.version };
     // Keyboard and switch users land in the bubble, not behind it at the end of the board.
-    bubble.querySelector<HTMLButtonElement>('.stack-opt')?.focus({ preventScroll: true });
+    bubble.querySelector<HTMLButtonElement>('.bubble-opt')?.focus({ preventScroll: true });
 
-    bubble.querySelectorAll<HTMLButtonElement>('.stack-opt').forEach(
-      (b) =>
+    bubble.querySelectorAll<HTMLButtonElement>('.bubble-opt').forEach(
+      (b, i) =>
         (b.onclick = () => {
-          const dieIndex = moves[0].dieIndex;
           close();
-          void moveToken(Number(b.dataset.token), dieIndex);
+          options[i].pick();
         }),
     );
   }
 
-  /** The open "home or another lap?" confirm, closed if the game moves on (e.g. the timer plays the turn). */
-  let lapChooser: { close: () => void; version: number } | null = null;
+  /**
+   * Same-colour tokens on one square that aren't alike (different moustaches, or one on its last
+   * lap): a bubble on that square with one token each, drawn larger than the board's (they
+   * overlap there). The moustaches say which is which.
+   */
+  function chooseStacked(moves: LegalMove[], tappedId: number): void {
+    const color = mySeat()!.color;
+    const dieIndex = moves[0].dieIndex;
+    openBubble(
+      tokenCell(color, gs!.tokens[color][moves[0].tokenId], moves[0].tokenId, geo),
+      { color, id: tappedId },
+      moves.map((m) => {
+        const kills = gs!.kills?.[color]?.[m.tokenId] ?? 0;
+        const last = Boolean(gs!.extraLaps?.[color]?.[m.tokenId]);
+        return {
+          cls: `stack-opt${last ? ' last-lap' : ''}`,
+          attrs: `data-token="${m.tokenId}"`,
+          html: miniToken(color, kills),
+          label: `${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}`,
+          pick: () => void moveToken(m.tokenId, dieIndex),
+        };
+      }),
+    );
+  }
 
   /**
-   * The choice for a token at its home turn: two option cards, coloured like the trails on the
-   * board (gold home, blue round again), each saying what it means. The board's markers can be
-   * tapped instead.
+   * The choice for a token at its home turn: a bubble on its square with two round pictures,
+   * coloured like the trails and markers on the board (gold 🏠 head home, blue ↻ round again).
+   * The board's markers can be tapped instead.
    */
   function chooseLap(home: LegalMove, lap: LegalMove): void {
-    play('tap');
-    lapChooser?.close();
-    const toGo = geo.home - home.to;
-    const victims = lap.captures.map((c) => `<b class="lap-victim n-${c.color}">${esc(seatName(c.color))}</b>`).join(' ');
-    const body = el(`<div class="lap-choice">
-      <div class="lap-opts">
-        <button class="lap-opt home" data-go="home">
-          <span class="lap-ico">🏠</span>
-          <b>Head home</b>
-          <small>${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'Finishes now!'}</small>
-          <small>Safe from capture</small>
-        </button>
-        <button class="lap-opt round" data-go="round">
-          <span class="lap-ico">↻</span>
-          <b>Go round again</b>
-          ${victims ? `<span class="lap-badge">⚔ Captures ${victims}</span>` : '<small>Hunt more, but it can be caught</small>'}
-        </button>
-      </div>
-      <p class="lap-note">Each token gets one extra lap: going round again uses it, so this one can't make a wildcard entry later. Tip: tap the gold or blue marker on the board.</p>
-    </div>`);
+    const color = mySeat()!.color;
     const answer = async (goRound: boolean) => {
-      lapChooser?.close();
-      lapChooser = null;
       if (!(await friendlyFireOk(goRound ? lap : home))) return;
       play('tap');
       void send('game:move', { dieIndex: home.dieIndex, tokenId: home.tokenId, lap: goRound });
     };
-    body.querySelectorAll<HTMLButtonElement>('.lap-opt').forEach((b) => (b.onclick = () => void answer(b.dataset.go === 'round')));
-    const m = modal({ title: 'Which way?', body, actions: [{ label: 'Not now' }], onDismiss: () => (lapChooser = null) });
-    lapChooser = { close: m.close, version: gs!.version };
+    const victims = lap.captures.map((c) => seatName(c.color)).join(', ');
+    openBubble(tokenCell(color, home.from, home.tokenId, geo), { color, id: home.tokenId }, [
+      { cls: 'lap-opt home', attrs: 'data-go="home"', html: '<span class="bubble-ico">🏠</span>', label: 'Head home', pick: () => void answer(false) },
+      { cls: 'lap-opt round', attrs: 'data-go="round"', html: '<span class="bubble-ico">↻</span>', label: `Go round again${victims ? `, captures ${esc(victims)}` : ''}`, pick: () => void answer(true) },
+    ]);
   }
 
   // Tapping a gold or blue marker on the board chooses that way directly.
   targets.addEventListener('click', async (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
     if (!t || !canMove()) return;
-    lapChooser?.close();
-    lapChooser = null;
+    chooser?.close();
     const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' };
     const m = gs!.legalMoves.find((x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap);
     if (m && !(await friendlyFireOk(m))) return;
@@ -513,14 +514,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
   function onUpdate(u: GameUpdate): void {
     // The turn moved on without us (the timer played it, or a resync): that choice is gone.
-    if (lapChooser && u.state.version !== lapChooser.version) {
-      lapChooser.close();
-      lapChooser = null;
-    }
-    if (stackChooser && u.state.version !== stackChooser.version) {
-      stackChooser.close();
-      stackChooser = null;
-    }
+    if (chooser && u.state.version !== chooser.version) chooser.close();
     if (!gs || u.state.id !== gs.id) {
       gs = u.state;
       setTempo(tempoOf(gs));
@@ -1227,7 +1221,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
   return () => {
     destroyed = true;
-    stackChooser?.close();
+    chooser?.close();
     setTempo(1);
     setGameHandler(null);
     setRollHandler(null);

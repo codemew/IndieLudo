@@ -224,8 +224,14 @@ describe('the board and the dock', () => {
   });
 });
 
+/** A finger lifting, then the time after which a click is no longer the tap's own. */
+async function lift(): Promise<void> {
+  document.dispatchEvent(new Event('pointerup'));
+  await new Promise((r) => setTimeout(r, 450));
+}
+
 describe('choosing a token', () => {
-  it('stacked tokens with different moustaches: a picker with both, large', async () => {
+  it('stacked tokens with different moustaches: a small bubble on the square with both, and no words', async () => {
     const g = newGame();
     g.tokens.red = [8, 8, B, B];
     g.kills = { red: [3, 0, 0, 0] };
@@ -233,17 +239,109 @@ describe('choosing a token', () => {
     await step((s) => applyRoll(s, 3), 200);
     token('red', 1).click();
     await flush();
-    const cards = [...document.querySelectorAll<HTMLElement>('.stack-opt')].map((c) => [c.dataset.token, c.querySelector('b')!.textContent]);
+    // A bubble over the board, not a sheet: no dialog, no title, no captions.
+    expect(document.querySelector('.modal')).toBeNull();
+    const bubble = document.querySelector<HTMLElement>('#bubbles .stack-bubble')!;
+    expect(bubble).not.toBeNull();
+    expect(bubble.textContent!.trim()).toBe('');
+    const cards = [...bubble.querySelectorAll<HTMLElement>('.stack-opt')].map((c) => [c.dataset.token, c.getAttribute('aria-label')]);
     expect(cards).toEqual([
       ['0', '3 captures'],
       ['1', 'Clean-shaven'],
     ]);
     click('.stack-opt[data-token="1"]');
     await flush();
+    expect(document.querySelector('.stack-bubble')).toBeNull();
     expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 1 });
-    // A resync closes a picker that is still open.
+    // The game moving on (a newer version, e.g. the timer played the turn) closes a bubble that is still open.
     token('red', 0).click();
-    resync(structuredClone(current));
+    await flush();
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    const next = structuredClone(current);
+    next.version++;
+    resync(next);
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+  });
+
+  it('the token bubble closes on Escape and on a tap outside it, and a tap inside does not close it early', async () => {
+    const g = newGame();
+    g.tokens.red = [8, 8, B, B];
+    g.kills = { red: [3, 0, 0, 0] };
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    const open = async () => {
+      token('red', 1).click();
+      await flush();
+      expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    };
+    await open();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(sentOf('game:move')).toHaveLength(0);
+    await open();
+    document.querySelector('.stack-bubble')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    document.querySelector('#board')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(sentOf('game:move')).toHaveLength(0);
+    await lift(); // (the click swallowed after a tap outside ends here)
+  });
+
+  it('a tap outside closes the bubble and does not also press what is under it', async () => {
+    const g = newGame();
+    g.tokens.red = [8, 8, 20, B];
+    g.kills = { red: [3, 0, 0, 0] };
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    token('red', 1).click();
+    await flush();
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    // A real tap on another token that could move: pointerdown, pointerup, click.
+    const other = token('red', 2);
+    other.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    other.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    other.click();
+    await flush();
+    expect(sentOf('game:move')).toHaveLength(0);
+    // Only that one click is swallowed: the next tap works.
+    await lift();
+    other.click();
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ tokenId: 2 });
+  });
+
+  it('tapping the stacked token again closes its bubble instead of reopening it', async () => {
+    const g = newGame();
+    g.tokens.red = [8, 8, B, B];
+    g.kills = { red: [3, 0, 0, 0] };
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    token('red', 1).click();
+    await flush();
+    const again = token('red', 1);
+    again.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    again.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    again.click();
+    await flush();
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    await lift();
+  });
+
+  it('the bubble stays through a resize (address bar, rotation), takes focus, and Escape gives it back', async () => {
+    const g = newGame();
+    g.tokens.red = [8, 8, B, B];
+    g.kills = { red: [3, 0, 0, 0] };
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    token('red', 1).click();
+    await flush();
+    window.dispatchEvent(new Event('resize'));
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    expect((document.activeElement as HTMLElement).classList.contains('stack-opt')).toBe(true);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(document.activeElement).toBe(token('red', 1));
   });
 
   it('at its home turn: head home or go round again, from the sheet or the board markers', async () => {

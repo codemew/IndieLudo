@@ -88,6 +88,7 @@ export function gameScreen(root: HTMLElement): () => void {
         <div class="dice-layer" id="dice-layer"></div>
         <div class="flag-layer" id="flags"></div>
         <div class="fx-layer" id="fx"></div>
+        <div class="bubble-layer" id="bubbles"></div>
       </div>
     </div>
     <div class="players players-${bottomRow.length}">${bottomRow.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
@@ -103,6 +104,7 @@ export function gameScreen(root: HTMLElement): () => void {
   const board = $(root, '#board');
   const wrap = $(root, '#board-wrap');
   const fx = $(root, '#fx');
+  const bubbles = $(root, '#bubbles');
   const dice = new Dice();
   const diceSlot = $(root, '#dice-slot');
   diceSlot.appendChild(dice.el);
@@ -210,7 +212,7 @@ export function gameScreen(root: HTMLElement): () => void {
     const from = gs!.tokens[color][tokenId];
     if (from !== BASE) {
       const stacked = distinctChoices(gs!.legalMoves.filter((m) => m.dieIndex === pick.dieIndex && !m.lap && gs!.tokens[color][m.tokenId] === from), gs!);
-      if (stacked.length > 1) return chooseStacked(stacked);
+      if (stacked.length > 1) return chooseStacked(stacked, tokenId);
     }
     void moveToken(tokenId, pick.dieIndex);
   }
@@ -241,38 +243,114 @@ export function gameScreen(root: HTMLElement): () => void {
     );
   }
 
-  /** The open "which token moves?" picker, closed if the game moves on. */
+  /** The open token bubble, closed if the game moves on. */
   let stackChooser: { close: () => void; version: number } | null = null;
 
   /**
    * Same-colour tokens on one square that aren't alike (different moustaches, or one on its last
-   * lap): big cards to pick from, since the stacked tokens on the board are small.
+   * lap): a small speech bubble on that square with one token each, drawn larger than the board's
+   * (they overlap there). No title and no captions: the moustaches say it. Tap outside, press
+   * Escape or let the game move on to dismiss it.
    */
-  function chooseStacked(moves: LegalMove[]): void {
+  function chooseStacked(moves: LegalMove[], tappedId: number): void {
     play('tap');
     stackChooser?.close();
     const color = mySeat()!.color;
-    const body = el(`<div class="stack-choice">${moves
-      .map((m) => {
-        const kills = gs!.kills?.[color]?.[m.tokenId] ?? 0;
-        const last = Boolean(gs!.extraLaps?.[color]?.[m.tokenId]);
-        const victims = m.captures.map((c) => `<b class="lap-victim n-${c.color}">${esc(seatName(c.color))}</b>`).join(' ');
-        return `<button class="stack-opt" data-token="${m.tokenId}">
-          ${miniToken(color, kills)}
-          <b>${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}</b>
-          ${last ? '<small class="tag">last lap</small>' : ''}
-          ${victims ? `<span class="lap-badge">⚔ ${victims}</span>` : ''}
-        </button>`;
-      })
-      .join('')}</div>`);
-    const m = modal({ title: 'Which token moves?', body, actions: [{ label: 'Not now' }], onDismiss: () => (stackChooser = null) });
-    stackChooser = { close: m.close, version: gs!.version };
-    body.querySelectorAll<HTMLButtonElement>('.stack-opt').forEach(
+    const [cx, cy] = tokenCell(color, gs!.tokens[color][moves[0].tokenId], moves[0].tokenId, geo);
+    const bubble = el(`<div class="stack-bubble" role="group" aria-label="Choose a token">
+      <div class="stack-row">${moves
+        .map((m) => {
+          const kills = gs!.kills?.[color]?.[m.tokenId] ?? 0;
+          const last = Boolean(gs!.extraLaps?.[color]?.[m.tokenId]);
+          // For screen readers only; nothing is written on screen.
+          const label = `${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}`;
+          return `<button class="stack-opt${last ? ' last-lap' : ''}" data-token="${m.tokenId}" aria-label="${label}">${miniToken(color, kills)}</button>`;
+        })
+        .join('')}</div>
+      <i class="stack-tail"></i>
+    </div>`);
+    bubbles.appendChild(bubble);
+
+    // Above the square, kept inside the screen; below it when there is no room above (the
+    // header, with its safe-area inset and fullscreen changes, is the top limit).
+    const place = () => {
+      const br = board.getBoundingClientRect();
+      const cell = { w: br.width / geo.w, h: br.height / geo.h };
+      const w = bubble.offsetWidth;
+      const h = bubble.offsetHeight;
+      const tail = 11;
+      const margin = 8;
+      const centre = (cx + 0.5) * cell.w;
+      const left = Math.min(Math.max(centre - w / 2, margin - br.left), Math.max(margin - br.left, window.innerWidth - margin - br.left - w));
+      const topLimit = ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4;
+      const above = br.top + cy * cell.h - h - tail >= topLimit;
+      const top = above ? cy * cell.h - h - tail : Math.min((cy + 1) * cell.h + tail, window.innerHeight - margin - br.top - h);
+      bubble.classList.toggle('below', !above);
+      bubble.style.left = `${left}px`;
+      bubble.style.top = `${top}px`;
+      bubble.style.setProperty('--tail-x', `${Math.min(Math.max(centre - left, 20), Math.max(20, w - 20))}px`);
+    };
+    place();
+    // Rotating the phone or the address bar sliding away resizes things: follow the square.
+    const watch = new ResizeObserver(place);
+    watch.observe(board);
+    window.addEventListener('resize', place);
+
+    // The tap that closes the bubble from outside must not also press what is under it (another
+    // token, a marker): swallow the click that follows that pointerdown, and only that one.
+    const swallowNextClick = () => {
+      let timer: ReturnType<typeof setTimeout>;
+      const stop = () => {
+        clearTimeout(timer);
+        document.removeEventListener('click', swallow, true);
+        document.removeEventListener('pointerup', released, true);
+        document.removeEventListener('pointercancel', released, true);
+      };
+      const swallow = (e: Event) => {
+        e.stopPropagation();
+        e.preventDefault();
+        stop();
+      };
+      // The click comes right after the finger lifts; if none does (a drag), give up soon after.
+      const released = () => {
+        clearTimeout(timer);
+        timer = setTimeout(stop, 350);
+      };
+      document.addEventListener('click', swallow, true);
+      document.addEventListener('pointerup', released, true);
+      document.addEventListener('pointercancel', released, true);
+      timer = setTimeout(stop, 1500);
+    };
+
+    let closed = false;
+    const close = (opts: { refocus?: boolean } = {}) => {
+      if (closed) return;
+      closed = true;
+      bubble.remove();
+      watch.disconnect();
+      document.removeEventListener('pointerdown', outside, true);
+      document.removeEventListener('keydown', escape);
+      window.removeEventListener('resize', place);
+      if (stackChooser?.close === close) stackChooser = null;
+      if (opts.refocus) tokens.get(color, tappedId)?.focus({ preventScroll: true });
+    };
+    const outside = (e: Event) => {
+      if (bubble.contains(e.target as Node)) return;
+      close();
+      swallowNextClick();
+    };
+    const escape = (e: KeyboardEvent) => e.key === 'Escape' && close({ refocus: true });
+    document.addEventListener('pointerdown', outside, true);
+    document.addEventListener('keydown', escape);
+    stackChooser = { close, version: gs!.version };
+    // Keyboard and switch users land in the bubble, not behind it at the end of the board.
+    bubble.querySelector<HTMLButtonElement>('.stack-opt')?.focus({ preventScroll: true });
+
+    bubble.querySelectorAll<HTMLButtonElement>('.stack-opt').forEach(
       (b) =>
         (b.onclick = () => {
           const dieIndex = moves[0].dieIndex;
-          stackChooser?.close();
-          stackChooser = null;
+          close();
           void moveToken(Number(b.dataset.token), dieIndex);
         }),
     );
@@ -1149,6 +1227,7 @@ export function gameScreen(root: HTMLElement): () => void {
 
   return () => {
     destroyed = true;
+    stackChooser?.close();
     setTempo(1);
     setGameHandler(null);
     setRollHandler(null);

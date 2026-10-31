@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { BASE, HOME } from '../src/shared/board.js';
 import { applyRollUpdate, rollUpdateOf } from '../src/shared/rollUpdate.js';
-import { countRoll, rollCounts, rollShares } from '../src/shared/rolls.js';
+import { countRoll, normalRange, rollCounts, rollOutliers, rollShares } from '../src/shared/rolls.js';
 import { applyMove, applyRoll, legalMoves, statsOf } from '../src/shared/rules.js';
 import type { PlayerStats, PublicGameState } from '../src/shared/types.js';
 import { game } from './helpers.js';
@@ -84,5 +84,26 @@ describe('shares', () => {
     expect(rollShares([5, 5, 0, 0, 0, 0])).toEqual([50, 50, 0, 0, 0, 0]);
     expect(rollShares([0, 0, 0, 0, 0, 0])).toEqual([0, 0, 0, 0, 0, 0]);
     expect(rollShares([0, 0, 0, 0, 0, 12])).toEqual([0, 0, 0, 0, 0, 100]);
+  });
+});
+
+describe('unusual rolls', () => {
+  it('a perfectly even or slightly lopsided row marks nothing; a clear outlier is marked', () => {
+    expect(rollOutliers([17, 17, 17, 17, 16, 16])).toEqual([null, null, null, null, null, null]);
+    expect(rollOutliers([12, 14, 18, 20, 18, 18])).toEqual([null, null, null, null, null, null]);
+    expect(rollOutliers([4, 17, 17, 16, 16, 30])).toEqual(['low', null, null, null, null, 'high']);
+  });
+
+  it('too few rolls to say anything: nothing is marked, even for all sixes', () => {
+    expect(rollOutliers([0, 0, 0, 0, 0, 19])).toEqual([null, null, null, null, null, null]);
+    expect(rollOutliers([0, 0, 0, 0, 0, 20])).toEqual([null, null, null, null, null, 'high']);
+    expect(rollOutliers([0, 0, 0, 0, 0, 0])).toEqual([null, null, null, null, null, null]);
+  });
+
+  it('the usual range narrows with more rolls', () => {
+    expect(normalRange(40)).toEqual([5, 28]);
+    expect(normalRange(100)).toEqual([9, 24]);
+    expect(normalRange(1000)).toEqual([14, 19]);
+    expect(normalRange(1)[0]).toBe(0);
   });
 });

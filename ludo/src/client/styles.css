@@ -3265,13 +3265,35 @@ button.me:active {
   margin-right: 5px;
 }
 .odds-table td {
-  padding: 8px 2px;
+  padding: 4px 2px 5px;
   font-size: 12px;
+  line-height: 1.15;
   background: linear-gradient(to top, color-mix(in srgb, var(--c) 28%, transparent) calc(var(--p, 0) * 2%), var(--surface) 0);
 }
-.odds-table td.best {
+.odds-table .pct {
+  display: block;
+  font-weight: 750;
+}
+/* The exact count, small under the percent: a tooltip would not show on a phone. */
+.odds-table .cnt {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+/* Only shares beyond what a fair die usually strays to are marked (see rollOutliers). */
+.odds-table td.high .pct {
+  font-weight: 900;
   /* Darker than the player colour alone: yellow on its own pale fill is unreadable. */
   color: color-mix(in srgb, var(--c) 55%, var(--text));
+}
+.odds-table td.low .pct {
+  font-style: italic;
+  font-weight: 600;
+  opacity: 0.6;
+}
+.hi-key {
+  font-weight: 900;
 }
 .odds-table .rolls-n {
   display: block;
@@ -4518,4 +4540,17 @@ polygon.b-inner {
 .avatar-opt:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Text for screen readers only. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }

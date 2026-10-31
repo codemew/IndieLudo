@@ -32,3 +32,25 @@ export function rollShares(counts: readonly number[]): number[] {
   }
   return shares;
 }
+
+/** Fewer rolls than this say nothing about the dice: nothing is called unusual. */
+export const MIN_ROLLS_FOR_LUCK = 20;
+
+/**
+ * Which faces came up more or less often than a fair die usually does with this many rolls:
+ * further than two standard deviations from a sixth. A player rolls only a few dozen times a
+ * game, so a lopsided row is normal; only the cells that stray beyond that are worth a look.
+ */
+export function rollOutliers(counts: readonly number[]): ('high' | 'low' | null)[] {
+  const n = counts.reduce((a, b) => a + b, 0);
+  if (n < MIN_ROLLS_FOR_LUCK) return counts.map(() => null);
+  const expected = n / 6;
+  const margin = 2 * Math.sqrt((n * 5) / 36);
+  return counts.map((c) => (c > expected + margin ? 'high' : c < expected - margin ? 'low' : null));
+}
+
+/** The shares (in whole percent) a fair die usually stays within with `n` rolls: its sixth ± two standard deviations. */
+export function normalRange(n: number): [number, number] {
+  const sd = Math.sqrt(5 / 36 / n) * 100;
+  return [Math.max(0, Math.round(100 / 6 - 2 * sd)), Math.round(100 / 6 + 2 * sd)];
+}

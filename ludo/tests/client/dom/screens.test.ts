@@ -315,7 +315,8 @@ describe('the results screen', () => {
       expect(panel('stats').hidden).toBe(true);
       expect(panel('odds').hidden).toBe(false);
       expect([...panel('odds').querySelectorAll('thead th')].map((h) => h.textContent)).toEqual(['', '1s', '2s', '3s', '4s', '5s', '6s']);
-      const row = (c: string) => [...panel('odds').querySelectorAll(`tbody .p-${c} td`)].map((d) => d.textContent);
+      const row = (c: string) => [...panel('odds').querySelectorAll(`tbody .p-${c} td .pct`)].map((d) => d.textContent);
+      const counts = (c: string) => [...panel('odds').querySelectorAll(`tbody .p-${c} td .cnt`)].map((d) => d.firstChild!.textContent);
       expect(row('red')).toEqual(['50%', '50%', '0%', '0%', '0%', '0%']);
       expect(row('green')).toEqual(['17%', '17%', '17%', '17%', '16%', '16%']);
       expect(row('yellow')).toEqual(['0%', '0%', '0%', '0%', '0%', '100%']);
@@ -323,12 +324,32 @@ describe('the results screen', () => {
       expect(row('blue')).toEqual(['–', '–', '–', '–', '–', '–']);
       // Each name carries how many rolls the shares are of.
       expect([...panel('odds').querySelectorAll('tbody .rolls-n')].map((n) => n.textContent)).toEqual(['10 rolls', '6 rolls', '3 rolls', '0 rolls']);
-      // The biggest share of a row is marked (ties both), the counts are in the tooltips.
-      expect([...panel('odds').querySelectorAll('tbody .p-red td.best')].map((d) => d.textContent)).toEqual(['50%', '50%']);
-      expect(panel('odds').querySelector('.p-yellow td:nth-child(7)')!.getAttribute('title')).toBe('3 of 3 rolls');
+      // The exact counts are on the page (a tooltip would not show on a phone), and read out in full.
+      expect(counts('red')).toEqual(['5', '5', '0', '0', '0', '0']);
+      expect(counts('yellow')).toEqual(['0', '0', '0', '0', '0', '3']);
+      expect(panel('odds').querySelector('.p-yellow td:nth-child(7) .sr-only')!.textContent).toBe(' of 3 rolls');
+      expect(panel('odds').querySelector('[title]')).toBeNull();
+      // A handful of rolls says nothing about the dice: no cell is marked.
+      expect(panel('odds').querySelectorAll('td.high, td.low')).toHaveLength(0);
       click('#tab-stats');
       expect(panel('stats').hidden).toBe(false);
       expect(panel('odds').hidden).toBe(true);
+    });
+
+    it('only shares a fair die rarely produces are marked, and only with enough rolls to tell', () => {
+      // 100 rolls: a fair die stays within about 17% ± 7 points. 30 sixes is far above, 4 ones far below.
+      withRolls({ red: [4, 17, 17, 16, 16, 30], green: [17, 17, 17, 17, 16, 16], yellow: [0, 0, 1, 0, 0, 8], blue: [3, 3, 3, 3, 3, 4] });
+      click('#tab-odds');
+      const marked = (c: string) => [...panel('odds').querySelectorAll(`tbody .p-${c} td`)].map((d) => (d.classList.contains('high') ? 'high' : d.classList.contains('low') ? 'low' : ''));
+      expect(marked('red')).toEqual(['low', '', '', '', '', 'high']);
+      expect(marked('green')).toEqual(['', '', '', '', '', '']); // an even row is not special
+      expect(marked('yellow')).toEqual(['', '', '', '', '', '']); // 9 rolls: too few to say
+      expect(marked('blue')).toEqual(['', '', '', '', '', '']); // 19 rolls: still too few
+      expect(panel('odds').querySelector('.p-red td.high .sr-only')!.textContent).toBe(' of 100 rolls, more often than a fair die usually does');
+      expect(panel('odds').querySelector('.p-red td.low .sr-only')!.textContent).toBe(' of 100 rolls, less often than a fair die usually does');
+      // The note says why: a few dozen rolls make lopsided rows normal, with the range for 40 rolls.
+      expect(panel('odds').querySelector('.odds-note')!.textContent).toMatch(/lopsided row is normal \(about 5–28% for 40 rolls\)/);
+      expect(panel('odds').querySelector('.odds-note')!.textContent).toContain('under 20 rolls nothing is marked');
     });
 
     it('the tabs are one keyboard group: one Tab stop, arrows and Home/End move', () => {

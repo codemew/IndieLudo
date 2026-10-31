@@ -374,7 +374,7 @@ describe.skipIf(!CHROME || !BUILT)('watching and bot battles', () => {
     // The second tab: everyone's rolls as percent per number, each row adding up to 100.
     await tap(carol, '#tab-odds');
     await carol.waitForSelector('#panel-odds:not([hidden])');
-    const odds = await carol.$$eval('.odds-table tbody tr', (rs) => rs.map((r) => [...r.querySelectorAll('td.odds')].map((d) => parseInt(d.textContent!, 10))));
+    const odds = await carol.$$eval('.odds-table tbody tr', (rs) => rs.map((r) => [...r.querySelectorAll('td.odds .pct')].map((d) => parseInt(d.textContent!, 10))));
     expect(odds).toHaveLength(4);
     for (const row of odds) expect(row.reduce((a, b) => a + b, 0)).toBe(100);
     expect(await carol.$eval('#panel-stats', (p) => (p as HTMLElement).hidden)).toBe(true);

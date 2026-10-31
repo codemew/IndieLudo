@@ -4,7 +4,7 @@ import { state, update } from '../store.js';
 import { KEYS, storage } from '../storage.js';
 import { gameAwards, playerStats, type Award } from '../../shared/awards.js';
 import { avatarFace } from '../../shared/avatars.js';
-import { rollCounts, rollShares } from '../../shared/rolls.js';
+import { MIN_ROLLS_FOR_LUCK, normalRange, rollCounts, rollOutliers, rollShares } from '../../shared/rolls.js';
 import { winnersOf } from '../../shared/rules.js';
 import type { Color } from '../../shared/types.js';
 import { $, esc } from '../ui.js';
@@ -159,11 +159,11 @@ function matchStats(
     .map((c, i) => {
       const shares = rollShares(counts[i]);
       const total = counts[i].reduce((a, b) => a + b, 0);
-      const top = Math.max(...shares);
+      const unusual = rollOutliers(counts[i]);
       return `
       <tr class="p-${c}">
         <th scope="row"><span class="st-dot"></span><span class="st-name">${nameOf(c)}</span><small class="rolls-n">${total} roll${total === 1 ? '' : 's'}</small></th>
-        ${shares.map((p, f) => `<td class="odds${total && p === top ? ' best' : ''}" style="--p:${p}" title="${counts[i][f]} of ${total} rolls"><span>${total ? `${p}%` : '–'}</span></td>`).join('')}
+        ${shares.map((p, f) => `<td class="odds${unusual[f] ? ` ${unusual[f]}` : ''}" style="--p:${p}">${total ? `<b class="pct">${p}%</b><small class="cnt">${counts[i][f]}<span class="sr-only"> of ${total} rolls${unusual[f] ? `, ${unusual[f] === 'high' ? 'more' : 'less'} often than a fair die usually does` : ''}</span></small>` : '<b class="pct">–</b>'}</td>`).join('')}
       </tr>`;
     })
     .join('');
@@ -172,7 +172,7 @@ function matchStats(
         <thead><tr><th></th>${[1, 2, 3, 4, 5, 6].map((f) => `<th scope="col">${f}s</th>`).join('')}</tr></thead>
         <tbody>${oddsRows}</tbody>
       </table>
-      <p class="odds-note">How each player's rolls split over the numbers. A fair die gives about 17% each; the biggest share in a row is highlighted.</p>`;
+      <p class="odds-note">How each player's rolls split over the numbers: the percent, and under it how many times. A fair die gives about 17% each, but with only a few dozen rolls a game a lopsided row is normal (about ${normalRange(40)[0]}–${normalRange(40)[1]}% for 40 rolls). Only a share further out than that is marked: <b class="hi-key">bold</b> for more often, <i>faded</i> for less${counts.some((c) => c.reduce((a, b) => a + b, 0) < MIN_ROLLS_FOR_LUCK) ? `; under ${MIN_ROLLS_FOR_LUCK} rolls nothing is marked` : ''}.</p>`;
   return `
     <section class="match-stats">
       ${awards.length ? `<h3>Awards</h3><ul class="awards">${awardRows}</ul>` : ''}

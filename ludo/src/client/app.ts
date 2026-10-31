@@ -70,6 +70,7 @@ export async function enterApp(): Promise<void> {
 interface PublicUser {
   id: number;
   username: string;
+  avatar?: string;
   gamesPlayed?: number;
   wins?: number;
 }

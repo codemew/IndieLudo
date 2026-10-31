@@ -115,6 +115,45 @@ describe('players renaming themselves', () => {
     expect(t.server.ctx.lobbies.get(lobbyId)!.spectators.map((s) => s.username)).toEqual(['Roberto']);
   });
 
+  it('avatars: set through the profile, shown in the lobby, the game and hello; bad ones rejected', async () => {
+    t = await startTestServer();
+    const alice = await client(t, 'alice');
+    const bob = await client(t, 'bob');
+    clients.push(alice, bob);
+    const patch = (body: unknown, session = alice.token) => http(t.base, 'PATCH', '/api/me', { session, body });
+    expect((await http(t.base, 'GET', '/api/me', { session: alice.token })).json.user.avatar).toBe('');
+    expect((await patch({ avatar: 'dragon' })).json).toEqual({ error: 'INVALID_AVATAR' });
+    expect((await patch({})).json).toEqual({ error: 'INVALID_USERNAME' });
+    expect(await patch({ avatar: 'fox' })).toMatchObject({ status: 200, json: { user: { username: 'alice', avatar: 'fox' } } });
+    expect((await http(t.base, 'GET', '/api/me', { session: alice.token })).json.user.avatar).toBe('fox');
+
+    // A bad name leaves the avatar alone (and the other way round).
+    expect((await patch({ username: 'x', avatar: 'cat' })).json).toEqual({ error: 'INVALID_USERNAME' });
+    expect((await http(t.base, 'GET', '/api/me', { session: alice.token })).json.user.avatar).toBe('fox');
+
+    // In a lobby: new joiners carry theirs, and a change shows up at once.
+    const lobbyId = await createLobby(alice);
+    expect(t.server.ctx.lobbies.get(lobbyId)!.members[0].avatar).toBe('fox');
+    expect(await patch({ avatar: 'panda' }, bob.token)).toMatchObject({ status: 200 });
+    await bob.emit('lobby:join', { lobbyId, password: 'pw' });
+    await bob.emit('lobby:ready', { ready: true });
+    const lobby = t.server.ctx.lobbies.get(lobbyId)!;
+    expect(lobby.members.map((m) => m.avatar)).toEqual(['fox', 'panda']);
+    await patch({ avatar: 'owl' });
+    expect(lobby.members[0].avatar).toBe('owl');
+    expect(t.server.ctx.lobbies.toPublic(lobby).members[0].avatar).toBe('owl');
+
+    // In a game: seats carry it, and a change reaches the other phone.
+    const first = alice.nextState();
+    await alice.emit('lobby:start', {});
+    const g = (await first).state;
+    expect(g.seats.map((s) => s.avatar)).toEqual(['owl', 'panda']);
+    // Taking it off again clears the seat on the other phone (5 edits is the per-minute limit).
+    const cleared = bob.nextState((u) => u.state.seats.every((seat) => seat.avatar !== 'owl'));
+    await patch({ avatar: '' });
+    expect((await cleared).state.seats.map((seat) => seat.avatar)).toEqual([undefined, 'panda']);
+  });
+
   it('rejects taken and invalid names, accounts-less admin sessions, and rapid renames', async () => {
     t = await startTestServer();
     const alice = await client(t, 'alice');

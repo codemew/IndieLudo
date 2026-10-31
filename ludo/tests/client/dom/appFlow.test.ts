@@ -160,6 +160,36 @@ describe('the app, end to end', () => {
     modalButton('Save');
     await waitFor('renamed', () => document.querySelector('#me-name')!.textContent === 'alice2');
     expect(toasts()).toContain("You're now alice2");
+    // Profile: pick an animal; the preview and the home tag change, only the avatar is sent.
+    click('#me');
+    await flush(80);
+    const grid = topModal().querySelector('.avatar-grid')!;
+    expect(grid.querySelectorAll('.avatar-opt').length).toBeGreaterThan(24);
+    expect(grid.querySelector('.avatar-opt.on')!.getAttribute('data-avatar')).toBe('');
+    expect(document.querySelector('#avatar')!.textContent).toBe('A');
+    click('.avatar-opt[data-avatar="cat"]', topModal());
+    expect(topModal().querySelector('#avatar-preview')!.textContent).toBe('🐱');
+    expect(grid.querySelector('.avatar-opt.on')!.getAttribute('aria-checked')).toBe('true');
+    let sent: unknown;
+    http['PATCH /api/me'] = (b) => ((sent = b), [200, { user: { id: 1, username: 'alice2', avatar: 'cat' } }]);
+    modalButton('Save');
+    await waitFor('the avatar', () => document.querySelector('#avatar')!.textContent === '🐱');
+    expect(sent).toEqual({ avatar: 'cat' });
+    expect(document.querySelector('#avatar')!.classList.contains('has-avatar')).toBe(true);
+    // Saving nothing new sends nothing; a rejected avatar shows its message and keeps the dialog.
+    click('#me');
+    await flush(80);
+    sent = undefined;
+    modalButton('Save');
+    await flush(40);
+    expect(sent).toBeUndefined();
+    click('#me');
+    await flush(80);
+    click('.avatar-opt[data-avatar="dog"]', topModal());
+    http['PATCH /api/me'] = () => [400, { error: 'INVALID_AVATAR' }];
+    modalButton('Save');
+    await waitFor('the error', () => topModal().querySelector('.form-error')!.textContent === 'That avatar is not available.');
+    modalButton('Cancel');
     // Create a lobby: checked first, then sent.
     click('#create');
     await flush(10);

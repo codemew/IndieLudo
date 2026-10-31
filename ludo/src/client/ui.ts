@@ -54,6 +54,7 @@ const ERRORS: Record<string, string> = {
   INVALID_USERNAME: 'Use 3–16 letters, numbers or _.',
   USERNAME_RESERVED: 'That name is reserved. Pick another.',
   USERNAME_TAKEN: 'That name is taken.',
+  INVALID_AVATAR: 'That avatar is not available.',
   DEVICE_NOT_VERIFIED: 'This device needs the access code first.',
   WRONG_PASSWORD: 'Wrong admin password.',
   WRONG_CREATE_PASSWORD: 'Wrong lobby creation password.',

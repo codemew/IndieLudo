@@ -24,9 +24,13 @@ export interface Lobby {
   size?: BoardSize;
 }
 
+/** `{ avatar }` for a member or spectator, or nothing when there is none (keeps saved lobbies small). */
+const avatarOf = (who: { avatar?: string }): { avatar?: string } => (who.avatar ? { avatar: who.avatar } : {});
+
 export interface LobbyUser {
   id: number;
   username: string;
+  avatar?: string;
 }
 
 export interface LobbyManagerOptions {
@@ -185,7 +189,7 @@ export class LobbyManager {
       name,
       hostId: user.id,
       passwordHash: hashLobbyPassword(input.password),
-      members: [{ color: this.randomColor(boardOf(4).colors), userId: user.id, username: user.username, isBot: false, ready: false, connected: true }],
+      members: [{ color: this.randomColor(boardOf(4).colors), userId: user.id, username: user.username, ...avatarOf(user), isBot: false, ready: false, connected: true }],
       spectators: [],
       status: 'waiting',
       gameId: null,
@@ -214,8 +218,8 @@ export class LobbyManager {
       if (lobby.members.length >= sizeOf(lobby)) throw new AppError('LOBBY_FULL', 409);
     }
     this.leaveWaitingLobby(user.id);
-    if (watch) lobby.spectators.push({ userId: user.id, username: user.username, connected: true });
-    else lobby.members.push({ color: this.freeColor(lobby), userId: user.id, username: user.username, isBot: false, ready: false, connected: true });
+    if (watch) lobby.spectators.push({ userId: user.id, username: user.username, ...avatarOf(user), connected: true });
+    else lobby.members.push({ color: this.freeColor(lobby), userId: user.id, username: user.username, ...avatarOf(user), isBot: false, ready: false, connected: true });
     this.byUser.set(user.id, lobby.id);
     this.changed(lobby);
     return lobby;
@@ -255,7 +259,7 @@ export class LobbyManager {
     if (lobby.spectators.length >= MAX_SPECTATORS) throw new AppError('TOO_MANY_WATCHING', 409);
     this.dropSwaps((r) => r.from === userId || r.to === userId, 'cancelled');
     lobby.members = lobby.members.filter((m) => m !== member);
-    lobby.spectators.push({ userId, username: member.username, connected: member.connected });
+    lobby.spectators.push({ userId, username: member.username, ...avatarOf(member), connected: member.connected });
     this.changed(lobby);
     return lobby;
   }
@@ -269,7 +273,7 @@ export class LobbyManager {
     if (!colorsOf(lobby).includes(color)) throw new AppError('INVALID_COLOR');
     if (lobby.members.some((m) => m.color === color)) throw new AppError('COLOR_TAKEN', 409);
     lobby.spectators = lobby.spectators.filter((s) => s !== spectator);
-    lobby.members.push({ color, userId, username: spectator.username, isBot: false, ready: false, connected: spectator.connected });
+    lobby.members.push({ color, userId, username: spectator.username, ...avatarOf(spectator), isBot: false, ready: false, connected: spectator.connected });
     this.changed(lobby);
     return lobby;
   }
@@ -501,11 +505,14 @@ export class LobbyManager {
     this.changed(lobby);
   }
 
-  renameUser(userId: number, username: string): void {
+  /** The player changed their name or avatar: the lobby they are in shows it right away. */
+  updateUser(userId: number, profile: { username: string; avatar?: string }): void {
     const lobby = this.forUser(userId);
     const member = lobby?.members.find((m) => m.userId === userId) ?? lobby?.spectators.find((s) => s.userId === userId);
     if (!lobby || !member) return;
-    member.username = username;
+    member.username = profile.username;
+    if (profile.avatar) member.avatar = profile.avatar;
+    else delete member.avatar;
     this.changed(lobby);
   }
 

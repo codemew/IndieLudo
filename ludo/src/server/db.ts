@@ -44,6 +44,8 @@ const MIGRATIONS: string[] = [
      updated_at INTEGER NOT NULL,
      finished INTEGER NOT NULL DEFAULT 0
    );`,
+  // Profile avatars (shared/avatars.ts ids; '' = none, the initial is shown).
+  `ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT '';`,
 ];
 
 export function openDb(path: string): DB {

@@ -1,3 +1,4 @@
+import { AVATARS, avatarFace } from '../../shared/avatars.js';
 import { MAX_SPECTATORS, type LobbySummary, type PublicLobby } from '../../shared/types.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
@@ -15,7 +16,7 @@ import { adminLoginDialog } from './admin.js';
 export function homeScreen(root: HTMLElement): () => void {
   root.innerHTML = `
     <header class="topbar">
-      <button class="me" id="me" aria-label="Change your name">
+      <button class="me" id="me" aria-label="Edit your profile">
         <div class="avatar" id="avatar"></div>
         <div>
           <div class="me-name"><span id="me-name"></span> <span class="me-edit" aria-hidden="true">✎</span></div>
@@ -47,7 +48,7 @@ export function homeScreen(root: HTMLElement): () => void {
     play('tap');
   };
   $(root, '#menu').onclick = () => openMenu();
-  $(root, '#me').onclick = () => renameDialog();
+  $(root, '#me').onclick = () => profileDialog();
   $(root, '#create').onclick = () => createLobbyDialog();
 
   const offFs = bindFullscreenButton($<HTMLButtonElement>(root, '#fullscreen'));
@@ -57,7 +58,9 @@ export function homeScreen(root: HTMLElement): () => void {
   const render = () => {
     const u = state.user;
     if (u) {
-      $(root, '#avatar').textContent = u.username[0]?.toUpperCase() ?? '?';
+      const av = $(root, '#avatar');
+      av.textContent = avatarFace(u.avatar, u.username);
+      av.classList.toggle('has-avatar', Boolean(u.avatar));
       $(root, '#me-name').textContent = u.username;
       $(root, '#me-stats').textContent = u.gamesPlayed !== undefined ? `${u.wins ?? 0} wins · ${u.gamesPlayed} games` : '';
     }
@@ -196,45 +199,78 @@ function openMenu(): void {
     };
     body.appendChild(b);
   };
-  item('✎ Change my name', () => renameDialog());
+  item('✎ Edit my profile', () => profileDialog());
   if (canInstall()) item('📲 Install app (fullscreen, no browser bars)', () => void promptInstall());
   item(state.isAdmin ? '🛡️ Admin panel' : '🛡️ Admin login', () => (state.isAdmin ? go('admin') : adminLoginDialog()));
   item('↩ Sign out on this phone', () => void logout());
 }
 
-/** Tap your name or avatar: pick a new name. Lobbies and games you're in update for everyone. */
-function renameDialog(): void {
+/**
+ * Tap your name tag: pick an avatar (an animal or pet) and/or a new name. Lobbies and games you're
+ * in show the change for everyone right away.
+ */
+function profileDialog(): void {
   const user = state.user;
   if (!user) return;
+  let avatar = user.avatar ?? '';
   const body = el(`
-    <form class="form" autocomplete="off">
+    <form class="form profile-form" autocomplete="off">
+      <div class="avatar avatar-lg" id="avatar-preview" aria-hidden="true"></div>
+      <div class="avatar-grid" role="radiogroup" aria-label="Avatar"></div>
       <label class="field">
-        <span>New name</span>
+        <span>Name</span>
         <input class="input" name="username" value="${esc(user.username)}" maxlength="16" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
       </label>
       <p class="muted small">3–16 letters, numbers or _</p>
       <p class="form-error"></p>
     </form>`);
   const input = $<HTMLInputElement>(body, 'input');
+  const grid = $(body, '.avatar-grid');
+  const preview = $(body, '#avatar-preview');
+  const paint = () => {
+    const name = input.value.trim() || user.username;
+    preview.textContent = avatarFace(avatar, name);
+    preview.classList.toggle('has-avatar', Boolean(avatar));
+    for (const b of grid.querySelectorAll<HTMLButtonElement>('.avatar-opt')) {
+      const on = b.dataset.avatar === avatar;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', String(on));
+    }
+  };
+  const option = (id: string, label: string, face: string) => {
+    const b = el<HTMLButtonElement>(`<button type="button" class="avatar-opt" role="radio" data-avatar="${id}" aria-label="${esc(label)}" title="${esc(label)}">${esc(face)}</button>`);
+    b.onclick = () => {
+      avatar = id;
+      paint();
+    };
+    grid.appendChild(b);
+  };
+  option('', 'No avatar (first letter of your name)', user.username[0]?.toUpperCase() ?? '?');
+  for (const a of AVATARS) option(a.id, a.name, a.emoji);
+  input.addEventListener('input', paint);
+  paint();
+
   const save = async () => {
     const username = input.value.trim();
-    if (username === user.username) return true;
+    const patch: { username?: string; avatar?: string } = {};
+    if (username !== user.username) patch.username = username;
+    if (avatar !== (user.avatar ?? '')) patch.avatar = avatar;
+    if (!Object.keys(patch).length) return true;
     try {
-      const r = await api<{ user: NonNullable<typeof state.user> }>('PATCH', '/me', { username });
+      const r = await api<{ user: NonNullable<typeof state.user> }>('PATCH', '/me', patch);
       update({ user: { ...user, ...r.user } });
-      toast(`You're now ${r.user.username}`, 'success');
+      toast(patch.username ? `You're now ${r.user.username}` : 'Avatar saved', 'success');
       return true;
     } catch (e) {
       $(body, '.form-error').textContent = errorText((e as ApiError).code);
       return false;
     }
   };
-  const m = modal({ title: 'Change your name', body, actions: [{ label: 'Cancel' }, { label: 'Save', kind: 'primary', onClick: save }] });
+  const m = modal({ title: 'Your profile', body, actions: [{ label: 'Cancel' }, { label: 'Save', kind: 'primary', onClick: save }] });
   body.addEventListener('submit', (e) => {
     e.preventDefault();
     void save().then((ok) => ok && m.close());
   });
-  setTimeout(() => input.select(), 50);
 }
 
 /**

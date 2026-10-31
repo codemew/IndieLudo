@@ -383,3 +383,78 @@ describe.skipIf(!CHROME || !BUILT)('surrendering', () => {
     expect(t.errors).toEqual([]);
   });
 });
+
+describe.skipIf(!CHROME || !BUILT)('avatars', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let alice: Page;
+  let bob: Page;
+  beforeAll(async () => {
+    t = await setup();
+    [alice, bob] = await Promise.all([t.phone('alice'), t.phone('bob')]);
+  });
+  afterAll(() => t?.close());
+
+  const face = (p: Page, sel: string) => p.$eval(sel, (e) => e.textContent);
+  const pick = async (p: Page, id: string) => {
+    await tap(p, '#me');
+    await p.waitForSelector('.avatar-grid');
+    await sleep(300);
+    await tap(p, `.avatar-opt[data-avatar="${id}"]`);
+  };
+
+  it('the profile editor offers many animals; the pick shows on the home screen after saving', async () => {
+    await tap(alice, '#me');
+    await alice.waitForSelector('.avatar-grid');
+    await sleep(400);
+    expect(await alice.$$eval('.avatar-opt', (o) => o.length)).toBeGreaterThan(24);
+    // Every option is a comfortable tap target and the grid fits inside the screen width.
+    const small = await alice.$$eval('.avatar-opt', (o) => o.filter((b) => b.getBoundingClientRect().width < 44 || b.getBoundingClientRect().right > innerWidth).length);
+    expect(small).toBe(0);
+    await shot(alice, 'avatars-editor');
+    await tap(alice, '.avatar-opt[data-avatar="fox"]');
+    expect(await face(alice, '#avatar-preview')).toBe('🦊');
+    await tap(alice, '.modal .btn-primary');
+    await until('the home tag', async () => (await face(alice, '#avatar')) === '🦊');
+    await sleep(400);
+    await shot(alice, 'avatars-home');
+    // It is remembered on the server: another visit starts with it selected.
+    await tap(alice, '#me');
+    await alice.waitForSelector('.avatar-opt.on');
+    expect(await alice.$eval('.avatar-opt.on', (b) => (b as HTMLElement).dataset.avatar)).toBe('fox');
+    await tap(alice, '.modal .btn-ghost');
+    await sleep(300);
+    await pick(bob, 'panda');
+    await tap(bob, '.modal .btn-primary');
+    await until('bob\'s tag', async () => (await face(bob, '#avatar')) === '🐼');
+  });
+
+  it('shows above the player card in the lobby on every phone, and on the game chips', async () => {
+    await tap(alice, '#create');
+    await alice.waitForSelector('.modal [name=name]');
+    await alice.type('.modal [name=name]', 'Family');
+    await alice.type('.modal [name=password]', 'pw');
+    await alice.type('.modal [name=createPassword]', 'create');
+    await tap(alice, '.modal .btn-primary');
+    await alice.waitForSelector('.screen-lobby');
+    await bob.waitForSelector('.lobby-card');
+    await tap(bob, '.lobby-card');
+    await bob.waitForSelector('.modal input');
+    await bob.type('.modal input', 'pw');
+    await tap(bob, '.modal .btn-primary');
+    await bob.waitForSelector('.screen-lobby');
+    const tokens = (p: Page) => p.$$eval('.seat:not(.seat-open) .seat-token', (ts) => ts.map((x) => x.textContent).sort());
+    for (const p of [alice, bob]) await until('both animals', async () => (await tokens(p)).join() === ['🐼', '🦊'].sort().join());
+    await shot(alice, 'avatars-lobby');
+    await tap(bob, '#actions .btn-primary');
+    await until('ready', async () => !(await alice.$eval('#start', (b) => (b as HTMLButtonElement).disabled)));
+    await tap(alice, '#start');
+    await Promise.all([alice, bob].map((p) => p.waitForSelector('.screen-game .pchip')));
+    for (const p of [alice, bob]) {
+      const dots = await p.$$eval('.pchip:not(.pchip-empty) .pchip-dot', (d) => d.map((x) => x.textContent).sort());
+      expect(dots.join()).toBe(['🐼', '🦊'].sort().join());
+    }
+    await sleep(500);
+    await shot(alice, 'avatars-game');
+    expect(t.errors).toEqual([]);
+  });
+});

@@ -103,7 +103,8 @@ npm run typecheck
    - **Certificate:** Chrome only offers to install over a trusted certificate (mkcert or a real one; see [HTTPS](#https)), not the self‑signed one.
 2. **Access code:** a new phone enters the 6‑digit code from the terminal. **Each phone needs a code only once.** The phone gets a permanent device token, saved in `localStorage` and in an HttpOnly cookie. It stays verified when the code changes, when the server restarts, and when its account is deleted or its session revoked. The code is needed again only if an admin taps **Revoke device**, or if the browser's data is cleared.
 3. **Name:** the player picks a username. There is no password, and the phone remembers the session, so reopening the page goes straight into the app.
-   - **Changing it later:** tap your name or avatar at the top of the home screen. Your seat in the lobby, and in a game in progress, shows the new name to everyone at once.
+   - **Changing it later:** tap your name tag at the top of the home screen (or ⋯ → Edit my profile). Your seat in the lobby, and in a game in progress, shows the new name to everyone at once.
+   - **Avatars:** the same profile screen has 36 animals and pets to pick from (or none, to keep the first letter of your name). Your pick shows on the home screen and above your seat in the lobby, on your player card in the game and on the results podium, on every phone, and changes there the moment you save it. Bots keep the 🤖.
 4. **Lobby:**
    - Creating a lobby needs the `lobbyCreatePassword` from `config.json` and a lobby password of the creator's choosing. Friends join with that lobby password.
    - Everyone, the host included, starts on a random free colour, picked by the server. Players can then move or swap, and tap ready. The host can add a bot to any open seat with that seat's **＋ Bot** (a bot is always named after its seat, e.g. "Bot Green"), and then start the game.

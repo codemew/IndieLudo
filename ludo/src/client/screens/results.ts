@@ -3,6 +3,7 @@ import { play } from '../sound.js';
 import { state, update } from '../store.js';
 import { KEYS, storage } from '../storage.js';
 import { gameAwards, playerStats, type Award } from '../../shared/awards.js';
+import { avatarFace } from '../../shared/avatars.js';
 import { winnersOf } from '../../shared/rules.js';
 import type { Color } from '../../shared/types.js';
 import { $, esc } from '../ui.js';
@@ -30,7 +31,7 @@ export function resultsScreen(root: HTMLElement): void {
       return `
         <li class="podium-row p-${color}${g.teams ? ' team-row' : ''}" style="animation-delay:${200 + i * 140}ms">
           <span class="place">${g.teams ? (winners.includes(color) ? '1st' : '2nd') : PLACES[i]}</span>
-          <span class="pchip-dot">${seat.controller === 'bot' ? '🤖' : esc(seat.username[0]?.toUpperCase() ?? '')}</span>
+          <span class="pchip-dot${seat.avatar && seat.controller !== 'bot' ? ' has-avatar' : ''}">${seat.controller === 'bot' ? '🤖' : esc(avatarFace(seat.avatar, seat.username))}</span>
           <span class="podium-who">
             <span class="podium-name"><span class="pn-text">${esc(seat.username)}</span>${color === myColor ? '<em>you</em>' : ''}${g.surrendered?.includes(color) ? '<span title="Surrendered">🏳️</span>' : ''}</span>
             ${awardsOf(color).length ? `<span class="podium-awards">${awardsOf(color).map((a) => `<span title="${a.title}">${awardIcon(a)}</span>`).join('')}</span>` : ''}

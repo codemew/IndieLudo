@@ -4389,3 +4389,86 @@ polygon.b-inner {
     transform: scale(1);
   }
 }
+
+/* ---------- avatars (animals and pets, shared/avatars.ts) ---------- */
+
+/* An emoji face fills its circle: a larger glyph on a soft tint instead of a bold white initial. */
+.avatar.has-avatar,
+.seat-token.has-avatar,
+.pchip-dot.has-avatar,
+.watcher-dot.has-avatar {
+  font-weight: 400;
+  line-height: 1;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+}
+.avatar.has-avatar {
+  font-size: 28px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08)), var(--bg-2);
+  border: 2px solid var(--border);
+}
+.seat-token.has-avatar {
+  font-size: 32px;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75) 0, rgba(255, 255, 255, 0.25) 55%), var(--c);
+}
+.pchip-dot.has-avatar {
+  font-size: 18px;
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75) 0, rgba(255, 255, 255, 0.25) 55%), var(--c);
+}
+.watcher-dot.has-avatar {
+  font-size: 17px;
+}
+
+/* The profile editor: a preview, then a grid of big, evenly spaced faces. */
+.profile-form {
+  gap: 12px;
+}
+.avatar-lg {
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  font-size: 32px;
+  margin: 0 auto;
+}
+.avatar-lg.has-avatar {
+  font-size: 44px;
+}
+.avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 8px;
+  max-height: 34vh;
+  overflow-y: auto;
+  padding: 4px;
+  overscroll-behavior: contain;
+}
+.avatar-opt {
+  aspect-ratio: 1;
+  min-height: 48px;
+  border-radius: 14px;
+  border: 2px solid transparent;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  transition: transform 0.12s, background 0.12s;
+}
+.avatar-opt:first-child {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 18px;
+}
+.avatar-opt:active {
+  transform: scale(0.92);
+}
+.avatar-opt.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface));
+}
+.avatar-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

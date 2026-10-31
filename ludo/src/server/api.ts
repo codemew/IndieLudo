@@ -2,8 +2,10 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { adminRouter } from './admin.js';
 import type { Ctx } from './context.js';
 import { AppError } from './errors.js';
+import { isAvatarId } from '../shared/avatars.js';
 import { safeEqual } from './lobbies.js';
 import { RateLimiter } from './rateLimit.js';
+import type { User } from './users.js';
 import type { Device, ResolvedSession } from './sessions.js';
 
 export const DEVICE_COOKIE = 'ludo_device';
@@ -142,20 +144,29 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
     next();
   });
 
+  const publicUser = (u: User) => ({ id: u.id, username: u.username, avatar: u.avatar, gamesPlayed: u.games_played, wins: u.wins });
+
   api.get('/me', (_req, res) => {
     const { user, isAdmin } = locals(res).auth!;
-    res.json({ user: user && { id: user.id, username: user.username, gamesPlayed: user.games_played, wins: user.wins }, isAdmin });
+    res.json({ user: user && publicUser(user), isAdmin });
   });
 
-  // Players rename themselves; lobbies and games in progress show the new name right away.
+  // Players edit their profile (a new name and/or an avatar); lobbies and games in progress show it right away.
   api.patch('/me', (req, res) => {
     const { user } = locals(res).auth!;
     if (!user) throw new AppError('NOT_FOUND', 404);
+    const { username, avatar } = (req.body ?? {}) as { username?: unknown; avatar?: unknown };
+    if (username === undefined && avatar === undefined) throw new AppError('INVALID_USERNAME');
     if (!renameLimiter.hit(String(user.id))) throw new AppError('RATE_LIMITED', 429);
-    const renamed = ctx.users.rename(user.id, req.body?.username);
-    ctx.lobbies.renameUser(user.id, renamed.username);
-    ctx.games.renameUser(user.id, renamed.username);
-    res.json({ user: { id: renamed.id, username: renamed.username, gamesPlayed: renamed.games_played, wins: renamed.wins } });
+    // Check both before changing either, so a bad avatar doesn't leave a half-done edit.
+    if (avatar !== undefined && avatar !== '' && !isAvatarId(avatar)) throw new AppError('INVALID_AVATAR');
+    let updated = user;
+    if (username !== undefined) updated = ctx.users.rename(user.id, username);
+    if (avatar !== undefined) updated = ctx.users.setAvatar(user.id, avatar);
+    const profile = { username: updated.username, avatar: updated.avatar };
+    ctx.lobbies.updateUser(user.id, profile);
+    ctx.games.updateUser(user.id, profile);
+    res.json({ user: publicUser(updated) });
   });
 
   api.post('/logout', (_req, res) => {

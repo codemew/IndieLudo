@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDb, type DB } from '../src/server/db.js';
 import { DeviceService, SessionService, hashToken } from '../src/server/sessions.js';
+import { AVATARS, avatarFace, isAvatarId } from '../src/shared/avatars.js';
 import { UserService, validateUsername } from '../src/server/users.js';
 
 let db: DB;
@@ -13,6 +14,32 @@ beforeEach(() => {
   users = new UserService(db);
   devices = new DeviceService(db);
   sessions = new SessionService(db);
+});
+
+describe('avatars', () => {
+  it('starts with none; accepts a known animal or pet, or none again; rejects anything else', () => {
+    const u = users.create('dave');
+    expect(u.avatar).toBe('');
+    expect(users.setAvatar(u.id, 'fox').avatar).toBe('fox');
+    expect(users.get(u.id)!.avatar).toBe('fox');
+    for (const bad of ['dragon', 'FOX', '🦊', 42, null, undefined, {}]) {
+      expect(() => users.setAvatar(u.id, bad)).toThrow('INVALID_AVATAR');
+    }
+    expect(users.get(u.id)!.avatar).toBe('fox');
+    expect(users.setAvatar(u.id, '').avatar).toBe('');
+    expect(() => users.setAvatar(999, 'cat')).toThrow('NOT_FOUND');
+  });
+
+  it('every avatar has a unique id and a face; the face falls back to the initial', () => {
+    expect(AVATARS.length).toBeGreaterThanOrEqual(24);
+    expect(new Set(AVATARS.map((a) => a.id)).size).toBe(AVATARS.length);
+    expect(new Set(AVATARS.map((a) => a.emoji)).size).toBe(AVATARS.length);
+    for (const a of AVATARS) expect(isAvatarId(a.id)).toBe(true);
+    expect(avatarFace('dog', 'zed')).toBe('🐶');
+    expect(avatarFace('', 'zed')).toBe('Z');
+    expect(avatarFace('gone', 'zed')).toBe('Z');
+    expect(avatarFace(undefined, '')).toBe('');
+  });
 });
 
 describe('usernames', () => {

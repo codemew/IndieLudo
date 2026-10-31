@@ -225,7 +225,7 @@ describe('the board and the dock', () => {
 });
 
 describe('choosing a token', () => {
-  it('stacked tokens with different moustaches: a picker with both, large', async () => {
+  it('stacked tokens with different moustaches: a small bubble on the square with both, and no words', async () => {
     const g = newGame();
     g.tokens.red = [8, 8, B, B];
     g.kills = { red: [3, 0, 0, 0] };
@@ -233,17 +233,51 @@ describe('choosing a token', () => {
     await step((s) => applyRoll(s, 3), 200);
     token('red', 1).click();
     await flush();
-    const cards = [...document.querySelectorAll<HTMLElement>('.stack-opt')].map((c) => [c.dataset.token, c.querySelector('b')!.textContent]);
+    // A bubble over the board, not a sheet: no dialog, no title, no captions.
+    expect(document.querySelector('.modal')).toBeNull();
+    const bubble = document.querySelector<HTMLElement>('#bubbles .stack-bubble')!;
+    expect(bubble).not.toBeNull();
+    expect(bubble.textContent!.trim()).toBe('');
+    const cards = [...bubble.querySelectorAll<HTMLElement>('.stack-opt')].map((c) => [c.dataset.token, c.getAttribute('aria-label')]);
     expect(cards).toEqual([
       ['0', '3 captures'],
       ['1', 'Clean-shaven'],
     ]);
     click('.stack-opt[data-token="1"]');
     await flush();
+    expect(document.querySelector('.stack-bubble')).toBeNull();
     expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 1 });
-    // A resync closes a picker that is still open.
+    // The game moving on (a newer version, e.g. the timer played the turn) closes a bubble that is still open.
     token('red', 0).click();
-    resync(structuredClone(current));
+    await flush();
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    const next = structuredClone(current);
+    next.version++;
+    resync(next);
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+  });
+
+  it('the token bubble closes on Escape and on a tap outside it, and a tap inside does not close it early', async () => {
+    const g = newGame();
+    g.tokens.red = [8, 8, B, B];
+    g.kills = { red: [3, 0, 0, 0] };
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    const open = async () => {
+      token('red', 1).click();
+      await flush();
+      expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    };
+    await open();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(sentOf('game:move')).toHaveLength(0);
+    await open();
+    document.querySelector('.stack-bubble')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    document.querySelector('#board')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(sentOf('game:move')).toHaveLength(0);
   });
 
   it('at its home turn: head home or go round again, from the sheet or the board markers', async () => {

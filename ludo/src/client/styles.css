@@ -3695,15 +3695,13 @@ button.me:active {
   color: #f59e0b;
   font-weight: 700;
 }
-.wc-cards,
-.stack-choice {
+.wc-cards {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
   justify-content: center;
 }
-.wc-card,
-.stack-opt {
+.wc-card {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3717,8 +3715,7 @@ button.me:active {
   font: inherit;
   cursor: pointer;
 }
-.wc-card small,
-.stack-opt small {
+.wc-card small {
   font-size: 12px;
   color: var(--muted);
 }
@@ -3726,8 +3723,7 @@ button.me:active {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
-.wc-card:active,
-.stack-opt:active {
+.wc-card:active {
   transform: scale(0.96);
 }
 /* A token drawn on its own, with its moustache, for the pickers. */
@@ -4280,5 +4276,102 @@ polygon.b-inner {
 @media (prefers-reduced-motion: reduce) {
   .base-dice {
     transition: none;
+  }
+}
+
+/* ---------- the token bubble: a comic-book speech bubble on the square (game.ts chooseStacked) ---------- */
+
+.bubble-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+.stack-bubble {
+  position: absolute;
+  pointer-events: auto;
+  padding: 10px 12px;
+  border-radius: 20px;
+  /* See-through, with a soft blur of the board behind it. */
+  background: rgba(14, 20, 44, 0.5);
+  -webkit-backdrop-filter: blur(7px) saturate(1.2);
+  backdrop-filter: blur(7px) saturate(1.2);
+  border: 2.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 22px -6px rgba(0, 0, 0, 0.55);
+  transform-origin: var(--tail-x, 50%) 100%;
+  animation: bubble-pop 0.16s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.stack-bubble.below {
+  transform-origin: var(--tail-x, 50%) 0;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .stack-bubble {
+    background: rgba(14, 20, 44, 0.82);
+  }
+}
+.stack-row {
+  display: flex;
+  gap: 10px;
+}
+/* The tail: a white triangle with the bubble's tint on top, pointing at the square. */
+.stack-tail {
+  position: absolute;
+  left: var(--tail-x, 50%);
+  top: 100%;
+  width: 22px;
+  height: 12px;
+  margin: 0 0 0 -11px;
+  background: rgba(255, 255, 255, 0.9);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.stack-tail::after {
+  content: '';
+  position: absolute;
+  inset: 0 3px 3.5px;
+  background: rgba(14, 20, 44, 0.78);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.stack-bubble.below .stack-tail {
+  top: auto;
+  bottom: 100%;
+  transform: rotate(180deg);
+}
+/* 48 px targets, 10 px apart: far bigger than the board's stacked tokens, so a tap lands on the one meant. */
+.stack-opt {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.stack-opt .mini-token {
+  margin: 0;
+}
+.stack-opt:active .mini-token {
+  transform: scale(0.92);
+}
+.stack-opt:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+/* A token on its last lap wears the same dashed white ring as on the board. */
+.stack-opt.last-lap .tok-body {
+  outline: 2px dashed #fff;
+  outline-offset: 1.5px;
+}
+@keyframes bubble-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }

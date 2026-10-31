@@ -179,15 +179,31 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(await alice.$$('.token.legal')).toHaveLength(2);
     await sleep(1500); // longer than the 0.7 s auto-move
     expect(game.tokens[a].slice(0, 2)).toEqual([8, 8]);
-    // Stacked tokens are small on a phone: tapping either opens a picker with both, large.
+    // Stacked tokens are small on a phone: tapping either opens a small bubble on the square with both, large.
     await tapToken(1);
-    await alice.waitForSelector('.stack-opt');
-    const cards = await alice.$$eval('.stack-opt', (cs) => cs.map((c) => [(c as HTMLElement).dataset.token, c.querySelector('b')!.textContent]));
+    await alice.waitForSelector('.stack-bubble .stack-opt');
+    const cards = await alice.$$eval('.stack-opt', (cs) => cs.map((c) => [(c as HTMLElement).dataset.token, c.getAttribute('aria-label')!.replace(/, last lap$/, '')])); // (an earlier test may have left a last lap on a token)
     expect(cards).toEqual([
       ['0', '3 captures'],
       ['1', 'Clean-shaven'],
     ]);
     expect(await alice.$$eval('.stack-opt .mini-token .tok-stache', (s) => s.length)).toBe(1); // only the macho one wears a moustache
+    // Not a sheet over the screen: a small bubble, on the screen, over the board, with no words and no dialog.
+    const box = await alice.$eval('.stack-bubble', (b) => {
+      const r = b.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: innerWidth, h: innerHeight, text: b.textContent!.trim(), inBoard: Boolean(b.closest('#board')) };
+    });
+    expect(box.inBoard).toBe(true);
+    expect(box.text).toBe('');
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(box.w);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.bottom).toBeLessThanOrEqual(box.h);
+    expect(box.right - box.left).toBeLessThan(box.w * 0.7);
+    expect(await alice.$('.modal')).toBeNull();
+    const taps = await alice.$$eval('.stack-opt', (os) => os.map((o) => o.getBoundingClientRect()).map((r) => [r.width, r.height, r.left, r.right]));
+    expect(Math.min(...taps.map((t) => Math.min(t[0], t[1])))).toBeGreaterThanOrEqual(44); // big enough for a thumb
+    expect(taps[1][2] - taps[0][3]).toBeGreaterThanOrEqual(8); // and apart: no mistaken taps
     await shot(alice, 'stack-picker');
     await tap(alice, '.stack-opt[data-token="1"]'); // sacrifice the clean-shaven one
     await until('the move', () => game.tokens[a][1] === 11);

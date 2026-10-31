@@ -9,6 +9,9 @@ import { BASE as B, HOME, absoluteSquare, isSafeSquare } from '../src/shared/boa
 import type { Color, GameState } from '../src/shared/types.js';
 import { BUILT, CHROME, seats, setup, shot, sleep, tap, until } from './helpers.js';
 
+/** Waits until the bubble's pop-in animation is over: its size is read mid-animation otherwise. */
+const settled = (p: Page) => p.waitForFunction(() => document.querySelector('.stack-bubble')!.getAnimations().every((a) => a.playState === 'finished'));
+
 /** Where the board sits on screen; it must never move while a game is on. */
 const boardBox = (p: Page) => p.$eval('#board', (b) => { const r = b.getBoundingClientRect(); return `${Math.round(r.top)}/${Math.round(r.height)}`; });
 
@@ -113,9 +116,12 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
 
     await tapToken(0);
     await alice.waitForSelector('.stack-bubble .lap-opt');
+    await settled(alice);
     // A small bubble on the token's square, with two pictures and no words, coloured like the board's trails.
+    // The words are in the labels: how far home is, and what going round again costs.
     const cards = await alice.$$eval('.lap-opt', (cs) => cs.map((c) => c.getAttribute('aria-label')));
-    expect(cards).toEqual(['Head home', 'Go round again']);
+    expect(cards[0]).toMatch(/^Head home, \d+ squares? to finish$/);
+    expect(cards[1]).toBe("Go round again, uses this token's extra lap so it can't make a wildcard entry later");
     const look = await alice.evaluate(() => {
       const b = document.querySelector('.stack-bubble')!;
       const r = b.getBoundingClientRect();
@@ -171,6 +177,22 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     expect(await alice.$('.stack-bubble')).toBeNull();
   });
 
+  it('a real touch on a board marker while the bubble is open makes that move (the bubble must not cover it)', async () => {
+    await roll(5, [B, 48, B, B]);
+    await tapToken(1);
+    await alice.waitForSelector('.stack-bubble .lap-opt');
+    await settled(alice);
+    const at = await alice.$eval('.target.round[data-token="1"]', (m) => {
+      const r = m.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    const hit = await alice.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('.target')), at);
+    expect(hit, 'the gold or blue marker is what is under the finger, not the bubble').toBe(true);
+    await alice.touchscreen.tap(at.x, at.y);
+    await until('the move', () => game.tokens[a][1] === 59);
+    expect(await alice.$('.stack-bubble')).toBeNull();
+  });
+
   it('landing on two opponent tokens on an ordinary square captures both, and the moustache grows two levels', async () => {
     await aliceTurn();
     const land = absoluteSquare(a, 5)!;
@@ -205,6 +227,7 @@ describe.skipIf(!CHROME || !BUILT)('the second lap and the macho award', () => {
     // Stacked tokens are small on a phone: tapping either opens a small bubble on the square with both, large.
     await tapToken(1);
     await alice.waitForSelector('.stack-bubble .stack-opt');
+    await settled(alice);
     const cards = await alice.$$eval('.stack-opt', (cs) => cs.map((c) => [(c as HTMLElement).dataset.token, c.getAttribute('aria-label')!.replace(/, last lap$/, '')])); // (an earlier test may have left a last lap on a token)
     expect(cards).toEqual([
       ['0', '3 captures'],

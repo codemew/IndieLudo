@@ -266,7 +266,7 @@ export function gameScreen(root: HTMLElement): () => void {
     chooser?.close();
     const [cx, cy] = cell;
     const bubble = el(`<div class="stack-bubble" role="group" aria-label="Choose">
-      <div class="stack-row">${options.map((o) => `<button class="bubble-opt ${o.cls}" ${o.attrs} aria-label="${o.label}">${o.html}</button>`).join('')}</div>
+      <div class="stack-row">${options.map((o) => `<button class="bubble-opt ${o.cls}" ${o.attrs} aria-label="${o.label}" title="${o.label}">${o.html}</button>`).join('')}</div>
       <i class="stack-tail"></i>
     </div>`);
     bubbles.appendChild(bubble);
@@ -283,8 +283,17 @@ export function gameScreen(root: HTMLElement): () => void {
       const centre = (cx + 0.5) * cell.w;
       const left = Math.min(Math.max(centre - w / 2, margin - br.left), Math.max(margin - br.left, window.innerWidth - margin - br.left - w));
       const topLimit = ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4;
-      const above = br.top + cy * cell.h - h - tail >= topLimit;
-      const top = above ? cy * cell.h - h - tail : Math.min((cy + 1) * cell.h + tail, window.innerHeight - margin - br.top - h);
+      const upTop = cy * cell.h - h - tail;
+      const downTop = Math.min((cy + 1) * cell.h + tail, window.innerHeight - margin - br.top - h);
+      // Above the square, unless there is no room, or the bubble would sit on a gold or blue marker:
+      // those stay tappable while it is open, so prefer the side that leaves them free.
+      const markers = [...targets.querySelectorAll('.target[data-token]')].map((m) => m.getBoundingClientRect());
+      const covers = (top: number) =>
+        markers.some((m) => m.left < br.left + left + w && m.right > br.left + left && m.top < br.top + top + h && m.bottom > br.top + top);
+      const fitsAbove = br.top + upTop >= topLimit;
+      const belowOk = downTop >= (cy + 1) * cell.h && !covers(downTop); // (not squeezed up over the token)
+      const above = fitsAbove && (!covers(upTop) || !belowOk);
+      const top = above ? upTop : downTop;
       bubble.classList.toggle('below', !above);
       bubble.style.left = `${left}px`;
       bubble.style.top = `${top}px`;
@@ -337,6 +346,9 @@ export function gameScreen(root: HTMLElement): () => void {
     const outside = (e: Event) => {
       if (bubble.contains(e.target as Node)) return;
       close();
+      // A gold or blue marker on the board is a choice of its own: its click must go through (its
+      // handler plays the move). Anything else that was under the finger is only dismissed with it.
+      if ((e.target as Element).closest?.('#targets .target[data-token]')) return;
       swallowNextClick();
     };
     const escape = (e: KeyboardEvent) => e.key === 'Escape' && close({ refocus: true });
@@ -393,9 +405,13 @@ export function gameScreen(root: HTMLElement): () => void {
       void send('game:move', { dieIndex: home.dieIndex, tokenId: home.tokenId, lap: goRound });
     };
     const victims = lap.captures.map((c) => seatName(c.color)).join(', ');
+    const toGo = geo.home - home.to;
+    // The bubble has no words, so what each way means is in the labels (screen readers, long press).
+    const homeLabel = `Head home, ${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'finishes now'}`;
+    const roundLabel = `Go round again${victims ? `, captures ${esc(victims)}` : ''}, uses this token's extra lap so it can't make a wildcard entry later`;
     openBubble(tokenCell(color, home.from, home.tokenId, geo), { color, id: home.tokenId }, [
-      { cls: 'lap-opt home', attrs: 'data-go="home"', html: '<span class="bubble-ico">🏠</span>', label: 'Head home', pick: () => void answer(false) },
-      { cls: 'lap-opt round', attrs: 'data-go="round"', html: '<span class="bubble-ico">↻</span>', label: `Go round again${victims ? `, captures ${esc(victims)}` : ''}`, pick: () => void answer(true) },
+      { cls: 'lap-opt home', attrs: 'data-go="home"', html: '<span class="bubble-ico">🏠</span>', label: homeLabel, pick: () => void answer(false) },
+      { cls: 'lap-opt round', attrs: 'data-go="round"', html: '<span class="bubble-ico">↻</span>', label: roundLabel, pick: () => void answer(true) },
     ]);
   }
 

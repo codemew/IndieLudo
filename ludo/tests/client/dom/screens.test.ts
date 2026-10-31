@@ -293,6 +293,66 @@ describe('the results screen', () => {
     expect(router.currentScreen()).toBe('lobby');
   });
 
+  describe('turn probability', () => {
+    const withRolls = (rolls: Record<string, number[] | undefined>) => {
+      finished({});
+      const g = store.state.game!;
+      const base = { cells: 0, captures: 0, sixes: 0, revenges: 0, firstBlood: false, owed: {} };
+      g.stats = Object.fromEntries(Object.entries(rolls).map(([c, r]) => [c, { ...base, ...(r ? { rolls: r } : {}) }]));
+      store.update({ game: { ...g } });
+      show('results');
+    };
+    const tab = (id: string) => document.querySelector<HTMLButtonElement>(`#tab-${id}`)!;
+    const panel = (id: string) => document.querySelector<HTMLElement>(`#panel-${id}`)!;
+
+    it('a second tab under the awards: each player\'s rolls as percent per number, rows adding up to 100', () => {
+      withRolls({ red: [5, 5, 0, 0, 0, 0], green: [1, 1, 1, 1, 1, 1], yellow: [0, 0, 0, 0, 0, 3] });
+      expect(tab('stats').getAttribute('aria-selected')).toBe('true');
+      expect(panel('stats').hidden).toBe(false);
+      expect(panel('odds').hidden).toBe(true);
+      click('#tab-odds');
+      expect(tab('odds').getAttribute('aria-selected')).toBe('true');
+      expect(panel('stats').hidden).toBe(true);
+      expect(panel('odds').hidden).toBe(false);
+      expect([...panel('odds').querySelectorAll('thead th')].map((h) => h.textContent)).toEqual(['', '1s', '2s', '3s', '4s', '5s', '6s']);
+      const row = (c: string) => [...panel('odds').querySelectorAll(`tbody .p-${c} td`)].map((d) => d.textContent);
+      expect(row('red')).toEqual(['50%', '50%', '0%', '0%', '0%', '0%']);
+      expect(row('green')).toEqual(['17%', '17%', '17%', '17%', '16%', '16%']);
+      expect(row('yellow')).toEqual(['0%', '0%', '0%', '0%', '0%', '100%']);
+      // No rolls at all for a player: dashes, not a made-up 0%.
+      expect(row('blue')).toEqual(['–', '–', '–', '–', '–', '–']);
+      // Each name carries how many rolls the shares are of.
+      expect([...panel('odds').querySelectorAll('tbody .rolls-n')].map((n) => n.textContent)).toEqual(['10 rolls', '6 rolls', '3 rolls', '0 rolls']);
+      // The biggest share of a row is marked (ties both), the counts are in the tooltips.
+      expect([...panel('odds').querySelectorAll('tbody .p-red td.best')].map((d) => d.textContent)).toEqual(['50%', '50%']);
+      expect(panel('odds').querySelector('.p-yellow td:nth-child(7)')!.getAttribute('title')).toBe('3 of 3 rolls');
+      click('#tab-stats');
+      expect(panel('stats').hidden).toBe(false);
+      expect(panel('odds').hidden).toBe(true);
+    });
+
+    it('the tabs are one keyboard group: one Tab stop, arrows and Home/End move', () => {
+      withRolls({ red: [1, 1, 1, 1, 1, 1] });
+      expect([tab('stats').tabIndex, tab('odds').tabIndex]).toEqual([0, -1]);
+      tab('stats').focus();
+      tab('stats').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+      expect(tab('odds').getAttribute('aria-selected')).toBe('true');
+      expect(document.activeElement).toBe(tab('odds'));
+      expect([tab('stats').tabIndex, tab('odds').tabIndex]).toEqual([-1, 0]);
+      tab('odds').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); // wraps
+      expect(tab('stats').getAttribute('aria-selected')).toBe('true');
+      tab('stats').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
+      expect(tab('odds').getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('a game saved before rolls were counted has no such tab, just the match stats', () => {
+      withRolls({ red: undefined, green: undefined });
+      expect(document.querySelector('.stat-tabs')).toBeNull();
+      expect(document.querySelector('.stats-table')).not.toBeNull();
+      expect(document.querySelector('.odds-table')).toBeNull();
+    });
+  });
+
   it('without a game it goes home', async () => {
     store.update({ game: null });
     show('results');

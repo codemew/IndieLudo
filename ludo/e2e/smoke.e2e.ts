@@ -363,10 +363,26 @@ describe.skipIf(!CHROME || !BUILT)('watching and bot battles', () => {
 
   it('the battle ends on the results screen for everyone watching, and the bots stay for another round', async () => {
     for (const c of ['red', 'green', 'yellow', 'blue'] as const) game.tokens[c] = [55, HOME, HOME, HOME]; // a 1 finishes each
+    // Some rolls to show: the bots only roll 1s here, so give each a made-up history to read the probabilities from.
+    const history = { red: [20, 17, 15, 18, 16, 14], green: [9, 30, 22, 8, 25, 6], yellow: [3, 4, 5, 6, 7, 40], blue: [30, 12, 9, 17, 12, 20] };
+    game.stats ??= {};
+    for (const [c, rolls] of Object.entries(history) as [keyof typeof history, number[]][]) game.stats[c] = { cells: 0, captures: 0, sixes: rolls[5], revenges: 0, firstBlood: false, owed: {}, ...game.stats[c], rolls };
     await Promise.all([alice, bob, carol].map((p) => p.waitForSelector('.results', { timeout: 30_000 })));
     expect(await alice.$eval('.results h2', (h) => h.textContent)).toMatch(/Bot \w+ wins the bot battle/);
     await sleep(2500); // the screen fades over from the board, and the finish toasts clear
     await shot(carol, 'bot-battle-results');
+    // The second tab: everyone's rolls as percent per number, each row adding up to 100.
+    await tap(carol, '#tab-odds');
+    await carol.waitForSelector('#panel-odds:not([hidden])');
+    const odds = await carol.$$eval('.odds-table tbody tr', (rs) => rs.map((r) => [...r.querySelectorAll('td.odds')].map((d) => parseInt(d.textContent!, 10))));
+    expect(odds).toHaveLength(4);
+    for (const row of odds) expect(row.reduce((a, b) => a + b, 0)).toBe(100);
+    expect(await carol.$eval('#panel-stats', (p) => (p as HTMLElement).hidden)).toBe(true);
+    // Nothing runs off the screen sideways, and the tab buttons are big enough for a thumb.
+    expect(await carol.evaluate(() => document.documentElement.scrollWidth <= innerWidth && [...document.querySelectorAll('.stat-tab')].every((b) => b.getBoundingClientRect().height >= 44))).toBe(true);
+    await carol.evaluate(() => document.querySelector('.odds-table')!.scrollIntoView({ block: 'center' }));
+    await sleep(300);
+    await shot(carol, 'turn-probability');
     await tap(alice, '#lobby');
     await alice.waitForSelector('#start');
     expect((await seats(alice)).filter((x) => x.includes('Bot'))).toHaveLength(4);

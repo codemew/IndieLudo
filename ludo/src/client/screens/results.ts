@@ -4,6 +4,7 @@ import { state, update } from '../store.js';
 import { KEYS, storage } from '../storage.js';
 import { gameAwards, playerStats, type Award } from '../../shared/awards.js';
 import { avatarFace } from '../../shared/avatars.js';
+import { rollCounts, rollShares } from '../../shared/rolls.js';
 import { winnersOf } from '../../shared/rules.js';
 import type { Color } from '../../shared/types.js';
 import { $, esc } from '../ui.js';
@@ -50,7 +51,7 @@ export function resultsScreen(root: HTMLElement): void {
       <div class="big-emoji">${iWon ? '🏆' : g.botBattle ? '🤖' : '🎲'}</div>
       <h2>${heading}</h2>
       <ol class="podium">${rows}</ol>
-      ${matchStats(g.ranks, awards, nameOf, (c) => playerStats(g, c))}
+      ${matchStats(g.ranks, awards, nameOf, (c) => playerStats(g, c), (c) => rollCounts(g, c))}
       <div class="results-actions">
         ${state.lobby ? '<button class="btn btn-primary btn-xl" id="lobby">Back to lobby</button>' : ''}
         <button class="btn btn-ghost btn-xl" id="home">Home</button>
@@ -64,6 +65,32 @@ export function resultsScreen(root: HTMLElement): void {
   };
   root.querySelector<HTMLButtonElement>('#lobby')?.addEventListener('click', () => leave('lobby'));
   $(root, '#home').onclick = () => leave('home');
+  bindStatTabs(root);
+}
+
+/** The tabs under the awards: a radio-like group (one Tab stop, arrow keys, Home/End) that shows one panel. */
+function bindStatTabs(root: HTMLElement): void {
+  const tabs = [...root.querySelectorAll<HTMLButtonElement>('.stat-tab')];
+  if (!tabs.length) return;
+  const show = (tab: HTMLButtonElement, focus = false) => {
+    for (const t of tabs) {
+      const on = t === tab;
+      t.setAttribute('aria-selected', String(on));
+      t.tabIndex = on ? 0 : -1;
+      const panel = root.querySelector<HTMLElement>(`#${t.getAttribute('aria-controls')}`);
+      if (panel) panel.hidden = !on;
+    }
+    if (focus) tab.focus();
+  };
+  tabs.forEach((t) => (t.onclick = () => show(t)));
+  root.querySelector('.stat-tabs')?.addEventListener('keydown', (e) => {
+    const at = tabs.findIndex((t) => t === document.activeElement);
+    const key = (e as KeyboardEvent).key;
+    const to: Record<string, number> = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 };
+    if (at < 0 || !(key in to)) return;
+    e.preventDefault();
+    show(tabs[(to[key] + tabs.length) % tabs.length], true);
+  });
 }
 
 /** A line under an award's title for the ones whose name doesn't say what counts. */
@@ -95,6 +122,7 @@ function matchStats(
   awards: Award[],
   nameOf: (c: Color) => string,
   statsOf: (c: Color) => ReturnType<typeof playerStats>,
+  rollsOf: (c: Color) => number[],
 ): string {
   const awardRows = awards
     .map(
@@ -119,13 +147,44 @@ function matchStats(
       </tr>`,
     )
     .join('');
-  return `
-    <section class="match-stats">
-      ${awards.length ? `<h3>Awards</h3><ul class="awards">${awardRows}</ul>` : ''}
-      <h3>Match stats</h3>
+  const statsTable = `
       <table class="stats-table">
         <thead><tr><th></th>${STAT_COLUMNS.map((col) => `<th scope="col" title="${col.label}">${col.icon}<small>${col.label}</small></th>`).join('')}</tr></thead>
         <tbody>${statRows}</tbody>
+      </table>`;
+  // Turn probability: how each player's rolls split over 1s…6s. Hidden for a game saved before rolls were counted.
+  const counts = order.map((c) => rollsOf(c));
+  const anyRolls = counts.some((n) => n.some((x) => x > 0));
+  const oddsRows = order
+    .map((c, i) => {
+      const shares = rollShares(counts[i]);
+      const total = counts[i].reduce((a, b) => a + b, 0);
+      const top = Math.max(...shares);
+      return `
+      <tr class="p-${c}">
+        <th scope="row"><span class="st-dot"></span><span class="st-name">${nameOf(c)}</span><small class="rolls-n">${total} roll${total === 1 ? '' : 's'}</small></th>
+        ${shares.map((p, f) => `<td class="odds${total && p === top ? ' best' : ''}" style="--p:${p}" title="${counts[i][f]} of ${total} rolls"><span>${total ? `${p}%` : '–'}</span></td>`).join('')}
+      </tr>`;
+    })
+    .join('');
+  const oddsTable = `
+      <table class="stats-table odds-table">
+        <thead><tr><th></th>${[1, 2, 3, 4, 5, 6].map((f) => `<th scope="col">${f}s</th>`).join('')}</tr></thead>
+        <tbody>${oddsRows}</tbody>
       </table>
+      <p class="odds-note">How each player's rolls split over the numbers. A fair die gives about 17% each; the biggest share in a row is highlighted.</p>`;
+  return `
+    <section class="match-stats">
+      ${awards.length ? `<h3>Awards</h3><ul class="awards">${awardRows}</ul>` : ''}
+      ${
+        anyRolls
+          ? `<div class="stat-tabs" role="tablist" aria-label="Match numbers">
+        <button class="stat-tab" role="tab" id="tab-stats" aria-selected="true" aria-controls="panel-stats">Match stats</button>
+        <button class="stat-tab" role="tab" id="tab-odds" aria-selected="false" aria-controls="panel-odds" tabindex="-1">Turn probability</button>
+      </div>
+      <div role="tabpanel" id="panel-stats" aria-labelledby="tab-stats">${statsTable}</div>
+      <div role="tabpanel" id="panel-odds" aria-labelledby="tab-odds" hidden>${oddsTable}</div>`
+          : `<h3>Match stats</h3>${statsTable}`
+      }
     </section>`;
 }

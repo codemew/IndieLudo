@@ -344,21 +344,67 @@ describe('choosing a token', () => {
     expect(document.activeElement).toBe(token('red', 1));
   });
 
-  it('at its home turn: head home or go round again, from the sheet or the board markers', async () => {
+  it('at its home turn: a small bubble with head home or go round again, or the board markers', async () => {
     const g = newGame();
     g.tokens.red = [48, B, B, B];
     mount(g);
     await step((s) => applyRoll(s, 5), 200);
     token('red', 0).click();
     await flush();
-    expect([...document.querySelectorAll('.lap-opt b')].map((b) => b.textContent)).toEqual(['Head home', 'Go round again']);
-    expect(document.querySelector('.lap-note')!.textContent).toContain("can't make a wildcard entry later");
+    // A bubble on the square, not a sheet: two pictures (gold house, blue arrow) and no words.
+    expect(document.querySelector('.modal')).toBeNull();
+    const bubble = document.querySelector<HTMLElement>('#bubbles .stack-bubble')!;
+    expect(bubble).not.toBeNull();
+    // No words on screen, so the labels carry what each way means: the distance, and the price of another lap.
+    const labels = [...bubble.querySelectorAll('.lap-opt')].map((b) => b.getAttribute('aria-label'));
+    expect(labels[0]).toMatch(/^Head home, \d+ squares? to finish$/);
+    expect(labels[1]).toBe("Go round again, uses this token's extra lap so it can't make a wildcard entry later");
+    expect([...bubble.querySelectorAll('.lap-opt')].map((b) => b.getAttribute('title'))).toEqual(labels);
+    expect(bubble.textContent!.replace(/\s/g, '')).toBe('🏠↻');
     click('.lap-opt.round');
     await flush();
     expect(sentOf('game:move').at(-1)).toMatchObject({ tokenId: 0, lap: true });
+    expect(document.querySelector('.stack-bubble')).toBeNull();
     click('#targets .target.home[data-token]');
     await flush();
     expect(sentOf('game:move').at(-1)).toMatchObject({ tokenId: 0, lap: false });
+  });
+
+  it('the home / round bubble: head home from it, close it with a tap outside (moving nothing), and a gold marker closes it', async () => {
+    const g = newGame();
+    g.tokens.red = [48, 20, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 5), 200);
+    token('red', 0).click();
+    await flush();
+    click('.lap-opt.home');
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ tokenId: 0, lap: false });
+    const moves = sentOf('game:move').length;
+    // A tap outside (on another token that could move) only closes the bubble.
+    token('red', 0).click();
+    await flush();
+    expect(document.querySelector('.stack-bubble')).not.toBeNull();
+    const other = token('red', 1);
+    other.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    other.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    other.click();
+    await flush();
+    expect(sentOf('game:move')).toHaveLength(moves);
+    await lift();
+    // Tapping a marker on the board closes an open bubble and chooses that way, with a real tap
+    // (pointerdown, pointerup, click): the dismissing tap must not swallow the marker's click.
+    token('red', 0).click();
+    await flush();
+    const marker = document.querySelector<HTMLElement>('#targets .target.round[data-token="0"]')!;
+    marker.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    marker.dispatchEvent(new Event('pointerup', { bubbles: true }));
+    marker.click();
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ tokenId: 0, lap: true });
+    expect(sentOf('game:move')).toHaveLength(moves + 1);
   });
 
   it('two dice that can both move: the one picked is used', async () => {

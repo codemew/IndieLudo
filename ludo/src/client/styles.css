@@ -3465,81 +3465,6 @@ button.me:active {
   font-size: calc(100% / var(--bw, 15) * 0.5);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
-/* "Which way?" — two option cards coloured like the trails on the board. */
-.lap-choice {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.lap-opts {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.lap-opt {
-  --tc: #f5b400;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 12px;
-  min-width: 0;
-  text-align: left;
-  color: var(--text);
-  font: inherit;
-  border-radius: 16px;
-  border: 2px solid var(--tc);
-  background: color-mix(in srgb, var(--tc) 14%, var(--surface));
-  box-shadow: 0 8px 20px -14px var(--tc);
-  cursor: pointer;
-  transition: transform 0.12s ease, box-shadow 0.2s ease;
-}
-.lap-opt.round {
-  --tc: #00c2e0;
-}
-.lap-opt:active {
-  transform: scale(0.97);
-}
-.lap-opt:focus-visible {
-  outline: 3px solid var(--tc);
-  outline-offset: 2px;
-}
-.lap-ico {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  font-size: 22px;
-  font-weight: 900;
-  color: #fff;
-  background: var(--tc);
-}
-.lap-opt b {
-  font-size: 16px;
-}
-.lap-opt small {
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--muted);
-}
-.lap-badge {
-  margin-top: 2px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 800;
-  color: #fff;
-  background: #e11d48;
-}
-.lap-victim {
-  font-weight: 900;
-}
-.lap-note {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--muted);
-}
 /* The branching markers on the board can be tapped to choose directly. */
 .target.home[data-token],
 .target.round[data-token] {
@@ -4351,7 +4276,7 @@ polygon.b-inner {
   }
 }
 /* 48 px targets, 10 px apart: far bigger than the board's stacked tokens, so a tap lands on the one meant. */
-.stack-opt {
+.bubble-opt {
   display: grid;
   place-items: center;
   width: 48px;
@@ -4367,10 +4292,27 @@ polygon.b-inner {
 .stack-opt .mini-token {
   margin: 0;
 }
-.stack-opt:active .mini-token {
+.stack-opt:active .mini-token,
+.bubble-opt:active .bubble-ico {
   transform: scale(0.92);
 }
-.stack-opt:focus-visible {
+/* Head home (gold 🏠) and go round again (blue ↻): the colours of the trails and markers on the board. */
+.bubble-ico {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  background: var(--tc, #f5b400);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.bubble-opt:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 1px;
 }

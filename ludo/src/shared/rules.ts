@@ -1,5 +1,6 @@
 import { BASE, boardFor, boardOf, absoluteSquare, isSafeSquare, isSecondLap, type Board, type BoardSize } from './board.js';
 import { moustacheLevel } from './heft.js';
+import { countRoll } from './rolls.js';
 import { TEAMMATE, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
 
 /**
@@ -279,7 +280,9 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   const turn = state.turn;
   const color = currentColor(state);
   const events: GameEvent[] = [];
-  if (value === SIX) statsOf(state, color).sixes++;
+  const stats = statsOf(state, color);
+  countRoll(stats, value);
+  if (value === SIX) stats.sixes++;
   turn.queue.push(value);
   events.push({ type: 'roll', color, value, queue: [...turn.queue] });
   if (value === SIX) {

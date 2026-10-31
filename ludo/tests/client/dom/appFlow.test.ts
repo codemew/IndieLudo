@@ -198,6 +198,15 @@ describe('the app, end to end', () => {
     expect(radios()[0].textContent).toBe('Z');
     modalButton('Cancel');
     await flush(250);
+    // A stored avatar that is not on the list any more: the "none" tile is checked and is the tab stop.
+    const store = await import('../../../src/client/store.js');
+    store.update({ user: { ...store.state.user!, avatar: 'retired' } });
+    click('#me');
+    await flush(80);
+    expect(radios().filter((b) => b.tabIndex === 0).map((b) => b.dataset.avatar)).toEqual(['']);
+    modalButton('Cancel');
+    await flush(250);
+    store.update({ user: { ...store.state.user!, avatar: 'cat' } });
     // Saving nothing new sends nothing; a rejected avatar shows its message and keeps the dialog.
     click('#me');
     await flush(80);

@@ -1,4 +1,4 @@
-import { AVATARS, avatarFace } from '../../shared/avatars.js';
+import { AVATARS, avatarFace, isAvatarId } from '../../shared/avatars.js';
 import { MAX_SPECTATORS, type LobbySummary, type PublicLobby } from '../../shared/types.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
@@ -212,7 +212,8 @@ function openMenu(): void {
 function profileDialog(): void {
   const user = state.user;
   if (!user) return;
-  let avatar = user.avatar ?? '';
+  // An id that is no longer on the list counts as none, so one tile is always the tab stop.
+  let avatar = isAvatarId(user.avatar) ? user.avatar : '';
   const body = el(`
     <form class="form profile-form" autocomplete="off">
       <div class="avatar avatar-lg" id="avatar-preview" aria-hidden="true"></div>

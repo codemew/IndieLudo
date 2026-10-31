@@ -2132,6 +2132,15 @@ h3 {
 .vc-connecting {
   animation: pulse-soft 1s ease infinite;
 }
+/* You turned this player down (amber) or muted them (red): a small speaker beside their mic badge, seen only by you. */
+.vc-vol {
+  background: rgba(245, 158, 11, 0.24);
+  color: #f59e0b;
+}
+.vc-vol-off {
+  background: rgba(244, 63, 94, 0.22);
+  color: #fb7185;
+}
 .btn svg {
   width: 18px;
   height: 18px;
@@ -4554,4 +4563,73 @@ polygon.b-inner {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---------- tap and hold on a player's card: their volume for you (volumeBubble.ts) ---------- */
+
+/* No text selection, no iOS callout and no tap flash while the finger rests on the card. */
+.holdable {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.holdable:focus-visible {
+  outline: 2px solid var(--accent, #fff);
+  outline-offset: 2px;
+}
+/* The volume bubble floats over the whole screen (the token bubbles live inside the board), under dialogs and toasts. */
+.bubble-layer.bubble-screen {
+  position: fixed;
+  z-index: 70;
+}
+.bubble-cap {
+  display: flex;
+  max-width: 222px;
+  margin: -2px 2px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.bubble-cap .cap-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bubble-cap .cap-rest {
+  flex: none;
+  white-space: pre;
+  font-weight: 600;
+  opacity: 0.8;
+}
+/* Four steps from full volume to off; the current one wears a white ring. */
+.bubble-ico.vol {
+  --tc: #3b82f6;
+  grid-auto-flow: row;
+  align-content: center;
+  gap: 0;
+  line-height: 1;
+}
+.bubble-ico.vol svg {
+  width: 20px;
+  height: 20px;
+}
+.bubble-ico.vol small {
+  font-size: 9px;
+  letter-spacing: -0.2px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.vol-opt.off .bubble-ico {
+  --tc: #ef4444;
+}
+.vol-opt:not(.on) .bubble-ico {
+  filter: saturate(0.75) brightness(0.92);
+}
+.vol-opt.on .bubble-ico {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 2px 6px rgba(0, 0, 0, 0.5);
 }

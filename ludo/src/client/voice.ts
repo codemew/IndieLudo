@@ -2,7 +2,9 @@ import { hasLocalCandidates, internetFirst, isLocalCandidate, rankCandidate, scr
 import type { RTCIceServerConfig, SfuOffer, VoiceFramesIn, VoiceJoined, VoiceSignalIn, VoiceSignalKind } from '../shared/protocol.js';
 import { DEFAULT_VOICE_BITRATE, VOICE_BITRATES, type VoiceSlot, type VoiceState } from '../shared/types.js';
 import { MicChain, canDenoise, micConstraints } from './micChain.js';
+import { onVolumeChange, volumeOf } from './listenVolume.js';
 import { emit, onNetworkChange, probe, reconnectNow, send, transportName } from './net.js';
+import { releasePlayback, resumePlayback, setPlaybackVolume } from './playbackVolume.js';
 import { summarize, type RouteStats, type Sample, type StreamStats } from './voiceStats.js';
 import { RelayPlayer, RelaySender, relaySupport } from './voiceRelay.js';
 
@@ -194,6 +196,8 @@ interface SfuLink {
   /** Which receive slot (mid) carries whose voice. */
   slots: VoiceSlot[];
   audios: HTMLAudioElement[];
+  /** The audio element of each receive slot, by its mid. */
+  byMid: Map<string, HTMLAudioElement>;
   status: PeerStatus;
   since: number;
   late: RTCIceCandidateInit[];
@@ -312,6 +316,8 @@ class VoiceClient {
     if (typeof document === 'undefined') return;
     // A tap anywhere lets audio that the browser refused to autoplay start.
     document.addEventListener('pointerdown', () => this.resumeAudio(), { capture: true });
+    // Turning someone down (or off) for us changes how their voice plays, on whichever link carries it.
+    onVolumeChange(() => this.applyVolumes());
     document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && this.check());
     // Bluetooth earphones connecting or disconnecting mid-call.
     navigator.mediaDevices?.addEventListener?.('devicechange', () => {
@@ -676,10 +682,12 @@ class VoiceClient {
       for (const audio of [...[...this.peers.values()].map((p) => p.audio), ...(this.sfu?.audios ?? [])]) {
         const src = audio.srcObject;
         if (!src) continue;
+        releasePlayback(audio);
         audio.srcObject = null;
         audio.srcObject = src;
         void audio.play().catch(() => {});
       }
+      this.applyVolumes();
       for (const t of old?.getTracks() ?? []) if (!next.getTracks().includes(t)) t.stop();
     } finally {
       this.switching = false;
@@ -801,6 +809,7 @@ class VoiceClient {
     if (s.lobbyId !== this.lobbyId || !this.sfu) return;
     this.sfu.slots = s.slots;
     for (const id of [...this.peers.keys()]) if (this.viaSfu(id)) this.closePeer(id);
+    this.applyVolumes();
     this.notify();
   }
 
@@ -811,7 +820,7 @@ class VoiceClient {
     this.sfuStarting = true;
     this.closeSfu();
     const local = this.localRoute.ok || this.sfuLocal;
-    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], status: 'connecting', since: Date.now(), late: [], lateTimer: null, lostTimer: null, fallbackTimer: null, local };
+    const link: SfuLink = { pc: null, mic: null, slots: [], audios: [], byMid: new Map(), status: 'connecting', since: Date.now(), late: [], lateTimer: null, lostTimer: null, fallbackTimer: null, local };
     this.sfu = link;
     this.notify();
     const fail = () => {
@@ -836,6 +845,8 @@ class VoiceClient {
         audio.srcObject = new MediaStream([e.track]);
         this.box().appendChild(audio);
         link.audios.push(audio);
+        if (e.transceiver?.mid) link.byMid.set(e.transceiver.mid, audio);
+        this.applyVolumes();
         void audio.play().catch(() => {});
       };
       pc.onicecandidate = (e) => {
@@ -908,6 +919,7 @@ class VoiceClient {
       link.pc.close();
     }
     for (const a of link.audios) {
+      releasePlayback(a);
       a.srcObject = null;
       a.remove();
     }
@@ -1068,6 +1080,7 @@ class VoiceClient {
     const audio = document.createElement('audio');
     audio.autoplay = true;
     audio.setAttribute('playsinline', '');
+    setPlaybackVolume(audio, volumeOf(userId));
     this.box().appendChild(audio);
     const peer: Peer = {
       pc,
@@ -1098,6 +1111,7 @@ class VoiceClient {
     };
     pc.ontrack = (e) => {
       audio.srcObject = e.streams[0] ?? new MediaStream([e.track]);
+      setPlaybackVolume(audio, volumeOf(userId));
       void audio.play().catch(() => {});
     };
     pc.onconnectionstatechange = () => {
@@ -1222,11 +1236,24 @@ class VoiceClient {
     if (before !== this.relayTo.size) this.notify();
   }
 
+  /** Plays each other member's voice at the volume we chose for them, on every link that carries it. */
+  private applyVolumes(): void {
+    for (const [id, p] of this.peers) setPlaybackVolume(p.audio, volumeOf(id));
+    if (this.sfu) {
+      for (const slot of this.sfu.slots) {
+        const audio = this.sfu.byMid.get(slot.mid);
+        if (audio) setPlaybackVolume(audio, volumeOf(slot.userId));
+      }
+    }
+    for (const id of this.others) this.relayIn.setVolume(id, volumeOf(id));
+  }
+
   /** Starts any incoming audio the browser left paused (autoplay rules after a reconnect). */
   resumeAudio(): void {
     for (const p of this.peers.values()) if (p.audio.srcObject && p.audio.paused) void p.audio.play().catch(() => {});
     for (const a of this.sfu?.audios ?? []) if (a.paused) void a.play().catch(() => {});
     this.chain?.resume();
+    resumePlayback();
     this.relayIn.resume();
     this.relayOut.resume();
   }
@@ -1279,6 +1306,7 @@ class VoiceClient {
     peer.pc.onicecandidate = null;
     if (peer.lateTimer) clearTimeout(peer.lateTimer);
     peer.pc.close();
+    releasePlayback(peer.audio);
     peer.audio.srcObject = null;
     peer.audio.remove();
   }

@@ -633,3 +633,135 @@ describe('5 and 6 players', () => {
     expect(document.querySelector('#banner')!.textContent).toBe("p1's turn"); // a capture earns a bonus roll
   });
 });
+
+describe('tap and hold on a player card: their volume, for you only', () => {
+  const chip = (c: Color) => document.querySelector<HTMLElement>(`.pchip[data-color=${c}]`)!;
+  const bubble = () => document.querySelector<HTMLElement>('.bubble-screen .stack-bubble');
+  const voiceState = (...ids: number[]) =>
+    store.update({ voice: { lobbyId: 'L', enabled: true, epoch: 0, bitrateKbps: 6, participants: ids.map((userId) => ({ userId, muted: false })) } });
+  const press = (el: Element, x = 10, y = 10) => el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: y }));
+  const release = () => document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+  const hold = async (el: Element) => {
+    press(el);
+    await flush(520);
+  };
+  let volume: typeof import('../../../src/client/listenVolume.js');
+  let voiceClient: typeof import('../../../src/client/voice.js').voice;
+
+  beforeAll(async () => {
+    volume = await import('../../../src/client/listenVolume.js');
+    voiceClient = (await import('../../../src/client/voice.js')).voice;
+  });
+  beforeEach(() => {
+    volume.resetListenVolume();
+    localStorage.clear();
+    voiceClient.enabled = true;
+    voiceState(1, 2);
+  });
+  afterEach(() => {
+    document.querySelectorAll('.bubble-screen').forEach((b) => b.remove());
+  });
+
+  it('holding another player\'s card opens the comic-book bubble with four volumes and says it is only for you', async () => {
+    mount(newGame());
+    await hold(chip('green'));
+    const b = bubble()!;
+    expect(b).not.toBeNull();
+    expect(b.querySelector('.bubble-cap')!.textContent).toBe('bob · only for you');
+    const opts = [...b.querySelectorAll<HTMLButtonElement>('.bubble-opt')];
+    expect(opts.map((o) => o.dataset.vol)).toEqual(['1', '0.6', '0.3', '0']);
+    expect(opts.map((o) => o.getAttribute('aria-label'))).toEqual(['Hear bob at 100%', 'Hear bob at 60%', 'Hear bob at 30%', 'Mute bob for me']);
+    // Where they are now is marked, and is where the keyboard starts.
+    expect(opts.map((o) => o.getAttribute('aria-pressed'))).toEqual(['true', 'false', 'false', 'false']);
+    expect(document.activeElement).toBe(opts[0]);
+  });
+
+  it('choosing a volume changes it on this phone only, shows a speaker beside their name, and is remembered', async () => {
+    mount(newGame());
+    await hold(chip('green'));
+    bubble()!.querySelector<HTMLButtonElement>('[data-vol="0.3"]')!.click();
+    expect(bubble()).toBeNull();
+    expect(volume.volumeOf(2)).toBe(0.3);
+    expect(volume.volumeOf(1)).toBe(1);
+    // Nothing goes to the server: nobody else's volume changes.
+    expect(sentOf('voice:mute')).toHaveLength(0);
+    expect(chip('green').querySelector('.vc-vol')!.getAttribute('aria-label')).toBe('You hear them at 30%');
+    expect(chip('green').getAttribute('aria-label')).toContain('voice volume 30%');
+    expect(chip('red').querySelector('.vc-vol')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('ludo.listenVolume')!)).toEqual({ '2': 0.3 });
+    // Held again: 30% is the one marked.
+    await hold(chip('green'));
+    expect(bubble()!.querySelector('[aria-pressed="true"]')!.getAttribute('data-vol')).toBe('0.3');
+    bubble()!.querySelector<HTMLButtonElement>('[data-vol="0"]')!.click();
+    expect(chip('green').querySelector('.vc-vol')!.classList.contains('vc-vol-off')).toBe(true);
+    expect(chip('green').querySelector('.vc-vol')!.getAttribute('aria-label')).toBe('You muted them');
+    await hold(chip('green'));
+    bubble()!.querySelector<HTMLButtonElement>('[data-vol="1"]')!.click();
+    expect(chip('green').querySelector('.vc-vol')).toBeNull();
+    expect(localStorage.getItem('ludo.listenVolume')).toBeNull();
+  });
+
+  it('a short tap, or a finger that moves, does not open it; the lifting finger after a hold does not also tap', async () => {
+    mount(newGame());
+    press(chip('green'));
+    await flush(200);
+    release();
+    await flush(400);
+    expect(bubble()).toBeNull();
+    press(chip('green'), 10, 10);
+    document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 10 }));
+    await flush(520);
+    expect(bubble()).toBeNull();
+    release();
+    // A real hold: the click that follows the lift is swallowed.
+    await hold(chip('green'));
+    expect(bubble()).not.toBeNull();
+    release();
+    const clicks: Element[] = [];
+    document.addEventListener('click', (e) => clicks.push(e.target as Element));
+    chip('green').click();
+    expect(clicks).toHaveLength(0);
+    chip('green').click();
+    expect(clicks).toHaveLength(1);
+  });
+
+  it('is not offered on your own card, on a bot, or while voice chat is off', async () => {
+    mount(newGame({ teams: true }));
+    expect(chip('red').classList.contains('holdable')).toBe(false);
+    expect(chip('green').classList.contains('holdable')).toBe(false);
+    expect(chip('yellow').classList.contains('holdable')).toBe(true);
+    await hold(chip('red'));
+    await hold(chip('green'));
+    expect(bubble()).toBeNull();
+    voiceClient.enabled = false;
+    voiceState(1, 2);
+    expect(chip('yellow').classList.contains('holdable')).toBe(false);
+    expect(chip('yellow').hasAttribute('tabindex')).toBe(false);
+  });
+
+  it('a right-click, Enter on the focused card, Escape and a tap elsewhere work without a touch screen', async () => {
+    mount(newGame());
+    const green = chip('green');
+    expect(green.tabIndex).toBe(0);
+    green.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(bubble()).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(bubble()).toBeNull();
+    green.focus();
+    green.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(bubble()).not.toBeNull();
+    // A tap outside only closes it.
+    document.querySelector('#board')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    expect(bubble()).toBeNull();
+    expect(volume.volumeOf(2)).toBe(1);
+  });
+
+  it('closes when the game screen goes away', async () => {
+    mount(newGame());
+    await hold(chip('green'));
+    expect(bubble()).not.toBeNull();
+    go('home');
+    await flush(300);
+    expect(bubble()).toBeNull();
+  });
+});

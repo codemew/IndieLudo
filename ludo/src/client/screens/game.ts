@@ -37,7 +37,11 @@ import { pingText, signalBars } from '../netUi.js';
 import { freshDice } from '../queueDiff.js';
 import { REACTION_MS, pickReaction, type ReactionKind } from '../reactions.js';
 import { threatenedTokens } from '../../shared/threats.js';
+import { openBubbleAt, type BubbleOption } from '../bubble.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
+import { onHold } from '../holdPress.js';
+import { onVolumeChange, volumeOf, volumeText } from '../listenVolume.js';
+import { canAdjust, closeVolumeBubble, openVolumeBubble } from '../volumeBubble.js';
 
 /** Player cards in two rows, each near its colour's base on the board. */
 const CARD_ROWS: Record<Board['n'], [Color[], Color[]]> = {
@@ -247,125 +251,37 @@ export function gameScreen(root: HTMLElement): () => void {
   /** The open choice bubble (stacked tokens, or head home / go round again), closed if the game moves on. */
   let chooser: { close: () => void; version: number } | null = null;
 
-  interface BubbleOption {
-    /** Classes and attributes of the option's button. */
-    cls: string;
-    attrs: string;
-    /** Its picture. Nothing is written on screen: `label` is for screen readers. */
-    html: string;
-    label: string;
-    pick: () => void;
-  }
-
   /**
-   * A small speech bubble on a square with one round picture to tap per choice: see-through, softly
-   * blurred, its tail pointing at the square. No title, no captions, no buttons: tap one to choose;
-   * tap anywhere else (that tap only closes it), press Esc or let the game move on to dismiss it.
+   * The choice bubble (bubble.ts) on a square of the board: one round picture to tap per choice.
+   * Tap one to choose; tap anywhere else (that tap only closes it), press Esc or let the game move
+   * on to dismiss it.
    */
   function openBubble(cell: readonly [number, number], tapped: { color: Color; id: number }, options: BubbleOption[]): void {
     play('tap');
     chooser?.close();
     const [cx, cy] = cell;
-    const bubble = el(`<div class="stack-bubble" role="group" aria-label="Choose">
-      <div class="stack-row">${options.map((o) => `<button class="bubble-opt ${o.cls}" ${o.attrs} aria-label="${o.label}" title="${o.label}">${o.html}</button>`).join('')}</div>
-      <i class="stack-tail"></i>
-    </div>`);
-    bubbles.appendChild(bubble);
-
-    // Above the square, kept inside the screen; below it when there is no room above (the
-    // header, with its safe-area inset and fullscreen changes, is the top limit).
-    const place = () => {
-      const br = board.getBoundingClientRect();
-      const cell = { w: br.width / geo.w, h: br.height / geo.h };
-      const w = bubble.offsetWidth;
-      const h = bubble.offsetHeight;
-      const tail = 11;
-      const margin = 8;
-      const centre = (cx + 0.5) * cell.w;
-      const left = Math.min(Math.max(centre - w / 2, margin - br.left), Math.max(margin - br.left, window.innerWidth - margin - br.left - w));
-      const topLimit = ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4;
-      const upTop = cy * cell.h - h - tail;
-      const downTop = Math.min((cy + 1) * cell.h + tail, window.innerHeight - margin - br.top - h);
-      // Above the square, unless there is no room, or the bubble would sit on a gold or blue marker:
-      // those stay tappable while it is open, so prefer the side that leaves them free.
-      const markers = [...targets.querySelectorAll('.target[data-token]')].map((m) => m.getBoundingClientRect());
-      const covers = (top: number) =>
-        markers.some((m) => m.left < br.left + left + w && m.right > br.left + left && m.top < br.top + top + h && m.bottom > br.top + top);
-      const fitsAbove = br.top + upTop >= topLimit;
-      const belowOk = downTop >= (cy + 1) * cell.h && !covers(downTop); // (not squeezed up over the token)
-      const above = fitsAbove && (!covers(upTop) || !belowOk);
-      const top = above ? upTop : downTop;
-      bubble.classList.toggle('below', !above);
-      bubble.style.left = `${left}px`;
-      bubble.style.top = `${top}px`;
-      bubble.style.setProperty('--tail-x', `${Math.min(Math.max(centre - left, 20), Math.max(20, w - 20))}px`);
-    };
-    place();
-    // Rotating the phone or the address bar sliding away resizes things: follow the square.
-    const watch = new ResizeObserver(place);
-    watch.observe(board);
-    window.addEventListener('resize', place);
-
-    // The tap that closes the bubble from outside must not also press what is under it (another
-    // token, a marker): swallow the click that follows that pointerdown, and only that one.
-    const swallowNextClick = () => {
-      let timer: ReturnType<typeof setTimeout>;
-      const stop = () => {
-        clearTimeout(timer);
-        document.removeEventListener('click', swallow, true);
-        document.removeEventListener('pointerup', released, true);
-        document.removeEventListener('pointercancel', released, true);
-      };
-      const swallow = (e: Event) => {
-        e.stopPropagation();
-        e.preventDefault();
-        stop();
-      };
-      // The click comes right after the finger lifts; if none does (a drag), give up soon after.
-      const released = () => {
-        clearTimeout(timer);
-        timer = setTimeout(stop, 350);
-      };
-      document.addEventListener('click', swallow, true);
-      document.addEventListener('pointerup', released, true);
-      document.addEventListener('pointercancel', released, true);
-      timer = setTimeout(stop, 1500);
-    };
-
-    let closed = false;
-    const close = (opts: { refocus?: boolean } = {}) => {
-      if (closed) return;
-      closed = true;
-      bubble.remove();
-      watch.disconnect();
-      document.removeEventListener('pointerdown', outside, true);
-      document.removeEventListener('keydown', escape);
-      window.removeEventListener('resize', place);
-      if (chooser?.close === close) chooser = null;
-      if (opts.refocus) tokens.get(tapped.color, tapped.id)?.focus({ preventScroll: true });
-    };
-    const outside = (e: Event) => {
-      if (bubble.contains(e.target as Node)) return;
-      close();
-      // A gold or blue marker on the board is a choice of its own: its click must go through (its
-      // handler plays the move). Anything else that was under the finger is only dismissed with it.
-      if ((e.target as Element).closest?.('#targets .target[data-token]')) return;
-      swallowNextClick();
-    };
-    const escape = (e: KeyboardEvent) => e.key === 'Escape' && close({ refocus: true });
-    document.addEventListener('pointerdown', outside, true);
-    document.addEventListener('keydown', escape);
-    chooser = { close, version: gs!.version };
-    // Keyboard and switch users land in the bubble, not behind it at the end of the board.
-    bubble.querySelector<HTMLButtonElement>('.bubble-opt')?.focus({ preventScroll: true });
-
-    bubble.querySelectorAll<HTMLButtonElement>('.bubble-opt').forEach(
-      (b, i) =>
-        (b.onclick = () => {
-          close();
-          options[i].pick();
-        }),
-    );
+    const bubble = openBubbleAt({
+      layer: bubbles,
+      label: 'Choose',
+      options,
+      anchor: () => {
+        const br = board.getBoundingClientRect();
+        const w = br.width / geo.w;
+        const h = br.height / geo.h;
+        return { left: br.left + cx * w, top: br.top + cy * h, width: w, height: h };
+      },
+      topLimit: () => ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4,
+      // The gold and blue markers stay tappable while the bubble is open: keep clear of them.
+      avoid: () => [...targets.querySelectorAll('.target[data-token]')].map((m) => m.getBoundingClientRect()),
+      watch: [board],
+      // A marker on the board is a choice of its own: its click must go through (its handler plays the move).
+      passThrough: (t) => Boolean(t.closest?.('#targets .target[data-token]')),
+      refocus: () => tokens.get(tapped.color, tapped.id),
+      onClose: () => {
+        if (chooser?.close === bubble.close) chooser = null;
+      },
+    });
+    chooser = { close: bubble.close, version: gs!.version };
   }
 
   /**
@@ -869,6 +785,16 @@ export function gameScreen(root: HTMLElement): () => void {
       const homeCount = gs!.tokens[color].filter((p) => p === geo.home).length;
       const timed = active && gs!.turn.deadline > 0;
       chip.className = `pchip p-${color}${active ? ' active' : ''}${timed ? ' timed' : ''}${seat.connected ? '' : ' offline'}`;
+      // Tap and hold on another player's card: their volume, for us only (volumeBubble.ts).
+      if (seat.controller === 'human' && canAdjust(seat.userId)) {
+        chip.classList.add('holdable');
+        chip.tabIndex = 0;
+        chip.setAttribute('role', 'button');
+        chip.setAttribute('aria-haspopup', 'true');
+        chip.setAttribute('aria-label', `${seat.username}, voice volume ${volumeText(volumeOf(seat.userId))}. Hold or press Enter to change it for you`);
+      } else {
+        for (const a of ['tabindex', 'role', 'aria-haspopup', 'aria-label']) chip.removeAttribute(a);
+      }
       // Built once; afterwards only the parts that changed are touched, since pings and voice
       // changes redraw the chips every few seconds.
       setHtml(
@@ -1236,10 +1162,21 @@ export function gameScreen(root: HTMLElement): () => void {
   };
   const offVoice = voice.onChange(repaintVoice);
   const offStore = subscribe((changed) => (changed.includes('voice') || changed.includes('net')) && repaintVoice());
+  const offVolume = onVolumeChange(repaintVoice);
+  const offHold = onHold(root, {
+    find: (t) => t.closest<HTMLElement>('.pchip.holdable'),
+    open: (chip) => {
+      const seat = gs?.seats.find((s) => s.color === chip.dataset.color);
+      if (seat && canAdjust(seat.userId)) openVolumeBubble(chip, seat.userId, seat.username, { topLimit: () => ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4 });
+    },
+  });
 
   return () => {
     destroyed = true;
     chooser?.close();
+    closeVolumeBubble();
+    offHold();
+    offVolume();
     setTempo(1);
     setGameHandler(null);
     setRollHandler(null);

@@ -30,6 +30,7 @@ export const KEYS = {
   lastGame: 'ludo.lastGameId',
   a2hsDismissed: 'ludo.a2hsDismissed',
   wildcardTip: 'ludo.wildcardTipShown',
+  listenVolume: 'ludo.listenVolume',
 };
 
 /** UUID for action ids; falls back to getRandomValues outside a secure context. */

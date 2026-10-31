@@ -101,6 +101,7 @@ describe('the app, end to end', () => {
   it('splash → the access code (wrong, too many tries, right)', async () => {
     expect(screen()).toBe('screen-splash');
     expect(document.querySelector('.app-version')!.textContent).toBe('v0.0.0-test');
+    expect(document.querySelector('.splash-foot .made-with')!.textContent).toBe('Made with ❤️, by Somnath');
     http['GET /api/gate/status'] = () => [200, { verified: false }];
     click('#play');
     await waitFor('the gate', () => screen() === 'screen-gate');
@@ -138,6 +139,7 @@ describe('the app, end to end', () => {
     sock.s.fire('hello', { appVersion: '0.0.0-test', user: { id: 1, username: 'alice' }, lobby: null, game: null });
     await waitFor('home', () => screen() === 'screen-home');
     expect(document.querySelector('#me-name')!.textContent).toBe('alice');
+    expect(document.querySelector('.bottom-bar .made-with')!.textContent).toBe('Made with ❤️, by Somnath');
     expect(document.querySelector('#me-stats')!.textContent).toBe('1 wins · 3 games');
     expect(document.querySelector('#app-update')!.textContent).toContain('Up to date');
   });

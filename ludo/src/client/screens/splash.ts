@@ -18,7 +18,6 @@ export function splashScreen(root: HTMLElement): () => void {
       </div>
       <h1 class="title">Ludo</h1>
       <p class="tagline">Roll · Race · Capture</p>
-      <p class="app-version">v${__APP_VERSION__}</p>
       <button class="btn btn-primary btn-xl" id="play">${fs ? 'Tap to play fullscreen' : 'Tap to play'}</button>
       <button class="btn btn-ghost" id="install" hidden>📲 Install app <small class="muted">· fullscreen, no browser bars</small></button>
       ${
@@ -29,6 +28,10 @@ export function splashScreen(root: HTMLElement): () => void {
             </div>`
           : ''
       }
+      <footer class="splash-foot">
+        <p class="app-version">v${__APP_VERSION__}</p>
+        <p class="made-with">Made with <span aria-label="love" role="img">❤️</span>, by Somnath</p>
+      </footer>
     </div>`;
   const btn = $<HTMLButtonElement>(root, '#play');
   btn.onclick = () => {

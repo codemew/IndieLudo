@@ -3290,7 +3290,8 @@ button.me:active {
 .odds-table td.low .pct {
   font-style: italic;
   font-weight: 600;
-  opacity: 0.6;
+  /* Quieter than the rest by colour, not opacity: it must stay readable on the pale fills. */
+  color: color-mix(in srgb, var(--muted) 70%, var(--text));
 }
 .hi-key {
   font-weight: 900;

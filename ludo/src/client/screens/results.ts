@@ -163,7 +163,7 @@ function matchStats(
       return `
       <tr class="p-${c}">
         <th scope="row"><span class="st-dot"></span><span class="st-name">${nameOf(c)}</span><small class="rolls-n">${total} roll${total === 1 ? '' : 's'}</small></th>
-        ${shares.map((p, f) => `<td class="odds${unusual[f] ? ` ${unusual[f]}` : ''}" style="--p:${p}">${total ? `<b class="pct">${p}%</b><small class="cnt">${counts[i][f]}<span class="sr-only"> of ${total} rolls${unusual[f] ? `, ${unusual[f] === 'high' ? 'more' : 'less'} often than a fair die usually does` : ''}</span></small>` : '<b class="pct">–</b>'}</td>`).join('')}
+        ${shares.map((p, f) => `<td class="odds${unusual[f] ? ` ${unusual[f]}` : ''}" style="--p:${p}">${total ? `<b class="pct">${p}%</b><small class="cnt">${counts[i][f]}<span class="sr-only"> of ${total} rolls${unusual[f] ? `, ${unusual[f] === 'high' ? 'more' : 'less'} often than a fair die almost ever does` : ''}</span></small>` : '<b class="pct">–</b>'}</td>`).join('')}
       </tr>`;
     })
     .join('');
@@ -172,7 +172,7 @@ function matchStats(
         <thead><tr><th></th>${[1, 2, 3, 4, 5, 6].map((f) => `<th scope="col">${f}s</th>`).join('')}</tr></thead>
         <tbody>${oddsRows}</tbody>
       </table>
-      <p class="odds-note">How each player's rolls split over the numbers: the percent, and under it how many times. A fair die gives about 17% each, but with only a few dozen rolls a game a lopsided row is normal (about ${normalRange(40)[0]}–${normalRange(40)[1]}% for 40 rolls). Only a share further out than that is marked: <b class="hi-key">bold</b> for more often, <i>faded</i> for less${counts.some((c) => c.reduce((a, b) => a + b, 0) < MIN_ROLLS_FOR_LUCK) ? `; under ${MIN_ROLLS_FOR_LUCK} rolls nothing is marked` : ''}.</p>`;
+      <p class="odds-note">How each player's rolls split over the numbers: the percent, and under it how many times. A fair die gives about 17% each, but with only a few dozen rolls a game a lopsided row is normal (about ${normalRange(40)[0]}–${normalRange(40)[1]}% for 40 rolls). Only a share further out than that, which a fair die almost never produces, is marked: <b class="hi-key">bold</b> for more often, <i>faded</i> for less${counts.some((c) => c.reduce((a, b) => a + b, 0) < MIN_ROLLS_FOR_LUCK) ? `; under ${MIN_ROLLS_FOR_LUCK} rolls nothing is marked` : ''}.</p>`;
   return `
     <section class="match-stats">
       ${awards.length ? `<h3>Awards</h3><ul class="awards">${awardRows}</ul>` : ''}

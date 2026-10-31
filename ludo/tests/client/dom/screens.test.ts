@@ -345,10 +345,10 @@ describe('the results screen', () => {
       expect(marked('green')).toEqual(['', '', '', '', '', '']); // an even row is not special
       expect(marked('yellow')).toEqual(['', '', '', '', '', '']); // 9 rolls: too few to say
       expect(marked('blue')).toEqual(['', '', '', '', '', '']); // 19 rolls: still too few
-      expect(panel('odds').querySelector('.p-red td.high .sr-only')!.textContent).toBe(' of 100 rolls, more often than a fair die usually does');
-      expect(panel('odds').querySelector('.p-red td.low .sr-only')!.textContent).toBe(' of 100 rolls, less often than a fair die usually does');
+      expect(panel('odds').querySelector('.p-red td.high .sr-only')!.textContent).toBe(' of 100 rolls, more often than a fair die almost ever does');
+      expect(panel('odds').querySelector('.p-red td.low .sr-only')!.textContent).toBe(' of 100 rolls, less often than a fair die almost ever does');
       // The note says why: a few dozen rolls make lopsided rows normal, with the range for 40 rolls.
-      expect(panel('odds').querySelector('.odds-note')!.textContent).toMatch(/lopsided row is normal \(about 5–28% for 40 rolls\)/);
+      expect(panel('odds').querySelector('.odds-note')!.textContent).toMatch(/lopsided row is normal \(about 0–36% for 40 rolls\)/);
       expect(panel('odds').querySelector('.odds-note')!.textContent).toContain('under 20 rolls nothing is marked');
     });
 

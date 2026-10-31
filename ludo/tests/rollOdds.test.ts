@@ -101,9 +101,9 @@ describe('unusual rolls', () => {
   });
 
   it('the usual range narrows with more rolls', () => {
-    expect(normalRange(40)).toEqual([5, 28]);
-    expect(normalRange(100)).toEqual([9, 24]);
-    expect(normalRange(1000)).toEqual([14, 19]);
+    expect(normalRange(40)).toEqual([0, 36]);
+    expect(normalRange(100)).toEqual([4, 29]);
+    expect(normalRange(1000)).toEqual([13, 21]);
     expect(normalRange(1)[0]).toBe(0);
   });
 });

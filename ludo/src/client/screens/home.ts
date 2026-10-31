@@ -235,7 +235,10 @@ function profileDialog(): void {
       const on = b.dataset.avatar === avatar;
       b.classList.toggle('on', on);
       b.setAttribute('aria-checked', String(on));
+      b.tabIndex = on ? 0 : -1; // one tab stop for the group; the arrow keys move inside it
     }
+    // The "none" tile shows the initial of the name as it is typed, like the preview.
+    grid.firstElementChild!.textContent = name[0]?.toUpperCase() ?? '?';
   };
   const option = (id: string, label: string, face: string) => {
     const b = el<HTMLButtonElement>(`<button type="button" class="avatar-opt" role="radio" data-avatar="${id}" aria-label="${esc(label)}" title="${esc(label)}">${esc(face)}</button>`);
@@ -245,9 +248,22 @@ function profileDialog(): void {
     };
     grid.appendChild(b);
   };
-  option('', 'No avatar (first letter of your name)', user.username[0]?.toUpperCase() ?? '?');
+  option('', 'No avatar (first letter of your name)', '');
   for (const a of AVATARS) option(a.id, a.name, a.emoji);
   input.addEventListener('input', paint);
+  // Radio-group keys: arrows (and Home/End) pick the neighbour and move focus to it.
+  grid.addEventListener('keydown', (e) => {
+    const opts = [...grid.querySelectorAll<HTMLButtonElement>('.avatar-opt')];
+    const at = opts.findIndex((b) => b === document.activeElement);
+    if (at < 0) return;
+    const to: Record<string, number> = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: opts.length - 1 };
+    if (!(e.key in to)) return;
+    e.preventDefault();
+    const next = opts[(to[e.key] + opts.length) % opts.length];
+    avatar = next.dataset.avatar ?? '';
+    paint();
+    next.focus();
+  });
   paint();
 
   const save = async () => {

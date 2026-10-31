@@ -262,8 +262,8 @@ export class GameManager {
     this.touch(game);
   }
 
-  /** The player changed their name or avatar: games in progress show it right away. */
-  updateUser(userId: number, profile: { username: string; avatar?: string }): void {
+  /** The player changed their name or avatar ('' = none): games in progress show it right away. */
+  updateUser(userId: number, profile: { username: string; avatar: string }): void {
     for (const game of this.games.values()) {
       const seat = game.state.seats.find((s) => s.userId === userId);
       if (seat) {

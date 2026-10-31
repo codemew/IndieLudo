@@ -197,6 +197,23 @@ describe('avatars', () => {
     const dots = [...document.querySelectorAll('.podium-row .pchip-dot')].map((d) => d.textContent);
     expect(dots).toEqual(['🐶', 'B', 'C', 'D']);
   });
+
+  it('the podium shows a seat a bot took over as the player it was, and a bot seat as 🤖', () => {
+    const seats = (['red', 'green', 'yellow', 'blue'] as const).map((color, i) => ({
+      color,
+      userId: i === 3 ? null : i + 1,
+      username: ['alice', 'bob', 'carol', 'Bot Blue'][i],
+      ...(i === 1 ? { avatar: 'owl' } : {}),
+      controller: (['human', 'takeover', 'human', 'bot'] as const)[i],
+      connected: true,
+    }));
+    const g = createGameState({ id: 'R', lobbyId: 'L', seats, now: 0 });
+    g.finished = true;
+    g.ranks = ['red', 'green', 'yellow', 'blue'];
+    store.update({ user: { id: 1, username: 'alice' }, game: { ...g, legalMoves: [], serverNow: 0 }, lobby: lobby() });
+    show('results');
+    expect([...document.querySelectorAll('.podium-row .pchip-dot')].map((d) => d.textContent)).toEqual(['A', '🦉', 'C', '🤖']);
+  });
 });
 
 describe('colour swaps', () => {

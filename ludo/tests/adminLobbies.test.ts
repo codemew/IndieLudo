@@ -123,7 +123,7 @@ describe('players renaming themselves', () => {
     const patch = (body: unknown, session = alice.token) => http(t.base, 'PATCH', '/api/me', { session, body });
     expect((await http(t.base, 'GET', '/api/me', { session: alice.token })).json.user.avatar).toBe('');
     expect((await patch({ avatar: 'dragon' })).json).toEqual({ error: 'INVALID_AVATAR' });
-    expect((await patch({})).json).toEqual({ error: 'INVALID_USERNAME' });
+    expect((await patch({})).json).toEqual({ error: 'NOTHING_TO_CHANGE' });
     expect(await patch({ avatar: 'fox' })).toMatchObject({ status: 200, json: { user: { username: 'alice', avatar: 'fox' } } });
     expect((await http(t.base, 'GET', '/api/me', { session: alice.token })).json.user.avatar).toBe('fox');
 
@@ -152,6 +152,17 @@ describe('players renaming themselves', () => {
     const cleared = bob.nextState((u) => u.state.seats.every((seat) => seat.avatar !== 'owl'));
     await patch({ avatar: '' });
     expect((await cleared).state.seats.map((seat) => seat.avatar)).toEqual([undefined, 'panda']);
+  });
+
+  it('avatar-only saves have a roomier limit than renames, and renames do not use it up', async () => {
+    t = await startTestServer();
+    const alice = await client(t, 'alice');
+    clients.push(alice);
+    const patch = (body: unknown) => http(t.base, 'PATCH', '/api/me', { session: alice.token, body });
+    for (let i = 0; i < 20; i++) expect((await patch({ avatar: i % 2 ? 'cat' : 'dog' })).status).toBe(200);
+    expect((await patch({ avatar: 'fox' })).json).toEqual({ error: 'RATE_LIMITED' });
+    // The rename allowance is its own: still there.
+    expect((await patch({ username: 'Alicia' })).status).toBe(200);
   });
 
   it('rejects taken and invalid names, accounts-less admin sessions, and rapid renames', async () => {

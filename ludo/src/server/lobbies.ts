@@ -505,8 +505,8 @@ export class LobbyManager {
     this.changed(lobby);
   }
 
-  /** The player changed their name or avatar: the lobby they are in shows it right away. */
-  updateUser(userId: number, profile: { username: string; avatar?: string }): void {
+  /** The player changed their name or avatar ('' = none): the lobby they are in shows it right away. */
+  updateUser(userId: number, profile: { username: string; avatar: string }): void {
     const lobby = this.forUser(userId);
     const member = lobby?.members.find((m) => m.userId === userId) ?? lobby?.spectators.find((s) => s.userId === userId);
     if (!lobby || !member) return;

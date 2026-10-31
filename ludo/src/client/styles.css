@@ -4418,6 +4418,11 @@ polygon.b-inner {
   font-size: 17px;
 }
 
+/* The smaller player cards of 5 and 6 player games: the face has to fit its 24 px circle. */
+.players-3 .pchip-dot.has-avatar {
+  font-size: 14px;
+}
+
 /* The profile editor: a preview, then a grid of big, evenly spaced faces. */
 .profile-form {
   gap: 12px;

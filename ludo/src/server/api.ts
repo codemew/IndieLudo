@@ -62,6 +62,8 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
   const signupLimiter = new RateLimiter(10, 60_000);
   const adminLoginLimiter = new RateLimiter(5, 60_000);
   const renameLimiter = new RateLimiter(5, 60_000);
+  // Trying avatars on is cheap and harmless, so it has its own, roomier limit.
+  const avatarLimiter = new RateLimiter(20, 60_000);
 
   // Device token from header (localStorage copy) or cookie. Each copy restores the other.
   api.use((req, res, next) => {
@@ -156,8 +158,9 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
     const { user } = locals(res).auth!;
     if (!user) throw new AppError('NOT_FOUND', 404);
     const { username, avatar } = (req.body ?? {}) as { username?: unknown; avatar?: unknown };
-    if (username === undefined && avatar === undefined) throw new AppError('INVALID_USERNAME');
-    if (!renameLimiter.hit(String(user.id))) throw new AppError('RATE_LIMITED', 429);
+    if (username === undefined && avatar === undefined) throw new AppError('NOTHING_TO_CHANGE');
+    // Renaming is limited tightly (impersonation, churn); an avatar-only save has its own limit.
+    if (!(username !== undefined ? renameLimiter : avatarLimiter).hit(String(user.id))) throw new AppError('RATE_LIMITED', 429);
     // Check both before changing either, so a bad avatar doesn't leave a half-done edit.
     if (avatar !== undefined && avatar !== '' && !isAvatarId(avatar)) throw new AppError('INVALID_AVATAR');
     let updated = user;

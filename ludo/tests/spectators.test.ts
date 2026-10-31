@@ -174,7 +174,7 @@ describe('leaving, hosts and cleanup with spectators', () => {
     lm = new LobbyManager({ db, lobbyCreatePassword: 'secret', maxLobbies: 50, lobbyIdleCloseSec: 600, randomInt: () => 0, winsOf: (id) => id * 10 });
     const l = create();
     lm.join(bob, l.id, 'pw', true);
-    lm.updateUser(bob.id, { username: 'bobby' });
+    lm.updateUser(bob.id, { username: 'bobby', avatar: '' });
     expect(lm.toPublic(lm.get(l.id)!).spectators).toEqual([{ userId: 2, username: 'bobby', connected: true, wins: 20 }]);
     expect(humanIds(lm.get(l.id)!)).toEqual([1, 2]);
   });

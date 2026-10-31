@@ -28,6 +28,8 @@ export function resultsScreen(root: HTMLElement): void {
   const rows = g.ranks
     .map((color, i) => {
       const seat = g.seats.find((s) => s.color === color)!;
+      // Only a seat that was a bot all along gets the 🤖: one a bot took over for a player who left
+      // (the game chips show 🤖 while it plays) is shown as that player here, who finished where.
       return `
         <li class="podium-row p-${color}${g.teams ? ' team-row' : ''}" style="animation-delay:${200 + i * 140}ms">
           <span class="place">${g.teams ? (winners.includes(color) ? '1st' : '2nd') : PLACES[i]}</span>

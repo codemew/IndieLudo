@@ -5,6 +5,7 @@
  * is faked: a stand-in socket.io socket and a scripted fetch.
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { AVATARS } from '../../../src/shared/avatars.js';
 import { createGameState, legalMoves } from '../../../src/shared/rules.js';
 import type { PublicGameState, PublicLobby } from '../../../src/shared/types.js';
 import { click, flush, modalButton, setupDom, toasts, topModal } from './harness.js';
@@ -176,6 +177,27 @@ describe('the app, end to end', () => {
     await waitFor('the avatar', () => document.querySelector('#avatar')!.textContent === '🐱');
     expect(sent).toEqual({ avatar: 'cat' });
     expect(document.querySelector('#avatar')!.classList.contains('has-avatar')).toBe(true);
+    // Keyboard: one tab stop for the group (the selected one), arrows move the pick, and the "none" tile follows the typed name.
+    click('#me');
+    await flush(80);
+    const radios = () => [...topModal().querySelectorAll<HTMLButtonElement>('.avatar-opt')];
+    expect(radios().filter((b) => b.tabIndex === 0).map((b) => b.dataset.avatar)).toEqual(['cat']);
+    const key = (k: string) => radios().find((b) => b.tabIndex === 0)!.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    radios().find((b) => b.tabIndex === 0)!.focus();
+    key('ArrowRight');
+    expect(radios().filter((b) => b.tabIndex === 0).map((b) => b.dataset.avatar)).toEqual(['rabbit']);
+    expect(document.activeElement).toBe(radios().find((b) => b.dataset.avatar === 'rabbit'));
+    key('Home');
+    expect(radios().find((b) => b.tabIndex === 0)!.dataset.avatar).toBe('');
+    key('ArrowLeft'); // wraps round to the last one
+    expect(radios().find((b) => b.tabIndex === 0)!.dataset.avatar).toBe(AVATARS[AVATARS.length - 1].id);
+    expect(radios()[0].textContent).toBe('A');
+    const nameBox = topModal().querySelector('input') as HTMLInputElement;
+    nameBox.value = 'zed';
+    nameBox.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(radios()[0].textContent).toBe('Z');
+    modalButton('Cancel');
+    await flush(250);
     // Saving nothing new sends nothing; a rejected avatar shows its message and keeps the dialog.
     click('#me');
     await flush(80);

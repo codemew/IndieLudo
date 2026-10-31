@@ -38,6 +38,7 @@ export function homeScreen(root: HTMLElement): () => void {
     <footer class="bottom-bar">
       <div class="app-update" id="app-update"></div>
       <button class="btn btn-primary btn-xl" id="create">＋ Create lobby</button>
+      <p class="made-with">Made with <span aria-label="love" role="img">❤️</span>, by Somnath</p>
     </footer>`;
 
   const paintSound = () => ($(root, '#sound').textContent = isMuted() ? '🔇' : '🔊');

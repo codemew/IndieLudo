@@ -481,3 +481,80 @@ describe('browser helpers', () => {
     await flush(400);
   });
 });
+
+describe('tap and hold on a lobby card: their volume, for you only', () => {
+  const press = (el: Element) => el.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 5, clientY: 5 }));
+  const bubble = () => document.querySelector<HTMLElement>('.bubble-screen .stack-bubble');
+
+  beforeEach(async () => {
+    const volume = await import('../../../src/client/listenVolume.js');
+    volume.resetListenVolume();
+    localStorage.clear();
+    const { voice } = await import('../../../src/client/voice.js');
+    voice.enabled = true;
+    store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
+    show('lobby');
+  });
+
+  it('a seat and a watcher open the bubble; your own card and a bot\'s do not', async () => {
+    store.update({ lobby: lobby({ members: [member('red', 1, 'alice'), member('green', 2, 'bob'), member('yellow', null, 'Bot Yellow')] }) });
+    expect(seatOf('red').classList.contains('holdable')).toBe(false);
+    expect(seatOf('yellow').classList.contains('holdable')).toBe(false);
+    press(seatOf('red'));
+    await flush(520);
+    expect(bubble()).toBeNull();
+
+    press(seatOf('green').querySelector('.seat-token')!);
+    await flush(520);
+    expect(bubble()!.querySelector('.bubble-cap')!.textContent).toBe('bob · only for you');
+    bubble()!.querySelector<HTMLButtonElement>('[data-vol="0.6"]')!.click();
+    const { volumeOf } = await import('../../../src/client/listenVolume.js');
+    expect(volumeOf(2)).toBe(0.6);
+    expect(seatOf('green').hasAttribute('aria-label')).toBe(false);
+    expect(document.getElementById(seatOf('green').getAttribute('aria-describedby')!)!.textContent).toContain('Voice volume 60%');
+
+    const watcher = document.querySelector('.watcher[data-user="3"]')!;
+    press(watcher);
+    await flush(520);
+    expect(bubble()!.querySelector('.bubble-cap')!.textContent).toBe('zed · only for you');
+  });
+
+  it('follows its card through a redraw, and closes when the page scrolls', async () => {
+    press(seatOf('green'));
+    await flush(520);
+    expect(bubble()).not.toBeNull();
+    // The lobby redraws its cards (someone readied up): the old card is gone, a new one is there.
+    const old = seatOf('green');
+    store.update({ lobby: lobby({ members: [member('red', 1, 'alice'), member('green', 2, 'bob', { ready: true })] }) });
+    expect(seatOf('green')).not.toBe(old);
+    expect(old.isConnected).toBe(false);
+    let rect = 0;
+    const real = seatOf('green').getBoundingClientRect.bind(seatOf('green'));
+    seatOf('green').getBoundingClientRect = () => ((rect++, real()));
+    window.dispatchEvent(new Event('resize')); // re-placed: it reads the new card, not the detached one
+    expect(rect).toBeGreaterThan(0);
+    // Escape hands the focus to the new card.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.activeElement).toBe(seatOf('green'));
+    press(seatOf('green'));
+    await flush(520);
+    expect(bubble()).not.toBeNull();
+    window.dispatchEvent(new Event('scroll'));
+    expect(bubble()).toBeNull();
+  });
+
+  it('a press on a button inside the card (Kick, Swap) is the button\'s, not a hold', async () => {
+    press(chip('green', 'Kick'));
+    await flush(520);
+    expect(bubble()).toBeNull();
+  });
+
+  it('leaving the lobby closes the bubble', async () => {
+    press(seatOf('green'));
+    await flush(520);
+    expect(bubble()).not.toBeNull();
+    router.go('blank');
+    await flush(300);
+    expect(bubble()).toBeNull();
+  });
+});

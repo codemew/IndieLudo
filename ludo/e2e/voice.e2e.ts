@@ -256,3 +256,89 @@ describe.skipIf(!CHROME || !BUILT || !WAV)('voice details and reconnecting by it
     for (const ms of Object.values(recovery)) expect(ms).toBeLessThan(6000);
   });
 });
+
+describe.skipIf(!CHROME || !BUILT || !WAV)('turning one player down with a long press on their card', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let phones: Page[];
+
+  /** Puts a finger on the middle of `sel` for `ms`, like a person holding a card. */
+  const hold = async (p: Page, sel: string, ms = 650) => {
+    const box = (await (await p.$(sel))!.boundingBox())!;
+    const touch = await p.touchscreen.touchStart(box.x + box.width / 2, box.y + box.height / 2);
+    await sleep(ms);
+    await touch.end();
+  };
+  /** The voice elements: [volume, muted] of each, and how many are not at full volume. */
+  const playback = (p: Page) => p.$$eval('audio', (as) => as.map((a) => [Math.round(a.volume * 100) / 100, a.muted] as const));
+  const settled = (p: Page) => p.$eval('.bubble-screen .stack-bubble', (b) => b.getAnimations().every((a) => a.playState !== 'running'));
+
+  beforeAll(async () => {
+    t = await setup({ chromeArgs: [`--use-file-for-fake-audio-capture=${WAV}`], onPage: watchPcs });
+    phones = await t.lobby(['alice', 'bob']);
+    for (const p of phones) await until('the voice server link', async () => (await sfuStats(p))?.state === 'connected', 15_000);
+    await until('voice arriving', async () => ((await sfuStats(phones[0]))?.got ?? 0) > 50, 20_000);
+  }, 60_000);
+  afterAll(() => t?.close());
+
+  it('in the lobby: a hold on bob\'s card opens the bubble; 30% turns him down on alice\'s phone only', async () => {
+    const [alice, bob] = phones;
+    const bobId = t.server.ctx.lobbies.all()[0].members.find((m) => m.username === 'bob')!.userId;
+    // Your own card is not holdable.
+    await hold(alice, '.seat-me', 650);
+    expect(await alice.$('.bubble-screen .stack-bubble')).toBeNull();
+
+    await hold(alice, `.seat[data-user="${bobId}"] .seat-token`);
+    await alice.waitForSelector('.bubble-screen .stack-bubble');
+    await until('the bubble has popped in', () => settled(alice));
+    expect(await alice.$eval('.bubble-cap', (c) => c.textContent)).toBe('bob · only for you');
+    // It stays on the screen, on bob's side of the tail.
+    const rect = await alice.$eval('.stack-bubble', (b) => JSON.parse(JSON.stringify(b.getBoundingClientRect())));
+    expect(rect.left).toBeGreaterThanOrEqual(8);
+    expect(rect.right).toBeLessThanOrEqual(390 - 8 + 0.5);
+    await shot(alice, 'volume-lobby');
+
+    const before = await playback(alice);
+    expect(before.every(([v, m]) => v === 1 && !m)).toBe(true);
+    await tap(alice, '.bubble-opt[data-vol="0.3"]');
+    await alice.waitForSelector('.bubble-screen .stack-bubble', { hidden: true });
+    // Bob's slot (or direct link) now plays at 30%; only one voice element is turned down.
+    await until('bob at 30%', async () => (await playback(alice)).filter(([v]) => v === 0.3).length === 1);
+    expect((await playback(alice)).filter(([v]) => v !== 1 && v !== 0.3)).toEqual([]);
+    expect(await alice.$eval(`.seat[data-user="${bobId}"] .vc-vol`, (e) => e.getAttribute('aria-label'))).toBe('You hear them at 30%');
+    await shot(alice, 'volume-lobby-after');
+    // Bob's own phone: nothing changed, nothing shown.
+    expect((await playback(bob)).every(([v, m]) => v === 1 && !m)).toBe(true);
+    expect(await bob.$('.vc-vol')).toBeNull();
+
+    // Mute: his element is muted for alice; sent nowhere.
+    await hold(alice, `.seat[data-user="${bobId}"] .seat-token`);
+    await alice.waitForSelector('.bubble-screen .stack-bubble');
+    await until('settled', () => settled(alice));
+    expect(await alice.$eval('.bubble-opt[aria-pressed="true"]', (b) => (b as HTMLElement).dataset.vol)).toBe('0.3');
+    await tap(alice, '.bubble-opt[data-vol="0"]');
+    await until('bob muted', async () => (await playback(alice)).filter(([, m]) => m).length === 1);
+    expect(t.errors).toEqual([]);
+  }, 40_000);
+
+  it('in the game: the same hold on a player card, the choice is still there, and 100% restores it', async () => {
+    const [alice, bob] = phones;
+    await tap(bob, '#actions .btn-primary');
+    await until('ready', async () => !(await alice.$eval('#start', (b) => (b as HTMLButtonElement).disabled)));
+    await tap(alice, '#start');
+    await Promise.all(phones.map((p) => p.waitForSelector('.screen-game .pchip')));
+    await sleep(400);
+    const chip = '.pchip.holdable';
+    expect(await alice.$$eval(chip, (c) => c.length)).toBe(1);
+    // Still muted from the lobby: his speaker shows on the card.
+    expect(await alice.$eval(`${chip} .vc-vol`, (e) => e.getAttribute('aria-label'))).toBe('You muted them');
+    await hold(alice, chip);
+    await alice.waitForSelector('.bubble-screen .stack-bubble');
+    await until('settled', () => settled(alice));
+    expect(await alice.$eval('.bubble-opt[aria-pressed="true"]', (b) => (b as HTMLElement).dataset.vol)).toBe('0');
+    await shot(alice, 'volume-game');
+    await tap(alice, '.bubble-opt[data-vol="1"]');
+    await until('bob back at full volume', async () => (await playback(alice)).every(([v, m]) => v === 1 && !m));
+    expect(await alice.$(`${chip} .vc-vol`)).toBeNull();
+    expect(t.errors).toEqual([]);
+  }, 40_000);
+});

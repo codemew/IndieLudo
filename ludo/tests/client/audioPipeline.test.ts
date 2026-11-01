@@ -242,3 +242,22 @@ describe('the audio worklet', () => {
     expect(p.process([], [[out]])).toBe(true);
   });
 });
+
+describe('relayed voice volume', () => {
+  it('plays each player at the volume chosen for them, from the first frame and live', async () => {
+    const { RelayPlayer } = await import('../../src/client/voiceRelay.js');
+    const vol = await import('../../src/client/listenVolume.js');
+    vol.resetListenVolume();
+    vol.setVolume(7, 0.3);
+    const p = new RelayPlayer();
+    const level = (id: number) => (p as any).from.get(id).gain.gain.value;
+    p.push(7, [new ArrayBuffer(10)]);
+    p.push(8, [new ArrayBuffer(10)]);
+    expect([level(7), level(8)]).toEqual([0.3, 1]);
+    p.setVolume(8, 0);
+    p.setVolume(99, 0.5); // not heard from yet: nothing to change
+    expect([level(7), level(8)]).toEqual([0.3, 0]);
+    p.stopAll();
+    vol.resetListenVolume();
+  });
+});

@@ -32,6 +32,11 @@ export function unlock(): void {
   }
 }
 
+/** The page's one audio context (unlocked by the first tap), for other audio that needs Web Audio. */
+export function audioContext(): AudioContext | null {
+  return ctx;
+}
+
 export function installUnlockListeners(): void {
   const once = () => unlock();
   window.addEventListener('pointerdown', once, { once: true, capture: true });

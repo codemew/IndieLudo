@@ -4,6 +4,8 @@
  * The microphone is encoded to Opus with WebCodecs and sent in small batches over the game's own
  * connection; incoming frames are decoded and played with a short jitter buffer.
  */
+import { volumeOf } from './listenVolume.js';
+
 const RATE = 48_000;
 /** Opus frames per message: 3 × 20 ms. */
 const BATCH = 3;
@@ -150,6 +152,7 @@ export class RelayPlayer {
     let p = this.from.get(userId);
     if (!p) {
       const gain = ctx.createGain();
+      gain.gain.value = volumeOf(userId);
       gain.connect(ctx.destination);
       const decoder = new AudioDecoder({ output: (d) => this.play(userId, d), error: () => this.drop(userId) });
       decoder.configure({ codec: 'opus', sampleRate: RATE, numberOfChannels: 1 });
@@ -192,6 +195,12 @@ export class RelayPlayer {
     src.connect(p.gain);
     src.start(p.playAt);
     p.playAt += buffer.duration;
+  }
+
+  /** Plays their relayed voice at `level` (0..1): the volume we chose for them. */
+  setVolume(userId: number, level: number): void {
+    const p = this.from.get(userId);
+    if (p) p.gain.gain.value = level;
   }
 
   /** Their relayed audio arrived recently. */

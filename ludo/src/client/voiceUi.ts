@@ -1,4 +1,5 @@
 import { VOICE_BITRATES } from '../shared/types.js';
+import { volumeOf, volumeText } from './listenVolume.js';
 import { play } from './sound.js';
 import { state, subscribe } from './store.js';
 import { ICONS, confirmDialog, el, errorText, esc, setHtml, toast } from './ui.js';
@@ -12,7 +13,16 @@ export function voiceBadge(userId: number | null): string {
   if (!p) return '';
   const connecting = userId !== state.user?.id && voice.joined && voice.peerStatus(userId) !== 'connected';
   const label = `${p.muted ? 'muted' : 'talking enabled'}${connecting ? ', connecting' : ''}`;
-  return ` <span class="vc ${p.muted ? 'vc-muted' : 'vc-on'}${connecting ? ' vc-connecting' : ''}" title="${label}" aria-label="${label}">${p.muted ? ICONS.micOff : ICONS.mic}</span>`;
+  const mic = ` <span class="vc ${p.muted ? 'vc-muted' : 'vc-on'}${connecting ? ' vc-connecting' : ''}" title="${label}" aria-label="${label}">${p.muted ? ICONS.micOff : ICONS.mic}</span>`;
+  return mic + volumeBadge(userId);
+}
+
+/** A small speaker beside the name of someone we turned down or muted (only we see it). */
+function volumeBadge(userId: number): string {
+  const level = volumeOf(userId);
+  if (level >= 1 || userId === state.user?.id) return '';
+  const label = level === 0 ? 'You muted them' : `You hear them at ${volumeText(level)}`;
+  return ` <span class="vc vc-vol${level === 0 ? ' vc-vol-off' : ''}" title="${label}" aria-label="${label}">${level === 0 ? ICONS.speakerOff : ICONS.speakerMid}</span>`;
 }
 
 /**

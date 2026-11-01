@@ -11,6 +11,9 @@ import { voice } from '../voice.js';
 import { pingText, signalBars } from '../netUi.js';
 import { askSwap, cancelSwap } from '../swapUi.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
+import { onHold } from '../holdPress.js';
+import { onVolumeChange, volumeOf, volumeText } from '../listenVolume.js';
+import { canAdjust, closeVolumeBubble, openVolumeBubble } from '../volumeBubble.js';
 
 /**
  * Seats laid out like the board. 4 players: red top-left, green top-right, blue bottom-left,
@@ -178,6 +181,23 @@ export function lobbyScreen(root: HTMLElement): () => void {
       const netHtml = `${signalBars(userId)}${pingText(userId)}`;
       if (vc && vc.innerHTML !== vcHtml) vc.innerHTML = vcHtml;
       if (net && net.innerHTML !== netHtml) net.innerHTML = netHtml;
+      // Tap and hold on someone else's card: their volume, for us only (volumeBubble.ts).
+      if (canAdjust(userId)) {
+        card.classList.add('holdable');
+        card.tabIndex = 0;
+        card.setAttribute('role', 'group');
+        card.setAttribute('aria-describedby', `vvh-${userId}`);
+        let hint = card.querySelector<HTMLElement>('.vol-hint');
+        if (!hint) {
+          hint = el(`<span class="sr-only vol-hint" id="vvh-${userId}" aria-hidden="true"></span>`);
+          card.appendChild(hint);
+        }
+        hint.textContent = `Voice volume ${volumeText(volumeOf(userId))}. Hold or press Enter to change it, for you only.`;
+      } else {
+        card.classList.remove('holdable');
+        for (const a of ['tabindex', 'role', 'aria-describedby']) card.removeAttribute(a);
+        card.querySelector('.vol-hint')?.remove();
+      }
     });
   };
 
@@ -191,7 +211,19 @@ export function lobbyScreen(root: HTMLElement): () => void {
   });
   // Peer connection changes only affect the "connecting" pulse on the badges.
   const offVoice = voice.onChange(paintLive);
+  const offVolume = onVolumeChange(paintLive);
+  const offHold = onHold(root, {
+    find: (t) => t.closest<HTMLElement>('.seat.holdable, .watcher.holdable'),
+    open: (card) => {
+      const userId = Number(card.dataset.user);
+      const name = card.querySelector('.seat-name, .watcher-name')?.firstChild?.textContent?.trim() || 'Player';
+      if (canAdjust(userId)) openVolumeBubble(card, userId, name, { locate: () => root.querySelector<HTMLElement>(`.seat[data-user="${userId}"], .watcher[data-user="${userId}"]`) });
+    },
+  });
   return () => {
+    offVolume();
+    offHold();
+    closeVolumeBubble();
     offMute();
     offStore();
     offVoice();

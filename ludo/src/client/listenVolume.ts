@@ -1,9 +1,11 @@
 import { KEYS, storage } from './storage.js';
+import { state } from './store.js';
 
 /**
  * How loud each other player's voice is for us: 1 = as sent (the default), 0 = muted for us. Kept on
  * this phone only. Nothing is sent to the server, so nobody else hears a change. It is stored per
- * player, so it survives a reload and applies in later games and lobbies too.
+ * player, so it survives a reload and applies in later games and lobbies too, and per signed-in
+ * account, so on a shared phone one person's mutes don't carry over to the next.
  */
 
 /** The choices in the volume bubble, loudest first. */
@@ -14,13 +16,18 @@ const MAX_REMEMBERED = 64;
 
 const levels = new Map<number, number>();
 const listeners = new Set<(userId: number) => void>();
-let loaded = false;
+/** Whose levels are in memory (0 = nobody signed in), or null when none are loaded yet. */
+let loadedFor: number | null = null;
+
+const keyFor = (account: number) => `${KEYS.listenVolume}.${account}`;
 
 function load(): void {
-  if (loaded) return;
-  loaded = true;
+  const account = state.user?.id ?? 0;
+  if (loadedFor === account) return;
+  loadedFor = account;
+  levels.clear();
   try {
-    const saved = JSON.parse(storage.get(KEYS.listenVolume) ?? '{}') as unknown;
+    const saved = JSON.parse(storage.get(keyFor(account)) ?? '{}') as unknown;
     if (!saved || typeof saved !== 'object') return;
     for (const [id, level] of Object.entries(saved)) {
       const userId = Number(id);
@@ -47,8 +54,8 @@ export function setVolume(userId: number, level: number): void {
   levels.delete(userId); // (re-added last: the newest change is kept longest)
   if (v < 1) levels.set(userId, v);
   while (levels.size > MAX_REMEMBERED) levels.delete(levels.keys().next().value!);
-  if (levels.size) storage.set(KEYS.listenVolume, JSON.stringify(Object.fromEntries(levels)));
-  else storage.remove(KEYS.listenVolume);
+  if (levels.size) storage.set(keyFor(loadedFor!), JSON.stringify(Object.fromEntries(levels)));
+  else storage.remove(keyFor(loadedFor!));
   for (const fn of listeners) fn(userId);
 }
 
@@ -76,5 +83,5 @@ export function volumeText(level: number): string {
 /** Test hook: forget everything held in memory, so the next read loads from storage again. */
 export function resetListenVolume(): void {
   levels.clear();
-  loaded = false;
+  loadedFor = null;
 }

@@ -182,15 +182,21 @@ export function lobbyScreen(root: HTMLElement): () => void {
       if (vc && vc.innerHTML !== vcHtml) vc.innerHTML = vcHtml;
       if (net && net.innerHTML !== netHtml) net.innerHTML = netHtml;
       // Tap and hold on someone else's card: their volume, for us only (volumeBubble.ts).
-      const name = card.querySelector('.seat-name, .watcher-name')?.firstChild?.textContent?.trim() ?? '';
       if (canAdjust(userId)) {
         card.classList.add('holdable');
         card.tabIndex = 0;
         card.setAttribute('role', 'group');
-        card.setAttribute('aria-label', `${name}, voice volume ${volumeText(volumeOf(userId))}. Hold or press Enter to change it for you`);
+        card.setAttribute('aria-describedby', `vvh-${userId}`);
+        let hint = card.querySelector<HTMLElement>('.vol-hint');
+        if (!hint) {
+          hint = el(`<span class="sr-only vol-hint" id="vvh-${userId}" aria-hidden="true"></span>`);
+          card.appendChild(hint);
+        }
+        hint.textContent = `Voice volume ${volumeText(volumeOf(userId))}. Hold or press Enter to change it, for you only.`;
       } else {
         card.classList.remove('holdable');
-        for (const a of ['tabindex', 'role', 'aria-label']) card.removeAttribute(a);
+        for (const a of ['tabindex', 'role', 'aria-describedby']) card.removeAttribute(a);
+        card.querySelector('.vol-hint')?.remove();
       }
     });
   };
@@ -211,7 +217,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
     open: (card) => {
       const userId = Number(card.dataset.user);
       const name = card.querySelector('.seat-name, .watcher-name')?.firstChild?.textContent?.trim() || 'Player';
-      if (canAdjust(userId)) openVolumeBubble(card, userId, name);
+      if (canAdjust(userId)) openVolumeBubble(card, userId, name, { locate: () => root.querySelector<HTMLElement>(`.seat[data-user="${userId}"], .watcher[data-user="${userId}"]`) });
     },
   });
   return () => {

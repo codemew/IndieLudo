@@ -791,9 +791,10 @@ export function gameScreen(root: HTMLElement): () => void {
         chip.tabIndex = 0;
         chip.setAttribute('role', 'button');
         chip.setAttribute('aria-haspopup', 'true');
-        chip.setAttribute('aria-label', `${seat.username}, voice volume ${volumeText(volumeOf(seat.userId))}. Hold or press Enter to change it for you`);
+        // The card keeps reading as its own content (name, homes, ping, turn); the hint is only a description.
+        chip.setAttribute('aria-describedby', `pvh-${color}`);
       } else {
-        for (const a of ['tabindex', 'role', 'aria-haspopup', 'aria-label']) chip.removeAttribute(a);
+        for (const a of ['tabindex', 'role', 'aria-haspopup', 'aria-describedby']) chip.removeAttribute(a);
       }
       // Built once; afterwards only the parts that changed are touched, since pings and voice
       // changes redraw the chips every few seconds.
@@ -801,8 +802,10 @@ export function gameScreen(root: HTMLElement): () => void {
         chip,
         '<span class="pchip-icon"><span class="pchip-dot"></span><span class="pchip-mate" hidden></span><span class="pchip-ping"></span></span>' +
           '<span class="pchip-text"><span class="pchip-name"><span class="pn"></span><span class="pchip-sig"></span></span><span class="pchip-sub"></span></span>' +
-          '<span class="pchip-timer"><i></i></span>',
+          '<span class="pchip-timer"><i></i></span>' +
+          `<span class="sr-only" id="pvh-${color}" aria-hidden="true"></span>`,
       );
+      $(chip, '.sr-only').textContent = chip.classList.contains('holdable') ? `Voice volume ${volumeText(volumeOf(seat.userId))}. Hold or press Enter to change it, for you only.` : '';
       const dot = $(chip, '.pchip-dot');
       setHtml(dot, seat.controller !== 'human' ? '🤖' : esc(avatarFace(seat.avatar, seat.username)));
       dot.classList.toggle('has-avatar', seat.controller === 'human' && Boolean(seat.avatar));
@@ -1167,7 +1170,7 @@ export function gameScreen(root: HTMLElement): () => void {
     find: (t) => t.closest<HTMLElement>('.pchip.holdable'),
     open: (chip) => {
       const seat = gs?.seats.find((s) => s.color === chip.dataset.color);
-      if (seat && canAdjust(seat.userId)) openVolumeBubble(chip, seat.userId, seat.username, { topLimit: () => ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4 });
+      if (seat && canAdjust(seat.userId)) openVolumeBubble(chip, seat.userId, seat.username, { topLimit: () => ($(root, '.game-top').getBoundingClientRect().bottom || 0) + 4, locate: () => root.querySelector<HTMLElement>(`.pchip[data-color=${chip.dataset.color}]`) });
     },
   });
 

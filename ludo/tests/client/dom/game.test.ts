@@ -21,7 +21,7 @@ vi.mock('../../../src/client/app.js', () => ({
   resyncGame: () => void app.resyncs++,
 }));
 const sounds = vi.hoisted(() => [] as string[]);
-vi.mock('../../../src/client/sound.js', () => ({ play: (s: string) => sounds.push(s), isMuted: () => false, setMuted: vi.fn(), unlock: vi.fn(), installUnlockListeners: vi.fn() }));
+vi.mock('../../../src/client/sound.js', () => ({ play: (s: string) => sounds.push(s), isMuted: () => false, setMuted: vi.fn(), unlock: vi.fn(), installUnlockListeners: vi.fn(), audioContext: () => null }));
 
 let go: typeof import('../../../src/client/router.js').go;
 let store: typeof import('../../../src/client/store.js');
@@ -686,9 +686,13 @@ describe('tap and hold on a player card: their volume, for you only', () => {
     // Nothing goes to the server: nobody else's volume changes.
     expect(sentOf('voice:mute')).toHaveLength(0);
     expect(chip('green').querySelector('.vc-vol')!.getAttribute('aria-label')).toBe('You hear them at 30%');
-    expect(chip('green').getAttribute('aria-label')).toContain('voice volume 30%');
+    // The card still reads as its own content (name, homes, ping, turn); the volume is only its description.
+    expect(chip('green').hasAttribute('aria-label')).toBe(false);
+    expect(chip('green').querySelector('.pn-name')!.textContent).toBe('bob');
+    expect(document.getElementById(chip('green').getAttribute('aria-describedby')!)!.textContent).toContain('Voice volume 30%');
+    expect(document.getElementById('pvh-green')!.getAttribute('aria-hidden')).toBe('true');
     expect(chip('red').querySelector('.vc-vol')).toBeNull();
-    expect(JSON.parse(localStorage.getItem('ludo.listenVolume')!)).toEqual({ '2': 0.3 });
+    expect(JSON.parse(localStorage.getItem('ludo.listenVolume.1')!)).toEqual({ '2': 0.3 });
     // Held again: 30% is the one marked.
     await hold(chip('green'));
     expect(bubble()!.querySelector('[aria-pressed="true"]')!.getAttribute('data-vol')).toBe('0.3');
@@ -698,7 +702,7 @@ describe('tap and hold on a player card: their volume, for you only', () => {
     await hold(chip('green'));
     bubble()!.querySelector<HTMLButtonElement>('[data-vol="1"]')!.click();
     expect(chip('green').querySelector('.vc-vol')).toBeNull();
-    expect(localStorage.getItem('ludo.listenVolume')).toBeNull();
+    expect(localStorage.getItem('ludo.listenVolume.1')).toBeNull();
   });
 
   it('a short tap, or a finger that moves, does not open it; the lifting finger after a hold does not also tap', async () => {
@@ -723,6 +727,25 @@ describe('tap and hold on a player card: their volume, for you only', () => {
     expect(clicks).toHaveLength(0);
     chip('green').click();
     expect(clicks).toHaveLength(1);
+  });
+
+  it('when no click follows a hold, the next real tap is not swallowed', async () => {
+    mount(newGame());
+    await hold(chip('green'));
+    release(); // (the finger slid off the card: no click comes)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); // (the bubble would take the next tap itself)
+    document.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    const clicks: Element[] = [];
+    document.addEventListener('click', (e) => clicks.push(e.target as Element));
+    document.querySelector<HTMLElement>('#board')!.click();
+    expect(clicks).toHaveLength(1);
+    // And with no new touch at all, it stops waiting a moment after the lift.
+    await hold(chip('green'));
+    release();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await flush(450);
+    document.querySelector<HTMLElement>('#board')!.click();
+    expect(clicks).toHaveLength(2);
   });
 
   it('is not offered on your own card, on a bot, or while voice chat is off', async () => {

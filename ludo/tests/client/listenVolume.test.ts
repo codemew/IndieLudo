@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { state } from '../../src/client/store.js';
 import { VOLUME_STEPS, adjusted, nearestStep, onVolumeChange, resetListenVolume, setVolume, volumeOf, volumeText } from '../../src/client/listenVolume.js';
 
 const store = new Map<string, string>();
 beforeEach(() => {
+  state.user = null;
   store.clear();
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
@@ -23,13 +25,13 @@ describe('volume you chose for each player', () => {
     setVolume(8, 0);
     expect(volumeOf(7)).toBe(0.3);
     expect(volumeOf(8)).toBe(0);
-    expect(JSON.parse(store.get('ludo.listenVolume')!)).toEqual({ '7': 0.3, '8': 0 });
+    expect(JSON.parse(store.get('ludo.listenVolume.0')!)).toEqual({ '7': 0.3, '8': 0 });
     resetListenVolume(); // (a new page load reads storage again)
     expect(volumeOf(7)).toBe(0.3);
     expect(volumeOf(8)).toBe(0);
     setVolume(7, 1);
     setVolume(8, 1);
-    expect(store.has('ludo.listenVolume')).toBe(false);
+    expect(store.has('ludo.listenVolume.0')).toBe(false);
   });
 
   it('tells listeners which player changed, and nothing when nothing did', () => {
@@ -51,10 +53,10 @@ describe('volume you chose for each player', () => {
     expect(volumeOf(7)).toBe(1);
     expect(volumeOf(8)).toBe(0);
     expect(volumeOf(9)).toBe(1);
-    store.set('ludo.listenVolume', '{"3":0.5,"x":0.2,"4":7,"5":"loud","-1":0.1}');
+    store.set('ludo.listenVolume.0', '{"3":0.5,"x":0.2,"4":7,"5":"loud","-1":0.1}');
     resetListenVolume();
     expect([...adjusted()]).toEqual([[3, 0.5]]);
-    store.set('ludo.listenVolume', 'not json');
+    store.set('ludo.listenVolume.0', 'not json');
     resetListenVolume();
     expect(volumeOf(3)).toBe(1);
   });
@@ -65,6 +67,19 @@ describe('volume you chose for each player', () => {
     expect(volumeOf(6)).toBe(1);
     expect(volumeOf(7)).toBe(0.3);
     expect(volumeOf(70)).toBe(0.3);
+  });
+
+  it('keeps each signed-in account\'s levels apart on a shared phone', () => {
+    state.user = { id: 5, username: 'mum' };
+    setVolume(7, 0);
+    expect(JSON.parse(store.get('ludo.listenVolume.5')!)).toEqual({ '7': 0 });
+    state.user = { id: 6, username: 'kid' };
+    expect(volumeOf(7)).toBe(1);
+    setVolume(7, 0.6);
+    state.user = { id: 5, username: 'mum' };
+    expect(volumeOf(7)).toBe(0);
+    state.user = null;
+    expect(volumeOf(7)).toBe(1);
   });
 
   it('works without storage (private mode)', () => {

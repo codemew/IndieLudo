@@ -1236,7 +1236,11 @@ class VoiceClient {
     if (before !== this.relayTo.size) this.notify();
   }
 
-  /** Plays each other member's voice at the volume we chose for them, on every link that carries it. */
+  /**
+   * Plays each other member's voice at the volume we chose for them, on every link that carries it.
+   * A slot that changes hands is re-levelled when the server's slot message arrives; its first few
+   * milliseconds of audio can come just before that message, at the previous holder's level.
+   */
   private applyVolumes(): void {
     for (const [id, p] of this.peers) setPlaybackVolume(p.audio, volumeOf(id));
     if (this.sfu) {

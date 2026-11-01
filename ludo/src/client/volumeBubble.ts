@@ -25,7 +25,7 @@ let open: OpenBubble | null = null;
  * volume to muted. It only changes how loud they are on this phone; nobody else's volume changes,
  * and nothing is sent. The choice is remembered for the next game too.
  */
-export function openVolumeBubble(card: HTMLElement, userId: number, name: string, opts: { topLimit?: () => number } = {}): void {
+export function openVolumeBubble(card: HTMLElement, userId: number, name: string, opts: { topLimit?: () => number; locate?: () => HTMLElement | null } = {}): void {
   play('tap');
   open?.close();
   const now = nearestStep(volumeOf(userId));
@@ -44,16 +44,28 @@ export function openVolumeBubble(card: HTMLElement, userId: number, name: string
       },
     };
   });
+  // The screen redraws its cards (a lobby update, a ping), so the card held may be gone by the time
+  // the bubble is placed again or Escape returns the focus: find its replacement.
+  let last = card;
+  const current = () => {
+    const found = opts.locate?.() ?? (card.isConnected ? card : null);
+    if (found) last = found;
+    return last;
+  };
+  // A page that scrolls (wheel, keys) moves the card away from the bubble: close it.
+  const scrolled = () => bubble.close();
+  window.addEventListener('scroll', scrolled, true);
   const bubble = openBubbleAt({
     layer,
     label: esc(`Volume of ${name}, only for you`),
     caption: `<span class="cap-name">${esc(name)}</span><span class="cap-rest"> · only for you</span>`,
     options,
     focus: Math.max(0, VOLUME_STEPS.indexOf(now as (typeof VOLUME_STEPS)[number])),
-    anchor: () => card.getBoundingClientRect(),
+    anchor: () => current().getBoundingClientRect(),
     topLimit: opts.topLimit,
-    refocus: () => card,
+    refocus: current,
     onClose: () => {
+      window.removeEventListener('scroll', scrolled, true);
       layer.remove();
       if (open === bubble) open = null;
     },

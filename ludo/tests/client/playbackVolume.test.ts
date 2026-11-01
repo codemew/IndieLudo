@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { elementVolumeWorks, releasePlayback, resetPlaybackVolume, resumePlayback, setPlaybackVolume } from '../../src/client/playbackVolume.js';
 
+const sound = vi.hoisted(() => ({ shared: null as unknown }));
+vi.mock('../../src/client/sound.js', () => ({ audioContext: () => sound.shared }));
+
 class Node {
   connected = true;
   gain = { value: 1 };
@@ -130,6 +133,28 @@ describe('playing a voice quieter', () => {
     );
     setPlaybackVolume(a, 0.3);
     expect(a.muted).toBe(false);
+  });
+
+  it('an older iPhone with only the prefixed AudioContext still gets the gain route', () => {
+    browser(false);
+    vi.stubGlobal('AudioContext', undefined);
+    vi.stubGlobal('webkitAudioContext', FakeCtx);
+    const a = element();
+    setPlaybackVolume(a, 0.3);
+    expect(a.muted).toBe(true);
+    expect(ctxs[0].nodes[0].gain.value).toBe(0.3);
+  });
+
+  it('uses the page\'s sound context when it has one, instead of opening another', async () => {
+    browser(false);
+    const shared = new FakeCtx();
+    shared.state = 'running';
+    sound.shared = shared as unknown as AudioContext;
+    ctxs.length = 0;
+    setPlaybackVolume(element(), 0.3);
+    expect(ctxs).toHaveLength(0);
+    expect(shared.sources).toBe(1);
+    sound.shared = null;
   });
 
   it('a tap lets a suspended audio context start', () => {

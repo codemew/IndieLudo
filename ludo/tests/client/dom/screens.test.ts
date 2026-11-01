@@ -510,12 +510,37 @@ describe('tap and hold on a lobby card: their volume, for you only', () => {
     bubble()!.querySelector<HTMLButtonElement>('[data-vol="0.6"]')!.click();
     const { volumeOf } = await import('../../../src/client/listenVolume.js');
     expect(volumeOf(2)).toBe(0.6);
-    expect(seatOf('green').getAttribute('aria-label')).toContain('voice volume 60%');
+    expect(seatOf('green').hasAttribute('aria-label')).toBe(false);
+    expect(document.getElementById(seatOf('green').getAttribute('aria-describedby')!)!.textContent).toContain('Voice volume 60%');
 
     const watcher = document.querySelector('.watcher[data-user="3"]')!;
     press(watcher);
     await flush(520);
     expect(bubble()!.querySelector('.bubble-cap')!.textContent).toBe('zed · only for you');
+  });
+
+  it('follows its card through a redraw, and closes when the page scrolls', async () => {
+    press(seatOf('green'));
+    await flush(520);
+    expect(bubble()).not.toBeNull();
+    // The lobby redraws its cards (someone readied up): the old card is gone, a new one is there.
+    const old = seatOf('green');
+    store.update({ lobby: lobby({ members: [member('red', 1, 'alice'), member('green', 2, 'bob', { ready: true })] }) });
+    expect(seatOf('green')).not.toBe(old);
+    expect(old.isConnected).toBe(false);
+    let rect = 0;
+    const real = seatOf('green').getBoundingClientRect.bind(seatOf('green'));
+    seatOf('green').getBoundingClientRect = () => ((rect++, real()));
+    window.dispatchEvent(new Event('resize')); // re-placed: it reads the new card, not the detached one
+    expect(rect).toBeGreaterThan(0);
+    // Escape hands the focus to the new card.
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.activeElement).toBe(seatOf('green'));
+    press(seatOf('green'));
+    await flush(520);
+    expect(bubble()).not.toBeNull();
+    window.dispatchEvent(new Event('scroll'));
+    expect(bubble()).toBeNull();
   });
 
   it('a press on a button inside the card (Kick, Swap) is the button\'s, not a hold', async () => {

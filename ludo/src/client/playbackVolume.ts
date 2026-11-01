@@ -4,6 +4,7 @@
  * voice goes through Web Audio instead: the element stays muted (it keeps the stream running) and
  * a gain node in between plays it at the chosen level. Muting works by `muted` everywhere.
  */
+import { audioContext } from './sound.js';
 
 interface Routed {
   stream: MediaStream;
@@ -12,7 +13,7 @@ interface Routed {
 }
 
 const routed = new WeakMap<HTMLAudioElement, Routed>();
-let ctx: AudioContext | null = null;
+let own: AudioContext | null = null;
 let volumeWorks: boolean | null = null;
 
 /** True where `audio.volume = 0.5` takes effect (not on iOS). */
@@ -32,7 +33,24 @@ export function elementVolumeWorks(): boolean {
 /** Test hook: probe the browser again. */
 export function resetPlaybackVolume(): void {
   volumeWorks = null;
-  ctx = null;
+  own = null;
+}
+
+/** The constructor for older iPhones that only have the prefixed one (as sound.ts does). */
+function contextClass(): typeof AudioContext | undefined {
+  const w = globalThis as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+  return w.AudioContext ?? w.webkitAudioContext;
+}
+
+/**
+ * The page's own sound context when it has one (already unlocked by the first tap, and one fewer
+ * context for iOS to count), else one of ours, made only when a voice is first turned partly down.
+ */
+function context(): AudioContext {
+  const shared = audioContext();
+  if (shared) return shared;
+  const Ctor = contextClass()!;
+  return (own ??= new Ctor());
 }
 
 /** Plays `audio` at `level` (0 = silent, 1 = as it arrives). Safe to call again whenever the stream or level changes. */
@@ -40,7 +58,7 @@ export function setPlaybackVolume(audio: HTMLAudioElement, level: number): void 
   const v = Math.min(1, Math.max(0, level));
   const src = audio.srcObject as MediaStream | null;
   const stream = src && typeof src.getAudioTracks === 'function' ? src : null;
-  const direct = elementVolumeWorks() || v === 0 || v === 1 || !stream || typeof AudioContext === 'undefined';
+  const direct = elementVolumeWorks() || v === 0 || v === 1 || !stream || !contextClass();
   if (direct) {
     releasePlayback(audio);
     audio.muted = v === 0;
@@ -55,7 +73,7 @@ export function setPlaybackVolume(audio: HTMLAudioElement, level: number): void 
   }
   if (!r) {
     try {
-      ctx ??= new AudioContext();
+      const ctx = context();
       const gain = ctx.createGain();
       const node = ctx.createMediaStreamSource(stream);
       node.connect(gain);
@@ -70,7 +88,7 @@ export function setPlaybackVolume(audio: HTMLAudioElement, level: number): void 
   }
   r.gain.gain.value = v;
   audio.muted = true;
-  if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {});
+  resumePlayback();
 }
 
 /** Takes the element off the Web Audio route (it plays on its own again) and drops it. */
@@ -88,5 +106,6 @@ export function releasePlayback(audio: HTMLAudioElement): void {
 
 /** A tap lets a suspended audio context (iOS) start. */
 export function resumePlayback(): void {
+  const ctx = audioContext() ?? own;
   if (ctx && ctx.state !== 'running') void ctx.resume().catch(() => {});
 }

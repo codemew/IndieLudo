@@ -26,6 +26,31 @@ export function onHold(root: HTMLElement, opts: HoldOptions): () => void {
   let swallow = false;
   let swallowTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Stops waiting for the click that follows a hold. */
+  const disarm = () => {
+    swallow = false;
+    if (swallowTimer) clearTimeout(swallowTimer);
+    swallowTimer = null;
+    document.removeEventListener('pointerdown', disarm, true);
+    document.removeEventListener('pointerup', lifted, true);
+    document.removeEventListener('pointercancel', lifted, true);
+  };
+  // The click comes right after the finger lifts; if none does (the finger slid off the card, or the
+  // browser made none), stop waiting soon after, so the next real tap is never swallowed.
+  const lifted = () => {
+    if (swallowTimer) clearTimeout(swallowTimer);
+    swallowTimer = setTimeout(disarm, 350);
+  };
+  const arm = () => {
+    disarm();
+    swallow = true;
+    // A new touch that starts before any click is a new tap, not the end of the hold.
+    document.addEventListener('pointerdown', disarm, true);
+    document.addEventListener('pointerup', lifted, true);
+    document.addEventListener('pointercancel', lifted, true);
+    swallowTimer = setTimeout(disarm, 1500);
+  };
+
   const cancel = () => {
     if (timer) clearTimeout(timer);
     timer = null;
@@ -59,16 +84,13 @@ export function onHold(root: HTMLElement, opts: HoldOptions): () => void {
     window.addEventListener('scroll', cancel, true);
     timer = setTimeout(() => {
       cancel();
-      swallow = true;
-      if (swallowTimer) clearTimeout(swallowTimer);
-      // The lifting finger's click comes right after; if it never does, stop waiting.
-      swallowTimer = setTimeout(() => (swallow = false), 1500);
+      arm();
       fire(card);
     }, ms);
   };
   const onClick = (e: MouseEvent) => {
     if (!swallow) return;
-    swallow = false;
+    disarm();
     e.preventDefault();
     e.stopPropagation();
   };
@@ -96,7 +118,7 @@ export function onHold(root: HTMLElement, opts: HoldOptions): () => void {
   root.addEventListener('keydown', onKey);
   return () => {
     cancel();
-    if (swallowTimer) clearTimeout(swallowTimer);
+    disarm();
     root.removeEventListener('pointerdown', onDown);
     root.removeEventListener('click', onClick, true);
     root.removeEventListener('contextmenu', onContextMenu);

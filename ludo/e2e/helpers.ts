@@ -29,7 +29,7 @@ export async function setup(o: SetupOptions = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ludo-e2e-'));
   const dice: number[] = [];
   const server: LudoServer = await startServer(
-    mergeConfig(DEFAULTS, { lobbyCreatePassword: 'create', adminPassword: 'admin', dbPath: ':memory:', port: 0, turnTimeoutSec: 120, https: { enabled: false }, certDir: dir, voice: { iceServers: [], sfu: { enabled: true, portMin: 43000, portMax: 43199, announcedIp: '' } }, ...o.config }),
+    mergeConfig(DEFAULTS, { lobbyCreatePassword: 'create', adminPassword: 'admin', dbPath: ':memory:', port: 0, turnTimeoutSec: 120, moveTimeoutSec: 120, https: { enabled: false }, certDir: dir, voice: { iceServers: [], sfu: { enabled: true, portMin: 43000, portMax: 43199, announcedIp: '' } }, ...o.config }),
     { dice: () => dice.shift() ?? 1, randomInt: () => 0, log: () => {}, gateDelayMs: 0 },
   );
   // 127.0.0.1, not localhost (::1 in Chrome): like a LAN phone, the test phones reach the server over IPv4.

@@ -99,6 +99,7 @@ const AWARD_SUB: Partial<Record<Award['key'], string>> = {
   babyFace: 'fewest moustaches grown · smooth as a baby',
   risks: 'extra laps + wildcard entries: the biggest risks taken',
   friendlyFire: 'teammates captured',
+  helped: 'squares moved for their teammate',
 };
 
 /** An award's icon. "Balls of steel" is a drawn steel ball: there is no emoji for one. */

@@ -172,6 +172,29 @@ describe('timers', () => {
     expect(s.turn.deadline).toBeGreaterThan(Date.now() + 29_000);
   });
 
+  it('choosing a token after the roll has a shorter timer than rolling (a real choice only)', () => {
+    const gm = manager([3, 3], { moveTimeoutSec: 10 });
+    const g = gm.create(twoHumans());
+    let s = gm.get(g.id)!;
+    expect(s.turn.deadline).toBeGreaterThan(Date.now() + 29_000); // rolling: the full 30 s
+    s.tokens.red = [20, 30, BASE, BASE]; // two tokens on the board: the 3 is a real choice
+    expect(gm.roll(A, intent(g.id, s.version))).toEqual({ ok: true });
+    s = gm.get(g.id)!;
+    expect(s.turn.phase).toBe('moving');
+    expect(s.turn.deadline).toBeLessThanOrEqual(Date.now() + 10_000);
+    expect(s.turn.deadline).toBeGreaterThan(Date.now() + 9_000);
+    vi.advanceTimersByTime(10_000); // not picked in time: the server plays it
+    expect(gm.get(g.id)!.turn.seat).not.toBe(0);
+    expect(gm.get(g.id)!.seats[0].timeouts).toBe(1);
+    // A turn timeout is never longer than the roll timeout, whatever the move timeout says.
+    const long = manager([3], { moveTimeoutSec: 999 });
+    const g2 = long.create(twoHumans());
+    const s2 = long.get(g2.id)!;
+    s2.tokens.red = [20, 30, BASE, BASE];
+    long.roll(A, intent(g2.id, s2.version));
+    expect(long.get(g2.id)!.turn.deadline).toBeLessThanOrEqual(Date.now() + 30_000);
+  });
+
   it('a player can interrupt their own auto-played turn', () => {
     const gm = manager([6, 3]);
     const g = gm.create(twoHumans());

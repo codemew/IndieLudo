@@ -3,7 +3,7 @@ import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
 import { RuleError, applyMove, applyRespawn, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, WILDCARD_MS, WILDCARD_STAGGER_MS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, WILDCARD_MS, WILDCARD_STAGGER_MS, tempoOf, type Color, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
@@ -14,6 +14,8 @@ export interface GameManagerOptions {
   db: DB;
   dice: DiceFn;
   turnTimeoutSec: number;
+  /** Time to choose a token after the roll (default: the same as `turnTimeoutSec`). */
+  moveTimeoutSec?: number;
   disconnectGraceSec: number;
   /** "Thinking" pause before a bot acts, on top of the time the clients spend animating. */
   botDelayMs?: number;
@@ -87,6 +89,7 @@ export class GameManager {
       seats,
       firstSeat: this.randomInt(0, seats.length),
       teams: Boolean(lobby.teams),
+      share: Boolean(lobby.teams && lobby.share),
       board: lobby.size,
     });
     if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
@@ -124,8 +127,8 @@ export class GameManager {
 
   move(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.move)) return this.badPayload(userId, 'game:move', payload);
-    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; lap?: boolean };
-    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true));
+    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; color?: Color; lap?: boolean };
+    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true, p.color));
   }
 
   private badPayload(userId: number, event: string, payload: unknown): Ack {
@@ -359,7 +362,10 @@ export class GameManager {
       game.timer = setTimeout(() => this.act(game, false), think + pace);
       return;
     }
-    const timeoutMs = (timeLeftMs ?? this.opts.turnTimeoutSec * 1000) + pace;
+    // Rolling gets the full time; choosing a token once the dice are rolled gets less (a roll with a single choice is played for them at once, below).
+    const fullMs = this.opts.turnTimeoutSec * 1000;
+    const allowedMs = state.turn.phase === 'moving' ? Math.min(fullMs, (this.opts.moveTimeoutSec ?? this.opts.turnTimeoutSec) * 1000) : fullMs;
+    const timeoutMs = Math.min(timeLeftMs ?? allowedMs, allowedMs) + pace;
     state.turn.deadline = Date.now() + timeoutMs;
     if (state.turn.phase === 'moving' && distinctChoices(legalMoves(state), state).length === 1) {
       game.timer = setTimeout(() => this.act(game, false), this.autoMoveDelayMs + pace);
@@ -405,7 +411,7 @@ export class GameManager {
     } else {
       const move = chooseMove(state);
       if (!move) return;
-      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true);
+      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true, move.color);
     }
     this.commit(game, events, seatBefore);
   }

@@ -41,11 +41,11 @@ const seat = (color: Color, userId: number | null, name: string, controller: 'hu
 const pub = (s: GameState): PublicGameState => ({ ...structuredClone(s), legalMoves: legalMoves(s), serverNow: Date.now() });
 
 /** A game on the board: alice (red, user 1) against bob (green, user 2), or Team-up with two bots. */
-function newGame(opts: { teams?: boolean; me?: number; aliceController?: 'human' | 'takeover' } = {}): GameState {
+function newGame(opts: { teams?: boolean; share?: boolean; me?: number; aliceController?: 'human' | 'takeover' } = {}): GameState {
   const seats = opts.teams
     ? [seat('red', 1, 'alice', opts.aliceController), seat('green', null, 'Bot Green', 'bot'), seat('yellow', 2, 'bob'), seat('blue', null, 'Bot Blue', 'bot')]
     : [seat('red', 1, 'alice', opts.aliceController), seat('green', 2, 'bob')];
-  return createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats, firstSeat: 0, now: 0, teams: opts.teams });
+  return createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats, firstSeat: 0, now: 0, teams: opts.teams, share: opts.share });
 }
 
 let current: GameState;
@@ -439,7 +439,7 @@ describe('choosing a token', () => {
 });
 
 describe('Team-up on the board', () => {
-  it('partners get a badge, the line-up is announced, and friendly fire is asked about', async () => {
+  it('partners get a badge, the line-up is announced, and friendly fire is played without a question (the banner still shows)', async () => {
     const g = newGame({ teams: true });
     g.tokens.red = [13, 30, B, B];
     g.tokens.yellow = [41, B, B, B];
@@ -450,14 +450,8 @@ describe('Team-up on the board', () => {
     await step((s) => applyRoll(s, 2), 200);
     token('red', 0).click();
     await flush(10);
-    expect(topModal().querySelector('h2')!.textContent).toBe('Capture your teammate?');
-    modalButton('Cancel');
-    await flush(10);
-    expect(sentOf('game:move')).toEqual([]);
-    token('red', 0).click();
-    await flush(10);
-    modalButton('Capture anyway');
-    await flush(10);
+    // Players know the rule: no "Capture your teammate?" question, the move goes straight out.
+    expect(document.querySelector('.modal')).toBeNull();
     expect(sentOf('game:move')).toEqual([expect.objectContaining({ tokenId: 0, dieIndex: 0 })]);
     await step((s) => applyMove(s, 0, 0), 900);
     expect(sounds).toContain('friendlyFire');
@@ -786,5 +780,101 @@ describe('tap and hold on a player card: their volume, for you only', () => {
     go('home');
     await flush(300);
     expect(bubble()).toBeNull();
+  });
+});
+
+describe('Team-up with turn sharing on the board', () => {
+  // (A tap outside an earlier test's bubble leaves its one-click swallow armed for a moment.)
+  beforeEach(() => document.body.click());
+  const legal = (c: Color, id: number) => token(c, id).classList.contains('legal');
+
+  it('with sharing, a roll can move my teammate\'s tokens too: they glow, and the move names their colour', async () => {
+    const g = newGame({ teams: true, share: true });
+    g.tokens.red = [13, B, B, B];
+    g.tokens.yellow = [20, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    expect([legal('red', 0), legal('yellow', 0)]).toEqual([true, true]);
+    expect(document.querySelector('#hint')!.textContent).toBe("Tap a glowing token, yours or your teammate's");
+    token('yellow', 0).click();
+    await flush(10);
+    expect(sentOf('game:move')).toEqual([{ gameId: g.id, version: expect.any(Number), actionId: expect.any(String), dieIndex: 0, tokenId: 0, color: 'yellow' }]);
+    // The move that comes back animates bob's token, and the turn passes on.
+    await step((s) => applyMove(s, 0, 0, false, 'yellow'), 900);
+    expect(current.tokens.yellow[0]).toBe(23);
+    expect(current.tokens.red[0]).toBe(13);
+    expect(document.querySelector('#banner')!.textContent).toContain("Bot Green's turn");
+  });
+
+  it('a teammate\'s glowing token is marked apart from mine, and both "lands home" markers show', async () => {
+    const g = newGame({ teams: true, share: true });
+    g.tokens.red = [H - 3, B, B, B];
+    g.tokens.yellow = [H - 3, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    expect([legal('red', 0), legal('yellow', 0)]).toEqual([true, true]);
+    // Mine glows as before; the teammate's carries the `mate` class (a different ring and motion).
+    expect([token('red', 0).classList.contains('mate'), token('yellow', 0).classList.contains('mate')]).toEqual([false, true]);
+    // Both can reach home with this roll: each has its marker, in its own home. The partner's is not hidden by mine.
+    const targets = [...document.querySelectorAll('.target')].map((t) => [...t.classList].filter((c) => c.startsWith('t-') || c === 'mate').join(' '));
+    expect(targets.sort()).toEqual(['t-red', 't-yellow mate']);
+  });
+
+  it('my own token is sent without a colour, and without sharing the teammate\'s tokens stay dark', async () => {
+    const g = newGame({ teams: true });
+    g.tokens.red = [13, B, B, B];
+    g.tokens.yellow = [20, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    expect([legal('red', 0), legal('yellow', 0)]).toEqual([true, false]);
+    expect(document.querySelector('#hint')!.textContent).toBe('Tap a glowing token');
+    token('yellow', 0).click();
+    await flush(10);
+    expect(sentOf('game:move')).toEqual([]);
+    token('red', 0).click();
+    await flush(10);
+    expect(sentOf('game:move')[0]).not.toHaveProperty('color');
+
+    const shared = newGame({ teams: true, share: true });
+    shared.tokens.red = [13, B, B, B];
+    shared.tokens.yellow = [20, B, B, B];
+    resetNet();
+    mount(shared);
+    await step((s) => applyRoll(s, 3), 200);
+    token('red', 0).click();
+    await flush(10);
+    expect(sentOf('game:move')[0]).not.toHaveProperty('color');
+  });
+
+  it('moving my teammate\'s token onto my own is friendly fire: no question, the move with its colour goes straight out', async () => {
+    const g = newGame({ teams: true, share: true });
+    g.tokens.red = [49, B, B, B];
+    g.tokens.yellow = [20, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    token('yellow', 0).click();
+    await flush(10);
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(sentOf('game:move')).toEqual([expect.objectContaining({ tokenId: 0, dieIndex: 0, color: 'yellow' })]);
+  });
+
+  it('at its home turn my teammate\'s token branches like mine: the markers and the bubble name its colour', async () => {
+    const g = newGame({ teams: true, share: true });
+    g.tokens.red = [B, B, B, B];
+    g.tokens.yellow = [49, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 4), 200);
+    const home = document.querySelector<HTMLElement>('#targets .target.home[data-token]')!;
+    expect(home.dataset.color).toBe('yellow');
+    expect(home.classList.contains('t-yellow')).toBe(true);
+    home.click();
+    await flush(10);
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0, color: 'yellow', lap: false });
+    resetNet();
+    token('yellow', 0).click();
+    await flush(10);
+    click('.lap-opt.round');
+    await flush(10);
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0, color: 'yellow', lap: true });
   });
 });

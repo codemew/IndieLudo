@@ -251,7 +251,7 @@ export class TokenLayer {
   }
 
   /** Snaps every token to its final position and marks which ones can be tapped. */
-  sync(state: GameState, tappable: Set<string>, activeColor: Color | null): void {
+  sync(state: GameState, tappable: Set<string>, activeColor: Color | null, mates: Set<string> = new Set()): void {
     const place = placements(state);
     const board = boardFor(state);
     const live = new Set<string>();
@@ -264,6 +264,7 @@ export class TokenLayer {
         b.getAnimations().forEach((a) => a.cancel());
         b.style.transform = tf(pl.x, pl.y, pl.scale);
         b.classList.toggle('legal', tappable.has(key));
+        b.classList.toggle('mate', tappable.has(key) && mates.has(key));
         const p = state.tokens[seat.color][id];
         // On its last lap (round again, or back from home by a wildcard entry): a dashed ring.
         b.classList.toggle('lap2', isSecondLap(p, board) || (p !== board.home && Boolean(state.extraLaps?.[seat.color]?.[id])));

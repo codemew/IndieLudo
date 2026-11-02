@@ -1,7 +1,7 @@
 import { BASE, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
 import type { GameUpdate, RollUpdate } from '../../shared/protocol.js';
 import { applyRollUpdate } from '../../shared/rollUpdate.js';
-import { distinctChoices, isTeammate, respawnable, winnersOf } from '../../shared/rules.js';
+import { distinctChoices, movableColors, respawnable, winnersOf } from '../../shared/rules.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
@@ -177,6 +177,12 @@ export function gameScreen(root: HTMLElement): () => void {
 
   const mySeat = (): Seat | undefined => gs?.seats.find((s) => s.userId === myId);
   const current = (): Seat => gs!.seats[gs!.turn.seat];
+  /** Whose token a move is: the mover's own, or with turn sharing their partner's. */
+  const ownerOf = (m: LegalMove): Color => m.color ?? mySeat()!.color;
+  /** The colours I may move on my turn (mine, and my partner's with turn sharing). */
+  const myMovable = (): Color[] => (mySeat() && gs ? movableColors(gs, mySeat()!.color) : []);
+  /** The `game:move` payload for a move, naming the token's colour when it is my partner's. */
+  const moveIntent = (m: Pick<LegalMove, 'dieIndex' | 'tokenId' | 'color'>, lap = false) => ({ dieIndex: m.dieIndex, tokenId: m.tokenId, ...(m.color && { color: m.color }), ...(lap && { lap }) });
   const isMyTurn = () => Boolean(gs && !gs.finished && current().userId === myId && current().controller !== 'bot');
   const canRoll = () => isMyTurn() && gs!.turn.phase === 'rolling' && !awaitingAck && !animating;
   const canMove = () => isMyTurn() && gs!.turn.phase === 'moving' && !awaitingAck && !animating;
@@ -199,8 +205,8 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   function onTokenTap(color: Color, tokenId: number): void {
-    if (!canMove() || color !== mySeat()?.color) return;
-    const candidates = gs!.legalMoves.filter((m) => m.tokenId === tokenId);
+    if (!canMove() || !myMovable().includes(color)) return;
+    const candidates = gs!.legalMoves.filter((m) => m.tokenId === tokenId && ownerOf(m) === color);
     if (candidates.length === 0) {
       play('error');
       return;
@@ -216,36 +222,22 @@ export function gameScreen(root: HTMLElement): () => void {
     // Several of my tokens on this square that aren't alike (moustaches, laps left): which one?
     const from = gs!.tokens[color][tokenId];
     if (from !== BASE) {
-      const stacked = distinctChoices(gs!.legalMoves.filter((m) => m.dieIndex === pick.dieIndex && !m.lap && gs!.tokens[color][m.tokenId] === from), gs!);
-      if (stacked.length > 1) return chooseStacked(stacked, tokenId);
+      const stacked = distinctChoices(gs!.legalMoves.filter((m) => m.dieIndex === pick.dieIndex && !m.lap && ownerOf(m) === color && gs!.tokens[color][m.tokenId] === from), gs!);
+      if (stacked.length > 1) return chooseStacked(color, stacked, tokenId);
     }
-    void moveToken(tokenId, pick.dieIndex);
+    void moveToken(color, tokenId, pick.dieIndex);
   }
 
   /** Moves the chosen token with the chosen die: asks which way at its home turn, and before friendly fire. */
-  async function moveToken(tokenId: number, dieIndex: number): Promise<void> {
-    const options = gs!.legalMoves.filter((m) => m.tokenId === tokenId && m.dieIndex === dieIndex);
+  async function moveToken(color: Color, tokenId: number, dieIndex: number): Promise<void> {
+    const options = gs!.legalMoves.filter((m) => m.tokenId === tokenId && m.dieIndex === dieIndex && ownerOf(m) === color);
     // At its home turn on the first lap the token may go round again: ask which way.
     const lap = options.find((m) => m.lap);
     const home = options.find((m) => !m.lap);
     if (!home) return;
     if (lap) return chooseLap(home, lap);
-    if (!(await friendlyFireOk(home))) return;
     play('tap');
-    void send('game:move', { dieIndex, tokenId });
-  }
-
-  /** Team-up: capturing my teammate is allowed, but asked about first. */
-  async function friendlyFireOk(m: LegalMove): Promise<boolean> {
-    const me = mySeat()?.color;
-    const mates = m.captures.filter((c) => me && isTeammate(gs!, me, c.color));
-    if (!mates.length) return true;
-    return confirmDialog(
-      'Capture your teammate?',
-      `That sends ${seatName(mates[0].color)}'s token back to base. You still get a bonus roll, but your moustache shrinks a level.`,
-      'Capture anyway',
-      true,
-    );
+    void send('game:move', moveIntent(home));
   }
 
   /** The open choice bubble (stacked tokens, or head home / go round again), closed if the game moves on. */
@@ -289,8 +281,7 @@ export function gameScreen(root: HTMLElement): () => void {
    * lap): a bubble on that square with one token each, drawn larger than the board's (they
    * overlap there). The moustaches say which is which.
    */
-  function chooseStacked(moves: LegalMove[], tappedId: number): void {
-    const color = mySeat()!.color;
+  function chooseStacked(color: Color, moves: LegalMove[], tappedId: number): void {
     const dieIndex = moves[0].dieIndex;
     openBubble(
       tokenCell(color, gs!.tokens[color][moves[0].tokenId], moves[0].tokenId, geo),
@@ -303,7 +294,7 @@ export function gameScreen(root: HTMLElement): () => void {
           attrs: `data-token="${m.tokenId}"`,
           html: miniToken(color, kills),
           label: `${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}`,
-          pick: () => void moveToken(m.tokenId, dieIndex),
+          pick: () => void moveToken(color, m.tokenId, dieIndex),
         };
       }),
     );
@@ -315,11 +306,10 @@ export function gameScreen(root: HTMLElement): () => void {
    * The board's markers can be tapped instead.
    */
   function chooseLap(home: LegalMove, lap: LegalMove): void {
-    const color = mySeat()!.color;
-    const answer = async (goRound: boolean) => {
-      if (!(await friendlyFireOk(goRound ? lap : home))) return;
+    const color = ownerOf(home);
+    const answer = (goRound: boolean) => {
       play('tap');
-      void send('game:move', { dieIndex: home.dieIndex, tokenId: home.tokenId, lap: goRound });
+      void send('game:move', { ...moveIntent(home), lap: goRound });
     };
     const victims = lap.captures.map((c) => seatName(c.color)).join(', ');
     const toGo = geo.home - home.to;
@@ -333,15 +323,14 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   // Tapping a gold or blue marker on the board chooses that way directly.
-  targets.addEventListener('click', async (e) => {
+  targets.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
     if (!t || !canMove()) return;
     chooser?.close();
     const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' };
-    const m = gs!.legalMoves.find((x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap);
-    if (m && !(await friendlyFireOk(m))) return;
+    const m = gs!.legalMoves.find((x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap && ownerOf(x) === (t.dataset.color ?? mySeat()?.color));
     play('tap');
-    void send('game:move', move);
+    void send('game:move', m ? { ...moveIntent(m), lap: move.lap } : move);
   });
 
   // ---------- wildcard entry: hold your home tokens to send some back to base ----------
@@ -930,17 +919,20 @@ export function gameScreen(root: HTMLElement): () => void {
     if (!animating || force) showDiceFor(!gs.finished && gs.turn.phase === 'rolling' ? seat.color : null);
 
     let tappable = new Set<string>();
+    // The glowing tokens that are the teammate's (turn sharing): they glow differently from your own.
+    let mates = new Set<string>();
     if (canMove()) {
       selectedDie = validSelection(gs.legalMoves);
       const values = new Set(gs.turn.queue);
       const moves = values.size > 1 ? gs.legalMoves.filter((m) => m.dieIndex === selectedDie) : gs.legalMoves;
-      tappable = new Set(moves.map((m) => `${me!.color}:${m.tokenId}`));
+      tappable = new Set(moves.map((m) => `${ownerOf(m)}:${m.tokenId}`));
+      mates = new Set([...tappable].filter((k) => !k.startsWith(`${seat.color}:`)));
       if (!animating || force) renderTargets(moves);
     } else if (!animating || force) {
       renderTargets([]);
     }
     if (!animating || force) {
-      tokens.sync(gs, tappable, seat.color);
+      tokens.sync(gs, tappable, seat.color, mates);
       renderQueue(gs, true);
       setFlame(gs.turn.phase === 'rolling' ? gs.turn.sixes : 0);
     }
@@ -955,7 +947,7 @@ export function gameScreen(root: HTMLElement): () => void {
     else if (gs.turn.auto && isMyTurn()) hint = "Time's up — playing your turn for you. Tap to take over.";
     else if (gs.turn.auto) hint = `Time's up for ${esc(seat.username)} — auto-playing…`;
     else if (isMyTurn() && gs.turn.phase === 'rolling') hint = gs.turn.sixes > 0 ? `Rolled ${gs.turn.sixes === 1 ? 'a 6' : 'two 6s'}! Roll again` : 'Tap the dice to roll';
-    else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Moving with the highlighted die · tap another die to switch' : 'Tap a glowing token';
+    else if (isMyTurn()) hint = new Set(gs.turn.queue).size > 1 ? 'Moving with the highlighted die · tap another die to switch' : gs.share ? "Tap a glowing token, yours or your teammate's" : 'Tap a glowing token';
     else if (gs.botBattle) hint = `🤖 Bot battle at full speed · ${esc(seat.username)} to play`;
     else hint = seat.controller === 'human' ? `Waiting for ${esc(seat.username)}…` : `${esc(seat.username)} (bot) is playing…`;
     // Watching from the side (or after giving up): say so, since nothing on the board is yours to tap.
@@ -1038,22 +1030,23 @@ export function gameScreen(root: HTMLElement): () => void {
    * branching path: a gold trail into the home stretch and a blue one round the board again.
    */
   function renderTargets(moves: LegalMove[]): void {
-    const color = mySeat()?.color;
     let html = '';
     const seen = new Set<string>();
     const at = (c: readonly [number, number]) => `left:${((c[0] + 0.5) / geo.w) * 100}%;top:${((c[1] + 0.5) / geo.h) * 100}%`;
-    for (const m of color ? moves : []) {
-      const branches = moves.some((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && o.lap);
+    for (const m of mySeat() ? moves : []) {
+      const color = ownerOf(m);
+      const branches = moves.some((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && o.lap && ownerOf(o) === color);
       if (branches) {
-        const trail = pathCells(color!, m.from, m.to, m.tokenId, geo).slice(0, -1);
+        const trail = pathCells(color, m.from, m.to, m.tokenId, geo).slice(0, -1);
         html += trail.map((c) => `<div class="trail ${m.lap ? 'round' : 'home'}" style="${at(c)}"></div>`).join('');
       }
-      const [x, y] = tokenCell(color!, m.to, m.tokenId, geo);
-      const key = m.to === geo.home ? 'home' : `${x},${y}`;
+      const [x, y] = tokenCell(color, m.to, m.tokenId, geo);
+      // Home markers are one per colour: the partner's sits in the partner's own home, not on top of yours.
+      const key = m.to === geo.home ? `home:${color}` : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-lap="${m.lap ? 1 : 0}" role="button" aria-label="${m.lap ? 'Go round again' : 'Head home'}"` : '';
-      html += `<div class="target t-${color}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}"${pick}>${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
+      const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}" role="button" aria-label="${m.lap ? 'Go round again' : 'Head home'}"` : '';
+      html += `<div class="target t-${color}${color !== mySeat()!.color ? ' mate' : ''}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}"${pick}>${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.
     setHtml(targets, html);

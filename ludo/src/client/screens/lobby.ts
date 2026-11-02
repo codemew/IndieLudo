@@ -44,6 +44,11 @@ export function lobbyScreen(root: HTMLElement): () => void {
       <div class="mode-switch size-switch" id="size" role="radiogroup" aria-label="Players">
         ${BOARD_SIZES.map((n) => `<button class="mode-opt size-opt" data-size="${n}" role="radio">${n} players</button>`).join('')}
       </div>
+      <label class="rule-check" id="share-rule" hidden>
+        <input type="checkbox" id="share" />
+        <span class="rule-box" aria-hidden="true"></span>
+        <span class="rule-text"><b>Turn sharing</b><small>On your turn, use a roll on your teammate's tokens too</small></span>
+      </label>
       <p class="muted small center mode-note" id="mode-note"></p>
       <div class="seat-grid" id="seats"></div>
       <div class="watchers" id="watchers"></div>
@@ -69,6 +74,8 @@ export function lobbyScreen(root: HTMLElement): () => void {
   };
 
   root.querySelectorAll<HTMLButtonElement>('#mode .mode-opt').forEach((b) => (b.onclick = () => void act('lobby:mode', { teams: b.dataset.teams === '1' })));
+  const share = $<HTMLInputElement>(root, '#share');
+  share.onchange = () => void act('lobby:share', { share: share.checked });
   root.querySelectorAll<HTMLButtonElement>('.size-opt').forEach((b) => (b.onclick = () => void act('lobby:size', { size: Number(b.dataset.size) })));
 
   const render = () => {
@@ -106,8 +113,12 @@ export function lobbyScreen(root: HTMLElement): () => void {
       b.setAttribute('aria-checked', String(on));
       b.disabled = !isHost || (!on && lobby.members.length > n);
     });
+    // An optional rule of Team-up: the host ticks it, everyone sees it.
+    $(root, '#share-rule').hidden = !lobby.teams;
+    share.checked = Boolean(lobby.share);
+    share.disabled = !isHost;
     $(root, '#mode-note').textContent = lobby.teams
-      ? 'Team-up: 2 vs 2. Diagonal partners (Red + Yellow vs Green + Blue) win together when both are home. Needs all 4 seats.'
+      ? `Team-up: 2 vs 2. Diagonal partners (Red + Yellow vs Green + Blue) win together when both are home. Needs all 4 seats.${lobby.share ? " Turn sharing: a roll can move your teammate's tokens too, and a partner who is home keeps rolling for the other." : ''}`
       : size === 4
         ? 'Classic: everyone for themselves.'
         : `Classic on the ${size}-player board: everyone for themselves. Team-up is for 4 players.`;

@@ -8,6 +8,8 @@ export interface Config {
   lobbyCreatePassword: string;
   adminPassword: string;
   turnTimeoutSec: number;
+  /** Time to pick which token to move once the dice are rolled and there is a real choice (never more than `turnTimeoutSec`). */
+  moveTimeoutSec: number;
   disconnectGraceSec: number;
   maxLobbies: number;
   lobbyIdleCloseSec: number;
@@ -68,6 +70,7 @@ export const DEFAULTS: Config = {
   lobbyCreatePassword: '',
   adminPassword: '',
   turnTimeoutSec: 30,
+  moveTimeoutSec: 10,
   disconnectGraceSec: 60,
   maxLobbies: 50,
   lobbyIdleCloseSec: 600,
@@ -124,6 +127,7 @@ export function validateConfig(c: Config): string[] {
     'https.port': c.https.port,
     'https.httpRedirectPort': c.https.httpRedirectPort,
     turnTimeoutSec: c.turnTimeoutSec,
+    moveTimeoutSec: c.moveTimeoutSec,
     disconnectGraceSec: c.disconnectGraceSec,
     maxLobbies: c.maxLobbies,
     lobbyIdleCloseSec: c.lobbyIdleCloseSec,

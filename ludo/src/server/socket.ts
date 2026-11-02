@@ -228,6 +228,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('lobby:removeBot', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.removeBot(userId, p.color as Color));
     on('lobby:fillBots', SCHEMAS.empty, () => void ctx.lobbies.fillBots(userId));
     on('lobby:mode', SCHEMAS.lobbyMode, (p) => void ctx.lobbies.setTeams(userId, p.teams));
+    on('lobby:share', SCHEMAS.lobbyShare, (p) => void ctx.lobbies.setShare(userId, p.share));
     on('lobby:size', SCHEMAS.lobbySize, (p) => void ctx.lobbies.setSize(userId, p.size as BoardSize));
     on('lobby:spectate', SCHEMAS.empty, () => void ctx.lobbies.spectate(userId));
     on('lobby:sit', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.sit(userId, p.color as Color));

@@ -18,8 +18,10 @@ function threatened(state: GameState, me: Color, abs: number): boolean {
   return false;
 }
 
-function score(state: GameState, me: Color, m: LegalMove): number {
+function score(state: GameState, actor: Color, m: LegalMove): number {
   const b = boardFor(state);
+  // The token's own colour: the player's, or with turn sharing their partner's.
+  const me = m.color ?? actor;
   // Capturing a teammate (Team-up) is a last resort: only when no other move is legal.
   let s = m.captures.reduce((n, c) => n + (isTeammate(state, me, c.color) ? -1000 : 100), 0);
   if (m.to === b.home) s += 80;

@@ -179,14 +179,13 @@ describe.skipIf(!CHROME || !BUILT)('Team-up', () => {
     await alice.waitForSelector('.token.legal');
     await sleep(500);
     await alice.$$eval('.token.legal', (ts) => (ts.find((x) => x.getAttribute('aria-label')!.endsWith('token 1')) as HTMLElement).click());
-    await alice.waitForSelector('.modal');
-    expect(await alice.$eval('.modal h2', (h) => h.textContent)).toBe('Capture your teammate?');
-    await alice.$$eval('.modal .btn', (bs) => (bs.find((b) => b.textContent === 'Capture anyway') as HTMLElement).click());
+    // No "Capture your teammate?" question: the move is played at once.
     await until('the capture', () => game.tokens.yellow[0] === B, 8000);
     expect(game.kills!.red![0]).toBe(2);
     expect(game.stats?.red?.friendlyFire).toBe(1);
     expect(game.stats?.red?.captures).toBe(0);
     expect(game.turn.bonus).toBe(0); // no bonus roll for a teammate
+    expect(await alice.$('.modal')).toBeNull();
     await until('the callout', async () => (await bob.$$eval('.callout b', (cs) => cs.map((c) => c.textContent))).includes('Friendly fire!'), 6000);
   });
 
@@ -205,6 +204,93 @@ describe.skipIf(!CHROME || !BUILT)('Team-up', () => {
     }
     expect(await alice.$$eval('.award', (as) => as.map((x) => x.querySelector('b')!.textContent))).toContain('Backstabber');
     await shot(alice, 'teamup-results');
+    expect(t.errors).toEqual([]);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT)('Team-up with turn sharing', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let alice: Page;
+  let bob: Page;
+  let game: GameState;
+  beforeAll(async () => {
+    t = await setup();
+    [alice, bob] = await t.lobby(['alice', 'bob']);
+  });
+  afterAll(() => t?.close());
+
+  it('the box shows only in Team-up; the host ticks it and bob sees it ticked, but can\'t change it', async () => {
+    expect(await alice.$eval('#share-rule', (r) => (r as HTMLElement).hidden)).toBe(true);
+    await tap(alice, '.mode-opt[data-teams="1"]');
+    await until('the box', async () => !(await bob.$eval('#share-rule', (r) => (r as HTMLElement).hidden)));
+    expect(await alice.$eval('#share', (c) => (c as HTMLInputElement).checked)).toBe(false);
+    await shot(alice, 'sharing-lobby-off');
+    // A real tap on the card (the whole row is the tap target, 52 px tall at least).
+    const box = (await (await alice.$('#share-rule'))!.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(48);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    await alice.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+    for (const p of [alice, bob]) await until('ticked', () => p.$eval('#share', (c) => (c as HTMLInputElement).checked));
+    expect(await bob.$eval('#share', (c) => (c as HTMLInputElement).disabled)).toBe(true);
+    expect(await bob.$eval('#mode-note', (n) => n.textContent)).toContain('Turn sharing');
+    await shot(alice, 'sharing-lobby-on');
+    await shot(bob, 'sharing-lobby-guest');
+    // Bob moves to yellow, her partner, and the host fills the rest with bots.
+    await bob.$eval('.seat-open.s-yellow .chip', (c) => (c as HTMLElement).click());
+    await until('bob on yellow', async () => (await alice.$('.seat.s-yellow:not(.seat-open)')) !== null);
+    await tap(bob, '.bottom-bar .btn');
+    await tap(alice, '#fill-bots');
+    await alice.waitForSelector('#start:not(:disabled)');
+    await tap(alice, '#start');
+    await Promise.all([alice.waitForSelector('.screen-game'), bob.waitForSelector('.screen-game')]);
+    game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+    expect(game.teams).toBe(true);
+    expect(game.share).toBe(true);
+  });
+
+  it('alice moves bob\'s yellow token with her own roll; his phone sees it move', async () => {
+    await until("alice's turn", async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 20_000);
+    game.tokens.red = [13, B, B, B];
+    game.tokens.yellow = [20, B, B, B];
+    t.dice.push(3);
+    await tap(alice, '.dice.can-roll');
+    await alice.waitForSelector('.token.legal');
+    await sleep(500);
+    // Both partners' tokens glow, and the hint says so.
+    expect(await alice.$$eval('.token.legal', (ts) => ts.map((x) => x.getAttribute('aria-label')).sort())).toEqual(['red token 1', 'yellow token 1']);
+    expect(await alice.$eval('#hint', (h) => h.textContent)).toBe("Tap a glowing token, yours or your teammate's");
+    await shot(alice, 'sharing-game');
+    const yellow = (await (await alice.$('.token.legal[aria-label="yellow token 1"]'))!.boundingBox())!;
+    await alice.touchscreen.tap(yellow.x + yellow.width / 2, yellow.y + yellow.height / 2);
+    await until('bob\'s token moved', () => game.tokens.yellow[0] === 23, 8000);
+    expect(game.tokens.red[0]).toBe(13);
+    // The stats belong to alice, who moved it; the hop shows on both phones.
+    expect(game.stats?.red?.helped).toBe(3);
+    expect(game.stats?.red?.cells ?? 0).toBe(0);
+    await until('both see it', async () => (await bob.$$eval('.token.t-yellow', (ts) => ts.length)) === 4);
+    expect(t.errors).toEqual([]);
+  });
+
+  it('both partners can reach home with one roll: both markers show, and the teammate\'s glows differently', async () => {
+    // Bob plays a 2 (he can move either token: he picks his own), then the bots, then it is alice's turn again.
+    await until("bob's turn", async () => game.seats[game.turn.seat].color === 'yellow' && game.turn.phase === 'rolling' && (await bob.$('.dice.can-roll')) !== null, 30_000);
+    t.dice.push(2);
+    await tap(bob, '.dice.can-roll');
+    await bob.waitForSelector('.token.legal');
+    await sleep(500);
+    const mine = (await (await bob.$('.token.legal[aria-label="yellow token 1"]'))!.boundingBox())!;
+    await bob.touchscreen.tap(mine.x + mine.width / 2, mine.y + mine.height / 2);
+    await until("alice's turn " + JSON.stringify(game.turn), async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 40_000).catch((e) => { throw new Error(`${e.message} now ${JSON.stringify(game.turn)} ${JSON.stringify(game.tokens)}`); });
+    game.tokens.red = [H - 3, B, B, B];
+    game.tokens.yellow = [H - 3, B, B, B];
+    t.dice.push(3);
+    await tap(alice, '.dice.can-roll');
+    await alice.waitForSelector('.token.legal');
+    await sleep(500);
+    expect(await alice.$$eval('.token.legal', (ts) => ts.map((x) => `${x.getAttribute('aria-label')}${x.classList.contains('mate') ? ' (mate)' : ''}`).sort())).toEqual(['red token 1', 'yellow token 1 (mate)']);
+    expect(await alice.$$eval('.target', (ts) => ts.length)).toBe(2);
+    await shot(alice, 'sharing-both-home');
     expect(t.errors).toEqual([]);
   });
 });

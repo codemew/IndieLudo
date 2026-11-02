@@ -22,7 +22,7 @@ export function applyRollUpdate(base: PublicGameState, u: RollUpdate): PublicGam
   if (u.id !== base.id || u.version !== base.version + 1 || roll?.type !== 'roll') return null;
   const next: PublicGameState = { ...structuredClone(base), version: u.version, serverNow: u.serverNow, turn: structuredClone(u.turn), legalMoves: [] };
   // The server counts every roll (and the sixes among them); the phone's copy keeps pace.
-  const stats = ((next.stats ??= {})[roll.color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, firstBlood: false, owed: {} });
+  const stats = ((next.stats ??= {})[roll.color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, helped: 0, firstBlood: false, owed: {} });
   countRoll(stats, roll.value);
   if (roll.value === 6) stats.sixes++;
   return next;

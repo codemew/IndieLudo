@@ -179,14 +179,13 @@ describe.skipIf(!CHROME || !BUILT)('Team-up', () => {
     await alice.waitForSelector('.token.legal');
     await sleep(500);
     await alice.$$eval('.token.legal', (ts) => (ts.find((x) => x.getAttribute('aria-label')!.endsWith('token 1')) as HTMLElement).click());
-    await alice.waitForSelector('.modal');
-    expect(await alice.$eval('.modal h2', (h) => h.textContent)).toBe('Capture your teammate?');
-    await alice.$$eval('.modal .btn', (bs) => (bs.find((b) => b.textContent === 'Capture anyway') as HTMLElement).click());
+    // No "Capture your teammate?" question: the move is played at once.
     await until('the capture', () => game.tokens.yellow[0] === B, 8000);
     expect(game.kills!.red![0]).toBe(2);
     expect(game.stats?.red?.friendlyFire).toBe(1);
     expect(game.stats?.red?.captures).toBe(0);
     expect(game.turn.bonus).toBe(0); // no bonus roll for a teammate
+    expect(await alice.$('.modal')).toBeNull();
     await until('the callout', async () => (await bob.$$eval('.callout b', (cs) => cs.map((c) => c.textContent))).includes('Friendly fire!'), 6000);
   });
 

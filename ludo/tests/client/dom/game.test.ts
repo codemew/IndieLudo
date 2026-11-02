@@ -439,7 +439,7 @@ describe('choosing a token', () => {
 });
 
 describe('Team-up on the board', () => {
-  it('partners get a badge, the line-up is announced, and friendly fire is asked about', async () => {
+  it('partners get a badge, the line-up is announced, and friendly fire is played without a question (the banner still shows)', async () => {
     const g = newGame({ teams: true });
     g.tokens.red = [13, 30, B, B];
     g.tokens.yellow = [41, B, B, B];
@@ -450,14 +450,8 @@ describe('Team-up on the board', () => {
     await step((s) => applyRoll(s, 2), 200);
     token('red', 0).click();
     await flush(10);
-    expect(topModal().querySelector('h2')!.textContent).toBe('Capture your teammate?');
-    modalButton('Cancel');
-    await flush(10);
-    expect(sentOf('game:move')).toEqual([]);
-    token('red', 0).click();
-    await flush(10);
-    modalButton('Capture anyway');
-    await flush(10);
+    // Players know the rule: no "Capture your teammate?" question, the move goes straight out.
+    expect(document.querySelector('.modal')).toBeNull();
     expect(sentOf('game:move')).toEqual([expect.objectContaining({ tokenId: 0, dieIndex: 0 })]);
     await step((s) => applyMove(s, 0, 0), 900);
     expect(sounds).toContain('friendlyFire');
@@ -852,7 +846,7 @@ describe('Team-up with turn sharing on the board', () => {
     expect(sentOf('game:move')[0]).not.toHaveProperty('color');
   });
 
-  it('moving my teammate\'s token onto my own is friendly fire: asked first, in plain words', async () => {
+  it('moving my teammate\'s token onto my own is friendly fire: no question, the move with its colour goes straight out', async () => {
     const g = newGame({ teams: true, share: true });
     g.tokens.red = [49, B, B, B];
     g.tokens.yellow = [20, B, B, B];
@@ -860,11 +854,8 @@ describe('Team-up with turn sharing on the board', () => {
     await step((s) => applyRoll(s, 3), 200);
     token('yellow', 0).click();
     await flush(10);
-    expect(topModal().querySelector('h2')!.textContent).toBe('Capture your teammate?');
-    expect(topModal().querySelector('p')!.textContent).toBe("That sends your own token back to base. There's no bonus roll for it, and the moving token's moustache shrinks a level.");
-    modalButton('Cancel');
-    await flush(10);
-    expect(sentOf('game:move')).toEqual([]);
+    expect(document.querySelector('.modal')).toBeNull();
+    expect(sentOf('game:move')).toEqual([expect.objectContaining({ tokenId: 0, dieIndex: 0, color: 'yellow' })]);
   });
 
   it('at its home turn my teammate\'s token branches like mine: the markers and the bubble name its colour', async () => {

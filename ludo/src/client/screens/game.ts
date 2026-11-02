@@ -1,7 +1,7 @@
 import { BASE, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
 import type { GameUpdate, RollUpdate } from '../../shared/protocol.js';
 import { applyRollUpdate } from '../../shared/rollUpdate.js';
-import { distinctChoices, isTeammate, movableColors, respawnable, winnersOf } from '../../shared/rules.js';
+import { distinctChoices, movableColors, respawnable, winnersOf } from '../../shared/rules.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
@@ -236,24 +236,8 @@ export function gameScreen(root: HTMLElement): () => void {
     const home = options.find((m) => !m.lap);
     if (!home) return;
     if (lap) return chooseLap(home, lap);
-    if (!(await friendlyFireOk(home))) return;
     play('tap');
     void send('game:move', moveIntent(home));
-  }
-
-  /** Team-up: capturing my teammate is allowed, but asked about first. */
-  async function friendlyFireOk(m: LegalMove): Promise<boolean> {
-    const me = mySeat()?.color;
-    const mover = ownerOf(m);
-    const mates = m.captures.filter((c) => isTeammate(gs!, mover, c.color));
-    if (!mates.length) return true;
-    const whose = mates[0].color === me ? 'your own' : `${seatName(mates[0].color)}'s`;
-    return confirmDialog(
-      'Capture your teammate?',
-      `That sends ${whose} token back to base. There's no bonus roll for it, and ${mover === me ? 'your' : 'the moving token\'s'} moustache shrinks a level.`,
-      'Capture anyway',
-      true,
-    );
   }
 
   /** The open choice bubble (stacked tokens, or head home / go round again), closed if the game moves on. */
@@ -323,8 +307,7 @@ export function gameScreen(root: HTMLElement): () => void {
    */
   function chooseLap(home: LegalMove, lap: LegalMove): void {
     const color = ownerOf(home);
-    const answer = async (goRound: boolean) => {
-      if (!(await friendlyFireOk(goRound ? lap : home))) return;
+    const answer = (goRound: boolean) => {
       play('tap');
       void send('game:move', { ...moveIntent(home), lap: goRound });
     };
@@ -340,13 +323,12 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   // Tapping a gold or blue marker on the board chooses that way directly.
-  targets.addEventListener('click', async (e) => {
+  targets.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
     if (!t || !canMove()) return;
     chooser?.close();
     const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' };
     const m = gs!.legalMoves.find((x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap && ownerOf(x) === (t.dataset.color ?? mySeat()?.color));
-    if (m && !(await friendlyFireOk(m))) return;
     play('tap');
     void send('game:move', m ? { ...moveIntent(m), lap: move.lap } : move);
   });

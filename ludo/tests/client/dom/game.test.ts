@@ -861,7 +861,7 @@ describe('Team-up with turn sharing on the board', () => {
     token('yellow', 0).click();
     await flush(10);
     expect(topModal().querySelector('h2')!.textContent).toBe('Capture your teammate?');
-    expect(topModal().querySelector('p')!.textContent).toBe("That sends your own token back to base. You still get a bonus roll, but the moving token's moustache shrinks a level.");
+    expect(topModal().querySelector('p')!.textContent).toBe("That sends your own token back to base. There's no bonus roll for it, and the moving token's moustache shrinks a level.");
     modalButton('Cancel');
     await flush(10);
     expect(sentOf('game:move')).toEqual([]);

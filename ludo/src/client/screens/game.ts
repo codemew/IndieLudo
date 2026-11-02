@@ -250,7 +250,7 @@ export function gameScreen(root: HTMLElement): () => void {
     const whose = mates[0].color === me ? 'your own' : `${seatName(mates[0].color)}'s`;
     return confirmDialog(
       'Capture your teammate?',
-      `That sends ${whose} token back to base. You still get a bonus roll, but ${mover === me ? 'your' : 'the moving token\'s'} moustache shrinks a level.`,
+      `That sends ${whose} token back to base. There's no bonus roll for it, and ${mover === me ? 'your' : 'the moving token\'s'} moustache shrinks a level.`,
       'Capture anyway',
       true,
     );

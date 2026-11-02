@@ -178,7 +178,8 @@ A token that has reached home can be sent back to base to play it again: **hold 
 ### Team-up
 
 - **Teams:** 2 vs 2, diagonal partners: **Red + Yellow** against **Green + Blue**. Pick your team by your seat; the host can add a bot as a teammate or an opponent. All four seats must be filled.
-- **Winning:** a team wins when both partners have all four tokens home; the game ends there. A partner who finishes first sits out.
+- **Winning:** a team wins when both partners have all four tokens home; the game ends there. A partner who finishes first sits out (unless Turn sharing is on).
+- **Turn sharing (optional):** the host can tick **Turn sharing** in the Team-up lobby. Then each die you roll can move one of your tokens *or one of your teammate's*. A partner who is already home keeps taking turns and rolls for the other, and if you finish mid-turn the rest of your dice can still go to your partner (finishing gives no bonus roll). Stats count for whoever moved. Off by default.
 - **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you **don't** get a bonus roll, and your moustache **shrinks a level**, and it counts only for 🗡️ Backstabber, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
 - **Surrender:** concedes for the team: the match ends and the other team wins.
 - **Results:** "Your team won!" for both winners; both get a lifetime win.

@@ -20,6 +20,8 @@ export interface Lobby {
   allOfflineSince: number | null;
   /** Team-up: the next game is 2v2 (diagonal partners). Lobbies saved before Team-up lack it. */
   teams?: boolean;
+  /** Team-up with turn sharing: partners may move each other's tokens. Lobbies saved before it lack it. */
+  share?: boolean;
   /** Seats, and the board the next game is played on. Lobbies saved before 5 and 6 seats lack it (4). */
   size?: BoardSize;
 }
@@ -144,6 +146,7 @@ export class LobbyManager {
         players: l.members.length,
         watching: l.spectators.length,
         teams: Boolean(l.teams),
+        share: Boolean(l.teams && l.share),
         size: sizeOf(l),
       }));
   }
@@ -173,6 +176,7 @@ export class LobbyManager {
       spectators: l.spectators.map((s) => (winsOf ? { ...s, wins: winsOf(s.userId) } : { ...s })),
       gameId: l.gameId,
       teams: Boolean(l.teams),
+      share: Boolean(l.share),
       size: sizeOf(l),
     };
   }
@@ -381,6 +385,20 @@ export class LobbyManager {
     if (Boolean(lobby.teams) === teams) return lobby;
     if (teams && sizeOf(lobby) !== 4) throw new AppError('TEAMS_NEED_FOUR');
     lobby.teams = teams;
+    for (const m of lobby.members) m.ready = m.isBot;
+    this.changed(lobby);
+    return lobby;
+  }
+
+  /**
+   * Host: Team-up with turn sharing on or off (partners may move each other's tokens). It is only
+   * played in Team-up, but the choice is kept while the host flips between the modes. Everyone
+   * else's "ready" is cleared, as for the mode.
+   */
+  setShare(userId: number, share: boolean): Lobby {
+    const lobby = this.hostLobby(userId);
+    if (Boolean(lobby.share) === share) return lobby;
+    lobby.share = share;
     for (const m of lobby.members) m.ready = m.isBot;
     this.changed(lobby);
     return lobby;

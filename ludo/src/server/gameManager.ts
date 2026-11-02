@@ -3,7 +3,7 @@ import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
 import { RuleError, applyMove, applyRespawn, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, WILDCARD_MS, WILDCARD_STAGGER_MS, tempoOf, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, WILDCARD_MS, WILDCARD_STAGGER_MS, tempoOf, type Color, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
@@ -87,6 +87,7 @@ export class GameManager {
       seats,
       firstSeat: this.randomInt(0, seats.length),
       teams: Boolean(lobby.teams),
+      share: Boolean(lobby.teams && lobby.share),
       board: lobby.size,
     });
     if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
@@ -124,8 +125,8 @@ export class GameManager {
 
   move(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.move)) return this.badPayload(userId, 'game:move', payload);
-    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; lap?: boolean };
-    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true));
+    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; color?: Color; lap?: boolean };
+    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true, p.color));
   }
 
   private badPayload(userId: number, event: string, payload: unknown): Ack {
@@ -405,7 +406,7 @@ export class GameManager {
     } else {
       const move = chooseMove(state);
       if (!move) return;
-      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true);
+      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true, move.color);
     }
     this.commit(game, events, seatBefore);
   }

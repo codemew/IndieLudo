@@ -145,9 +145,9 @@ describe('the app, end to end', () => {
   });
 
   it('home: the lobby list (with Team-up), joining with a password, renaming, the menu', async () => {
-    sock.s.fire('lobby:list', [{ id: 'L2', name: 'Other', hostName: 'zed', status: 'waiting', players: 2, watching: 1, teams: true }]);
+    sock.s.fire('lobby:list', [{ id: 'L2', name: 'Other', hostName: 'zed', status: 'waiting', players: 2, watching: 1, teams: true, share: true }]);
     await waitFor('the card', () => document.querySelector('.lobby-card') !== null);
-    expect(document.querySelector('.lobby-card')!.textContent).toContain('🤝 Team-up');
+    expect(document.querySelector('.lobby-card')!.textContent).toContain('🤝 Team-up · sharing');
     click('.lobby-card');
     await flush(10);
     (topModal().querySelector('input') as HTMLInputElement).value = 'nope';

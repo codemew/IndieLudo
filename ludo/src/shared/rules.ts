@@ -27,6 +27,8 @@ export function createGameState(opts: {
   now?: number;
   /** Team-up: 2v2, diagonal partners. Needs all four seats of the 4-player board. */
   teams?: boolean;
+  /** Team-up with turn sharing: partners may move each other's tokens. Ignored without `teams`. */
+  share?: boolean;
   /** The 4- (default), 5- or 6-player board. */
   board?: BoardSize;
 }): GameState {
@@ -52,6 +54,7 @@ export function createGameState(opts: {
     createdAt: opts.now ?? Date.now(),
     firstBlood: false,
     ...(opts.teams && { teams: true }),
+    ...(opts.teams && opts.share && { share: true }),
     ...(opts.board && opts.board !== 4 && { board: opts.board }),
   };
 }
@@ -93,6 +96,20 @@ export function winnersOf(state: Pick<GameState, 'teams' | 'ranks'>): Color[] {
 
 export function currentColor(state: GameState): Color {
   return state.seats[state.turn.seat].color;
+}
+
+/**
+ * Whose tokens the current player may move: their own, and with turn sharing their partner's
+ * too (a die can go to either).
+ */
+export function movableColors(state: Pick<GameState, 'teams' | 'share' | 'seats'>, color: Color): Color[] {
+  const mate = state.teams && state.share ? TEAMMATE[color] : undefined;
+  return mate && state.seats.some((s) => s.color === mate) ? [color, mate] : [color];
+}
+
+/** Gets turns: not surrendered, and not finished, except with turn sharing, where a finished player plays on for their partner. */
+export function takesTurns(state: GameState, color: Color): boolean {
+  return !state.surrendered?.includes(color) && (Boolean(state.share) || !state.ranks.includes(color));
 }
 
 /** Finished (all home) or surrendered: no more turns. */
@@ -239,17 +256,22 @@ function capturesAt(state: GameState, mover: Color, to: number): LegalMove['capt
   return captures;
 }
 
-/** Every (die, token) pair the current player may play right now. Captures include a teammate's tokens: allowed, though rarely wise. */
+/**
+ * Every (die, token) pair the current player may play right now: their own tokens, and with turn
+ * sharing their partner's (marked with its `color`). Captures include a teammate's tokens: allowed, though rarely wise.
+ */
 export function legalMoves(state: GameState): LegalMove[] {
   if (state.finished || state.turn.phase !== 'moving') return [];
-  const color = currentColor(state);
+  const actor = currentColor(state);
   const moves: LegalMove[] = [];
   state.turn.queue.forEach((die, dieIndex) => {
-    state.tokens[color].forEach((from, tokenId) => {
-      for (const { to, lap } of targetsFor(from, die, hasExtraLap(state, color, tokenId), boardFor(state))) {
-        moves.push({ dieIndex, die, tokenId, from, to, captures: capturesAt(state, color, to), ...(lap && { lap }) });
-      }
-    });
+    for (const color of movableColors(state, actor)) {
+      state.tokens[color].forEach((from, tokenId) => {
+        for (const { to, lap } of targetsFor(from, die, hasExtraLap(state, color, tokenId), boardFor(state))) {
+          moves.push({ dieIndex, die, tokenId, from, to, ...(color !== actor && { color }), captures: capturesAt(state, color, to), ...(lap && { lap }) });
+        }
+      });
+    }
   });
   return moves;
 }
@@ -262,12 +284,13 @@ export function legalMoves(state: GameState): LegalMove[] {
  * macho one safe, so that is left to them.
  */
 export function distinctChoices(moves: LegalMove[], state?: GameState): LegalMove[] {
-  const color = state && currentColor(state);
-  const kills = color ? state.kills?.[color] : undefined;
-  const laps = color ? state.extraLaps?.[color] : undefined;
+  const actor = state && currentColor(state);
   const seen = new Map<string, LegalMove>();
   for (const m of moves) {
-    const key = `${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}`;
+    const owner = m.color ?? actor;
+    const kills = owner ? state?.kills?.[owner] : undefined;
+    const laps = owner ? state?.extraLaps?.[owner] : undefined;
+    const key = `${m.color ?? ''}:${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}`;
     if (!seen.has(key)) seen.set(key, m);
   }
   return [...seen.values()];
@@ -288,7 +311,7 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   if (value === SIX) {
     // A six nobody can use (every token left is already in the home lane, where even the
     // first square + 6 overshoots) earns no extra roll: the turn is simply over.
-    if (!state.tokens[color].some((p) => targetProgress(p, SIX, boardFor(state)) !== null)) {
+    if (!movableColors(state, color).some((c) => state.tokens[c].some((p) => targetProgress(p, SIX, boardFor(state)) !== null))) {
       events.push({ type: 'noMoves', color, discarded: [...turn.queue] });
       turn.queue = [];
       endTurn(state, events);
@@ -309,21 +332,27 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   return events;
 }
 
-/** `lap`: take the token round the board again instead of into its home column (when it may). */
-export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false): GameEvent[] {
+/**
+ * `lap`: take the token round the board again instead of into its home column (when it may).
+ * `owner`: whose token, for a partner's under turn sharing; absent means the current player's own.
+ * The move's effects on the board belong to the token (its moustache, its extra lap, the colour in
+ * the events); the player's stats belong to whoever moved it.
+ */
+export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false, owner?: Color): GameEvent[] {
   if (state.finished) throw new RuleError('GAME_OVER');
   if (state.turn.phase !== 'moving') throw new RuleError('WRONG_PHASE');
-  const move = legalMoves(state).find((m) => m.dieIndex === dieIndex && m.tokenId === tokenId && Boolean(m.lap) === lap);
+  const actor = currentColor(state);
+  const move = legalMoves(state).find((m) => m.dieIndex === dieIndex && m.tokenId === tokenId && Boolean(m.lap) === lap && (m.color ?? actor) === (owner ?? actor));
   if (!move) throw new RuleError('ILLEGAL_MOVE');
   const turn = state.turn;
-  const color = currentColor(state);
+  const color = move.color ?? actor;
   const events: GameEvent[] = [];
 
   state.tokens[color][tokenId] = move.to;
   turn.queue.splice(dieIndex, 1);
   const kills = killsOf(state, color);
   events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die, kills: kills[tokenId] });
-  const mine = statsOf(state, color);
+  const mine = statsOf(state, actor);
   mine.cells += move.from === BASE ? 1 : move.die; // leaving base counts as 1
   if (move.lap) {
     // Going round again is a risk, and it uses up the token's extra lap.
@@ -357,7 +386,7 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
         mine.owed[c.color]!--;
         mine.revenges++;
       }
-      theirs.owed[color] = (theirs.owed[color] ?? 0) + 1;
+      theirs.owed[actor] = (theirs.owed[actor] ?? 0) + 1;
       events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, ...(firstBlood && { firstBlood: true as const }) });
       turn.bonus++;
     }
@@ -378,13 +407,17 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
         endGame(state, events, color);
         return events;
       }
-      turn.queue = [];
-      turn.bonus = 0;
-      endTurn(state, events);
-      return events;
+      // Turn sharing: the turn goes on, the rest of the dice can still play for the partner.
+      if (!state.share) {
+        turn.queue = [];
+        turn.bonus = 0;
+        endTurn(state, events);
+        return events;
+      }
+    } else {
+      // Reaching home earns a bonus roll, like a capture (not for the last token: that player is done).
+      turn.bonus++;
     }
-    // Reaching home earns a bonus roll, like a capture (not for the last token: that player is done).
-    turn.bonus++;
   }
 
   evaluateForfeit(state, events);
@@ -415,7 +448,7 @@ function endTurn(state: GameState, events: GameEvent[]): void {
   turn.queue = [];
   turn.sixes = 0;
   turn.phase = 'rolling';
-  if (turn.bonus > 0 && !isPlayerDone(state, color)) {
+  if (turn.bonus > 0 && takesTurns(state, color)) {
     turn.bonus--;
     events.push({ type: 'bonus', color });
     return;
@@ -424,7 +457,7 @@ function endTurn(state: GameState, events: GameEvent[]): void {
   const n = state.seats.length;
   for (let i = 1; i <= n; i++) {
     const next = (turn.seat + i) % n;
-    if (!isPlayerDone(state, state.seats[next].color)) {
+    if (takesTurns(state, state.seats[next].color)) {
       turn.seat = next;
       events.push({ type: 'turn', color: state.seats[next].color });
       return;

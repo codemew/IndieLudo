@@ -3995,6 +3995,78 @@ button.me:active {
 .mode-note {
   margin: 4px 0 0;
 }
+/* An optional rule: a checkbox card under the mode picker (the host ticks it, everyone sees it). */
+.rule-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  max-width: 100%;
+  min-height: 52px;
+  margin: 8px auto 0;
+  padding: 8px 16px 8px 12px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+.rule-check[hidden] {
+  display: none;
+}
+.rule-check input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  inset: 0;
+  margin: 0;
+  cursor: inherit;
+}
+.rule-box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  border: 2px solid var(--muted);
+  color: transparent;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  transition: background 0.15s, border-color 0.15s;
+}
+.rule-box::after {
+  content: '✓';
+}
+.rule-check input:checked + .rule-box {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.rule-check input:focus-visible + .rule-box {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+.rule-check input:disabled ~ * {
+  opacity: 0.85;
+}
+.rule-check:has(input:disabled) {
+  cursor: default;
+}
+.rule-text {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+  font-size: 14px;
+}
+.rule-text small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
 .team-tag {
   display: inline-flex;
   align-items: center;

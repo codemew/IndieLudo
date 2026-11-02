@@ -558,3 +558,31 @@ describe('tap and hold on a lobby card: their volume, for you only', () => {
     expect(bubble()).toBeNull();
   });
 });
+
+describe('the turn sharing checkbox in the lobby', () => {
+  const box = () => document.querySelector<HTMLInputElement>('#share')!;
+  const rule = () => document.querySelector<HTMLElement>('#share-rule')!;
+  const team = (over: Partial<PublicLobby> = {}) =>
+    lobby({ teams: true, members: [member('red', 1, 'alice'), member('green', 2, 'bob'), member('yellow', null, 'Bot Yellow'), member('blue', null, 'Bot Blue')], ...over });
+
+  it('shows only in Team-up; the host ticks it, and the others see it ticked but can\'t change it', () => {
+    resetNet();
+    store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
+    show('lobby');
+    expect(rule().hidden).toBe(true); // classic
+    store.update({ lobby: team() });
+    expect(rule().hidden).toBe(false);
+    expect([box().checked, box().disabled]).toEqual([false, false]);
+    expect(rule().textContent).toContain('Turn sharing');
+    box().checked = true;
+    box().dispatchEvent(new Event('change', { bubbles: true }));
+    expect(sentOf('lobby:share')).toEqual([{ share: true }]);
+    // The server says so: everyone sees it ticked, and the note explains it.
+    store.update({ lobby: team({ share: true }) });
+    expect(box().checked).toBe(true);
+    expect(document.querySelector('#mode-note')!.textContent).toContain('Turn sharing');
+    // A guest sees it, disabled.
+    store.update({ user: { id: 2, username: 'bob' }, lobby: team({ share: true }) });
+    expect([box().checked, box().disabled]).toEqual([true, true]);
+  });
+});

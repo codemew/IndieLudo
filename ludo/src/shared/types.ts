@@ -95,6 +95,11 @@ export interface GameState {
   extraLaps?: Partial<Record<Color, number[]>>;
   /** Team-up: diagonal partners (TEAMMATE) play together and win together. */
   teams?: boolean;
+  /**
+   * Team-up with turn sharing: on their turn a player may spend each die on a token of their
+   * partner's as well as their own, and a partner who is home keeps taking turns for the other.
+   */
+  share?: boolean;
   /** The 5- or 6-player board; absent means the 4-player one (and every game saved before the others existed). */
   board?: 5 | 6;
 }
@@ -136,6 +141,8 @@ export interface LegalMove {
   tokenId: number;
   from: number;
   to: number;
+  /** Whose token this is, when it is not the current player's own (turn sharing: their partner's). */
+  color?: Color;
   /** Opponent tokens this move would send back to base. */
   captures: { color: Color; tokenId: number }[];
   /** Goes round the board a second time instead of turning into the home column. */
@@ -243,6 +250,8 @@ export interface PublicLobby {
   gameId: string | null;
   /** Team-up: the next game is 2v2, diagonal partners. */
   teams: boolean;
+  /** Team-up with turn sharing: partners may move each other's tokens. Only counts while `teams` is on. */
+  share?: boolean;
   /** Seats, and so the board the next game is played on. */
   size: BoardSize;
 }
@@ -258,6 +267,8 @@ export interface LobbySummary {
   watching: number;
   /** Team-up lobby. */
   teams: boolean;
+  /** Team-up with turn sharing (only meaningful with `teams`). */
+  share?: boolean;
   /** Seats (the board): 4, 5 or 6. */
   size: BoardSize;
 }

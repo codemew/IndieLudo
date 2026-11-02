@@ -272,6 +272,28 @@ describe.skipIf(!CHROME || !BUILT)('Team-up with turn sharing', () => {
     await until('both see it', async () => (await bob.$$eval('.token.t-yellow', (ts) => ts.length)) === 4);
     expect(t.errors).toEqual([]);
   });
+
+  it('both partners can reach home with one roll: both markers show, and the teammate\'s glows differently', async () => {
+    // Bob plays a 2 (he can move either token: he picks his own), then the bots, then it is alice's turn again.
+    await until("bob's turn", async () => game.seats[game.turn.seat].color === 'yellow' && game.turn.phase === 'rolling' && (await bob.$('.dice.can-roll')) !== null, 30_000);
+    t.dice.push(2);
+    await tap(bob, '.dice.can-roll');
+    await bob.waitForSelector('.token.legal');
+    await sleep(500);
+    const mine = (await (await bob.$('.token.legal[aria-label="yellow token 1"]'))!.boundingBox())!;
+    await bob.touchscreen.tap(mine.x + mine.width / 2, mine.y + mine.height / 2);
+    await until("alice's turn " + JSON.stringify(game.turn), async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 40_000).catch((e) => { throw new Error(`${e.message} now ${JSON.stringify(game.turn)} ${JSON.stringify(game.tokens)}`); });
+    game.tokens.red = [H - 3, B, B, B];
+    game.tokens.yellow = [H - 3, B, B, B];
+    t.dice.push(3);
+    await tap(alice, '.dice.can-roll');
+    await alice.waitForSelector('.token.legal');
+    await sleep(500);
+    expect(await alice.$$eval('.token.legal', (ts) => ts.map((x) => `${x.getAttribute('aria-label')}${x.classList.contains('mate') ? ' (mate)' : ''}`).sort())).toEqual(['red token 1', 'yellow token 1 (mate)']);
+    expect(await alice.$$eval('.target', (ts) => ts.length)).toBe(2);
+    await shot(alice, 'sharing-both-home');
+    expect(t.errors).toEqual([]);
+  });
 });
 
 describe.skipIf(!CHROME || !BUILT)('results with long names and many awards', () => {

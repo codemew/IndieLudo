@@ -14,6 +14,8 @@ export interface GameManagerOptions {
   db: DB;
   dice: DiceFn;
   turnTimeoutSec: number;
+  /** Time to choose a token after the roll (default: the same as `turnTimeoutSec`). */
+  moveTimeoutSec?: number;
   disconnectGraceSec: number;
   /** "Thinking" pause before a bot acts, on top of the time the clients spend animating. */
   botDelayMs?: number;
@@ -360,7 +362,10 @@ export class GameManager {
       game.timer = setTimeout(() => this.act(game, false), think + pace);
       return;
     }
-    const timeoutMs = (timeLeftMs ?? this.opts.turnTimeoutSec * 1000) + pace;
+    // Rolling gets the full time; choosing a token once the dice are rolled gets less (a roll with a single choice is played for them at once, below).
+    const fullMs = this.opts.turnTimeoutSec * 1000;
+    const allowedMs = state.turn.phase === 'moving' ? Math.min(fullMs, (this.opts.moveTimeoutSec ?? this.opts.turnTimeoutSec) * 1000) : fullMs;
+    const timeoutMs = Math.min(timeLeftMs ?? allowedMs, allowedMs) + pace;
     state.turn.deadline = Date.now() + timeoutMs;
     if (state.turn.phase === 'moving' && distinctChoices(legalMoves(state), state).length === 1) {
       game.timer = setTimeout(() => this.act(game, false), this.autoMoveDelayMs + pace);

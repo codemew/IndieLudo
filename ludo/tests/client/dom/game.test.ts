@@ -812,6 +812,20 @@ describe('Team-up with turn sharing on the board', () => {
     expect(document.querySelector('#banner')!.textContent).toContain("Bot Green's turn");
   });
 
+  it('a teammate\'s glowing token is marked apart from mine, and both "lands home" markers show', async () => {
+    const g = newGame({ teams: true, share: true });
+    g.tokens.red = [H - 3, B, B, B];
+    g.tokens.yellow = [H - 3, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    expect([legal('red', 0), legal('yellow', 0)]).toEqual([true, true]);
+    // Mine glows as before; the teammate's carries the `mate` class (a different ring and motion).
+    expect([token('red', 0).classList.contains('mate'), token('yellow', 0).classList.contains('mate')]).toEqual([false, true]);
+    // Both can reach home with this roll: each has its marker, in its own home. The partner's is not hidden by mine.
+    const targets = [...document.querySelectorAll('.target')].map((t) => [...t.classList].filter((c) => c.startsWith('t-') || c === 'mate').join(' '));
+    expect(targets.sort()).toEqual(['t-red', 't-yellow mate']);
+  });
+
   it('my own token is sent without a colour, and without sharing the teammate\'s tokens stay dark', async () => {
     const g = newGame({ teams: true });
     g.tokens.red = [13, B, B, B];

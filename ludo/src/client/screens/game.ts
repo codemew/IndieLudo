@@ -937,17 +937,20 @@ export function gameScreen(root: HTMLElement): () => void {
     if (!animating || force) showDiceFor(!gs.finished && gs.turn.phase === 'rolling' ? seat.color : null);
 
     let tappable = new Set<string>();
+    // The glowing tokens that are the teammate's (turn sharing): they glow differently from your own.
+    let mates = new Set<string>();
     if (canMove()) {
       selectedDie = validSelection(gs.legalMoves);
       const values = new Set(gs.turn.queue);
       const moves = values.size > 1 ? gs.legalMoves.filter((m) => m.dieIndex === selectedDie) : gs.legalMoves;
       tappable = new Set(moves.map((m) => `${ownerOf(m)}:${m.tokenId}`));
+      mates = new Set([...tappable].filter((k) => !k.startsWith(`${seat.color}:`)));
       if (!animating || force) renderTargets(moves);
     } else if (!animating || force) {
       renderTargets([]);
     }
     if (!animating || force) {
-      tokens.sync(gs, tappable, seat.color);
+      tokens.sync(gs, tappable, seat.color, mates);
       renderQueue(gs, true);
       setFlame(gs.turn.phase === 'rolling' ? gs.turn.sixes : 0);
     }
@@ -1056,11 +1059,12 @@ export function gameScreen(root: HTMLElement): () => void {
         html += trail.map((c) => `<div class="trail ${m.lap ? 'round' : 'home'}" style="${at(c)}"></div>`).join('');
       }
       const [x, y] = tokenCell(color, m.to, m.tokenId, geo);
-      const key = m.to === geo.home ? 'home' : `${x},${y}`;
+      // Home markers are one per colour: the partner's sits in the partner's own home, not on top of yours.
+      const key = m.to === geo.home ? `home:${color}` : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}" role="button" aria-label="${m.lap ? 'Go round again' : 'Head home'}"` : '';
-      html += `<div class="target t-${color}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}"${pick}>${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
+      html += `<div class="target t-${color}${color !== mySeat()!.color ? ' mate' : ''}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}"${pick}>${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.
     setHtml(targets, html);

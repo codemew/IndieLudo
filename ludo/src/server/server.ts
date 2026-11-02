@@ -96,6 +96,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     dice: opts.dice ?? cryptoDice,
     randomInt: opts.randomInt,
     turnTimeoutSec: config.turnTimeoutSec,
+    moveTimeoutSec: config.moveTimeoutSec,
     disconnectGraceSec: config.disconnectGraceSec,
     botDelayMs: opts.botDelayMs,
     autoMoveDelayMs: opts.autoMoveDelayMs,

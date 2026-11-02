@@ -1494,6 +1494,34 @@ h3 {
   animation: ring 1s ease-out infinite;
   pointer-events: none;
 }
+/* A teammate's token (turn sharing): a dashed ring that draws in, and a sway instead of the bob, so it
+   reads as "yours to move for them" and not as one of your own. */
+.token.legal.mate .tok-body {
+  animation: sway 1.3s ease-in-out infinite;
+}
+.token.legal.mate::after {
+  border-style: dashed;
+  box-shadow: 0 0 0 2px var(--c), 0 0 14px 3px var(--c);
+  animation: ring-in 1.4s ease-in infinite;
+}
+@keyframes sway {
+  25% {
+    transform: rotate(-9deg);
+  }
+  75% {
+    transform: rotate(9deg);
+  }
+}
+@keyframes ring-in {
+  from {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+  to {
+    transform: scale(0.9);
+    opacity: 1;
+  }
+}
 @keyframes bob {
   50% {
     transform: scale(1.12);
@@ -2336,6 +2364,21 @@ h3 {
 }
 .target.t-orange {
   --c: var(--orange);
+}
+/* Where a teammate's token would land: a diamond instead of a circle. */
+.target.mate:not(.home):not(.round) {
+  border-radius: 24%;
+  animation-name: target-pulse-mate;
+}
+@keyframes target-pulse-mate {
+  from,
+  to {
+    transform: translate(-50%, -50%) rotate(45deg) scale(0.85);
+  }
+  50% {
+    transform: translate(-50%, -50%) rotate(45deg) scale(1);
+    background: color-mix(in srgb, var(--c) 40%, transparent);
+  }
 }
 @keyframes target-pulse {
   50% {

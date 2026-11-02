@@ -79,7 +79,7 @@ export function hasExtraLap(state: GameState, color: Color, tokenId: number): bo
 /** The player's match stats, created on first use (games saved before stats existed have none). */
 export function statsOf(state: GameState, color: Color): PlayerStats {
   state.stats ??= {};
-  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, firstBlood: false, owed: {} });
+  return (state.stats[color] ??= { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, helped: 0, firstBlood: false, owed: {} });
 }
 
 /** Team-up partners (never true in a classic game). */
@@ -353,7 +353,10 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
   const kills = killsOf(state, color);
   events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die, kills: kills[tokenId] });
   const mine = statsOf(state, actor);
-  mine.cells += move.from === BASE ? 1 : move.die; // leaving base counts as 1
+  const squares = move.from === BASE ? 1 : move.die; // leaving base counts as 1
+  // A square moved for the partner (turn sharing) is help given, for "Guardian", not the mover's own travel.
+  if (color === actor) mine.cells += squares;
+  else mine.helped = (mine.helped ?? 0) + squares;
   if (move.lap) {
     // Going round again is a risk, and it uses up the token's extra lap.
     extraLapsOf(state, color)[tokenId] = 1;
@@ -407,13 +410,15 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
         endGame(state, events, color);
         return events;
       }
-      // Turn sharing: the turn goes on, the rest of the dice can still play for the partner.
+      // Turn sharing: the turn goes on, the rest of the dice can still play for the partner, and
+      // the arrival earns the mover a bonus roll like any other: they have someone left to roll for.
       if (!state.share) {
         turn.queue = [];
         turn.bonus = 0;
         endTurn(state, events);
         return events;
       }
+      turn.bonus++;
     } else {
       // Reaching home earns a bonus roll, like a capture (not for the last token: that player is done).
       turn.bonus++;

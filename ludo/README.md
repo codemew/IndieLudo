@@ -154,7 +154,7 @@ npm run typecheck
   - **Final places:** players who finished, then the last one still playing, then those who surrendered (the last to give up ranks highest). The podium marks them with 🏳️.
 - **Your tokens sharing a square:** when they wear different moustaches (or one is on its last lap), the game always waits for your pick, so you can send a clean-shaven token forward and keep the macho one safe. Tapping either opens a small see-through speech bubble on that square, with each token drawn large (its moustache, and a dashed ring on its last lap) and no text. Tap one to move it; tap anywhere else (that tap only closes it), or press Esc, to close the bubble. Bots and the timer move the smaller moustache.
 - **Capture:** landing on an opponent's token on any other square sends every opponent token on it back to base (two stacked tokens are both captured), and earns a **bonus roll** for each token captured. Capturing your own teammate earns no bonus roll. Each captured token also grows the capturer's moustache a level.
-- **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished. Bonuses add up, and each one is used once the dice already queued have been played.
+- **Reaching home:** a token that reaches home also earns a **bonus roll**. The exception is a player's last token, because that player has finished (with Turn sharing on, even that one earns it). Bonuses add up, and each one is used once the dice already queued have been played.
 - **A useless six ends the turn:** when every token a player has left is in the home lane, a 6 can never be used, because even the first lane square plus 6 overshoots home. The 6 then ends the turn at once instead of giving another roll.
 - **Queued rolls and the three‑sixes penalty:**
   - A 6 means the player rolls again. Each roll is added to a queue, and **no token moves until the queue is closed** by a roll that is not a 6.
@@ -179,7 +179,7 @@ A token that has reached home can be sent back to base to play it again: **hold 
 
 - **Teams:** 2 vs 2, diagonal partners: **Red + Yellow** against **Green + Blue**. Pick your team by your seat; the host can add a bot as a teammate or an opponent. All four seats must be filled.
 - **Winning:** a team wins when both partners have all four tokens home; the game ends there. A partner who finishes first sits out (unless Turn sharing is on).
-- **Turn sharing (optional):** the host can tick **Turn sharing** in the Team-up lobby. Then each die you roll can move one of your tokens *or one of your teammate's*. A partner who is already home keeps taking turns and rolls for the other, and if you finish mid-turn the rest of your dice can still go to your partner (finishing gives no bonus roll). Stats count for whoever moved. Off by default.
+- **Turn sharing (optional):** the host can tick **Turn sharing** in the Team-up lobby. Then each die you roll can move one of your tokens *or one of your teammate's*. A partner who is already home keeps taking turns and rolls for the other, and if you finish mid-turn the rest of your dice can still go to your partner. Any token reaching home earns the mover a **bonus roll**, whoever's token it is, even a player's last one. Captures and home arrivals count for whoever moved; squares moved on a teammate's tokens are counted as help (not as your own Cells) for 🛡️ Guardian. Off by default.
 - **Friendly fire:** you can capture your teammate's token. The app asks first. The token goes back to base, you **don't** get a bonus roll, and your moustache **shrinks a level**, and it counts only for 🗡️ Backstabber, not as a capture, revenge or first blood. Bots do it only when they have no other move. Teammates aren't counted as threats.
 - **Surrender:** concedes for the team: the match ends and the other team wins.
 - **Results:** "Your team won!" for both winners; both get a lifetime win.
@@ -229,6 +229,7 @@ The results screen shows awards, each player's award icons on the podium, and un
 | 🥸 Macho | Most macho | Moustached tokens brought home: a token that has captured someone (and hasn't been captured since) reaching home |
 | (no column) | Balls of steel (a steel-ball icon) | The most risks taken: laps taken round again plus wildcard entries |
 | (no column) | 🗡️ Backstabber | Team-up: the most teammates' tokens captured |
+| (no column) | 🛡️ Guardian | Team-up with Turn sharing: the most squares moved on a teammate's tokens (leaving base counts as 1). Not counted in Cells. |
 | (no column) | 👶 Baby face (the comedy trophy) | The **fewest** clean-shaven tokens that grew a moustache (a token's first capture since it last left base). It's only given when someone else grew more, so it never goes to everyone. |
 | 🩸 First blood | First blood | The game's first capture |
 

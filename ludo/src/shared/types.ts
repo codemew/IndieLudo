@@ -110,7 +110,7 @@ export function tempoOf(state: Pick<GameState, 'botBattle'>): number {
 }
 
 export interface PlayerStats {
-  /** Squares moved in total (leaving base counts as one). */
+  /** Squares moved in total on the player's own tokens (leaving base counts as one). */
   cells: number;
   /** Opponent tokens sent back to base. */
   captures: number;
@@ -130,6 +130,8 @@ export interface PlayerStats {
   risks?: number;
   /** Team-up: teammates' tokens captured, for "Backstabber". Not counted as captures. */
   friendlyFire?: number;
+  /** Turn sharing: squares moved on a teammate's tokens (leaving base counts as one), for "Guardian". Not part of `cells`. */
+  helped?: number;
   firstBlood: boolean;
   /** Captures each opponent has made on you that you haven't avenged yet. */
   owed: Partial<Record<Color, number>>;

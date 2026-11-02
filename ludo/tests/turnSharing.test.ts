@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BASE, HOME, LAP2_FIRST } from '../src/shared/board.js';
 import { RuleError, applyMove, applyRoll, createGameState, currentColor, distinctChoices, hasExtraLap, legalMoves, movableColors, statsOf, takesTurns, winnersOf } from '../src/shared/rules.js';
 import { chooseMove } from '../src/server/bot.js';
-import { gameAwards } from '../src/shared/awards.js';
+import { EMPTY_STATS, gameAwards } from '../src/shared/awards.js';
 import type { Color, PublicLobby } from '../src/shared/types.js';
 import { seat, withQueue } from './helpers.js';
 import { client, createLobby, startTestServer, type TestClient, type TestServer } from './serverHelpers.js';
@@ -49,8 +49,11 @@ describe('turn sharing: the rule', () => {
     expect(s.tokens.yellow[0]).toBe(23);
     expect(s.tokens.red).toEqual([BASE, BASE, BASE, BASE]);
     expect(events[0]).toMatchObject({ type: 'move', color: 'yellow', tokenId: 0, from: 20, to: 23, die: 3, kills: 2 });
-    expect(statsOf(s, 'red').cells).toBe(3);
+    // The squares are help given (Guardian), not red's own travel.
+    expect(statsOf(s, 'red').helped).toBe(3);
+    expect(statsOf(s, 'red').cells).toBe(0);
     expect(s.stats?.yellow?.cells ?? 0).toBe(0);
+    expect(s.stats?.yellow?.helped ?? 0).toBe(0);
     expect(currentColor(s)).toBe('green'); // the turn passes on as usual
   });
 
@@ -141,8 +144,19 @@ describe('turn sharing: the rule', () => {
   });
 });
 
+describe('turn sharing: Guardian award', () => {
+  it('goes to the player who moved the most squares for their teammate; nobody gets it without sharing', () => {
+    const s = shared();
+    s.stats = { red: { ...EMPTY_STATS, cells: 10, helped: 14 }, yellow: { ...EMPTY_STATS, cells: 30, helped: 5 }, green: { ...EMPTY_STATS }, blue: { ...EMPTY_STATS } };
+    const g = gameAwards(s).find((a) => a.key === 'helped');
+    expect(g).toMatchObject({ title: 'Guardian', colors: ['red'], value: 14 });
+    const none = shared({ share: false });
+    expect(gameAwards(none).some((a) => a.key === 'helped')).toBe(false);
+  });
+});
+
 describe('turn sharing: finishing and taking turns', () => {
-  it('a player who gets home keeps the turn: the rest of the dice go to the partner, with no bonus roll for finishing', () => {
+  it('a player who gets home keeps the turn: the rest of the dice go to the partner, and the arrival earns a bonus roll', () => {
     const s = withQueue(shared(), [1, 2]);
     place(s, { red: [H - 1, H, H, H], yellow: [10, BASE, BASE, BASE] });
     const events = applyMove(s, 0, 0); // red's last token home with the 1
@@ -151,11 +165,36 @@ describe('turn sharing: finishing and taking turns', () => {
     expect(currentColor(s)).toBe('red');
     expect(s.turn.phase).toBe('moving');
     expect(s.turn.queue).toEqual([2]);
-    expect(s.turn.bonus).toBe(0);
+    expect(s.turn.bonus).toBe(1);
     expect(legalMoves(s).map((m) => [m.color, m.tokenId])).toEqual([['yellow', 0]]);
     const end = applyMove(s, 0, 0, false, 'yellow');
     expect(s.tokens.yellow[0]).toBe(12);
-    expect(end.at(-1)).toMatchObject({ type: 'turn', color: 'green' });
+    // The bonus roll is red's, even though red is home: it is used for the partner.
+    expect(end.at(-1)).toEqual({ type: 'bonus', color: 'red' });
+    expect(currentColor(s)).toBe('red');
+  });
+
+  it('moving the partner\'s last token home earns the mover a bonus roll, and the squares count as help', () => {
+    const s = withQueue(shared(), [2]);
+    place(s, { red: [5, BASE, BASE, BASE], yellow: [H, H, H, H - 2] });
+    const events = applyMove(s, 0, 3, false, 'yellow');
+    expect(s.ranks).toEqual(['yellow']);
+    expect(s.finished).toBeFalsy();
+    expect(events.some((e) => e.type === 'home' && e.color === 'yellow')).toBe(true);
+    expect(statsOf(s, 'red').helped).toBe(2);
+    expect(statsOf(s, 'red').homeRuns).toBe(1);
+    expect(events.at(-1)).toEqual({ type: 'bonus', color: 'red' });
+    expect(currentColor(s)).toBe('red');
+  });
+
+  it('moving your own token home earns the bonus as usual, and your own last token too (you still roll for your partner)', () => {
+    const s = withQueue(shared(), [1]);
+    place(s, { red: [H - 1, H, H, H], yellow: [10, BASE, BASE, BASE] });
+    const events = applyMove(s, 0, 0);
+    expect(s.ranks).toEqual(['red']);
+    expect(events.at(-1)).toEqual({ type: 'bonus', color: 'red' });
+    expect(statsOf(s, 'red').cells).toBe(1);
+    expect(statsOf(s, 'red').helped ?? 0).toBe(0);
   });
 
   it('without sharing, finishing ends the turn and drops the rest of the dice (as before)', () => {

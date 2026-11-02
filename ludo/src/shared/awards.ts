@@ -1,6 +1,6 @@
 import type { Color, GameState, PlayerStats } from './types.js';
 
-export type AwardKey = 'cells' | 'captures' | 'sixes' | 'revenges' | 'machoHome' | 'risks' | 'friendlyFire' | 'babyFace' | 'firstBlood';
+export type AwardKey = 'cells' | 'captures' | 'sixes' | 'revenges' | 'machoHome' | 'risks' | 'friendlyFire' | 'helped' | 'babyFace' | 'firstBlood';
 
 export interface Award {
   key: AwardKey;
@@ -20,9 +20,11 @@ export const COUNTED: { key: Exclude<AwardKey, 'firstBlood' | 'babyFace'>; icon:
   // Shown as a steel ball on the results screen (there is no emoji for one); 🔘 is the fallback.
   { key: 'risks', icon: '🔘', title: 'Balls of steel' },
   { key: 'friendlyFire', icon: '🗡️', title: 'Backstabber' },
+  // Turn sharing: the squares moved on a teammate's tokens.
+  { key: 'helped', icon: '🛡️', title: 'Guardian' },
 ];
 
-export const EMPTY_STATS: PlayerStats = { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, firstBlood: false, owed: {} };
+export const EMPTY_STATS: PlayerStats = { cells: 0, captures: 0, sixes: 0, revenges: 0, machoHome: 0, staches: 0, homeRuns: 0, risks: 0, friendlyFire: 0, helped: 0, firstBlood: false, owed: {} };
 
 export function playerStats(state: GameState, color: Color): PlayerStats {
   const s = state.stats?.[color];

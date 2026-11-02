@@ -267,7 +267,8 @@ describe.skipIf(!CHROME || !BUILT)('Team-up with turn sharing', () => {
     await until('bob\'s token moved', () => game.tokens.yellow[0] === 23, 8000);
     expect(game.tokens.red[0]).toBe(13);
     // The stats belong to alice, who moved it; the hop shows on both phones.
-    expect(game.stats?.red?.cells).toBe(3);
+    expect(game.stats?.red?.helped).toBe(3);
+    expect(game.stats?.red?.cells ?? 0).toBe(0);
     await until('both see it', async () => (await bob.$$eval('.token.t-yellow', (ts) => ts.length)) === 4);
     expect(t.errors).toEqual([]);
   });

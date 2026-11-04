@@ -185,7 +185,7 @@ A token that has reached home can be sent back to base to play it again: **hold 
 - **Results:** "Your team won!" for both winners; both get a lifetime win.
 
 **Timers and bots:**
-- Rolling has `turnTimeoutSec` (30 s); choosing a token after the roll has the shorter `moveTimeoutSec` (10 s). When either runs out, the server plays **the rest of that turn** for the player (rolls and moves), at bot speed. The player can tap to take over again at any point.
+- Rolling has `turnTimeoutSec` (30 s); choosing a token after the roll has the shorter `moveTimeoutSec` (5 s). When either runs out, the server plays **the rest of that turn** for the player (rolls and moves), at bot speed. The player can tap to take over again at any point.
 - A missed turn shows as "missed n/5" on the player's chip. After **5 missed turns in a row**, or after `disconnectGraceSec` offline, a bot takes over the seat. The player gets the seat back by reconnecting, by making a move, or by tapping *take back*.
 - When the only possible move is obvious, the server plays it after a short pause.
 - Bots wait until every phone has finished animating the previous roll or move, then pause a little longer to "think". This makes bot turns easy to follow.
@@ -426,7 +426,7 @@ Plain HTTP on `httpRedirectPort` redirects to HTTPS.
 | `adminPassword` | — | Admin login |
 | `dbPath` | `./data/ludo.db` | SQLite file |
 | `turnTimeoutSec` | 30 | Time per action before the server plays it (rolling) |
-| `moveTimeoutSec` | 10 | Time to choose a token after the roll, when there is a real choice (never more than `turnTimeoutSec`) |
+| `moveTimeoutSec` | 5 | Time to choose a token after the roll, when there is a real choice (never more than `turnTimeoutSec`) |
 | `disconnectGraceSec` | 60 | Offline time before a bot takes the seat |
 | `maxLobbies` | 50 | Most lobbies allowed at once |
 | `lobbyIdleCloseSec` | 600 | A lobby closes when all its humans have been offline this long |

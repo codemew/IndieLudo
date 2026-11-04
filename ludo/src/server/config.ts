@@ -70,7 +70,7 @@ export const DEFAULTS: Config = {
   lobbyCreatePassword: '',
   adminPassword: '',
   turnTimeoutSec: 30,
-  moveTimeoutSec: 10,
+  moveTimeoutSec: 5,
   disconnectGraceSec: 60,
   maxLobbies: 50,
   lobbyIdleCloseSec: 600,

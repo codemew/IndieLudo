@@ -108,6 +108,10 @@ describe('validateConfig', () => {
     expect(validateConfig(ok)).toEqual([]);
   });
 
+  it('picking a token after the roll gets 5 s by default, a sixth of the 30 s to roll', () => {
+    expect([DEFAULTS.turnTimeoutSec, DEFAULTS.moveTimeoutSec]).toEqual([30, 5]);
+  });
+
   it('rejects ice servers without urls, and a short TURN lifetime', () => {
     const c = mergeConfig(ok, { voice: { iceServers: [{} as never], turn: { urls: ['turn:x:3478'], secret: 'long-enough', ttlSec: 10 } } });
     expect(validateConfig(c)).toEqual(['voice.iceServers must be a list of { "urls": "stun:…" } objects', 'voice.turn.ttlSec must be at least 60']);

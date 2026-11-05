@@ -496,3 +496,73 @@ describe.skipIf(!CHROME || !BUILT)('a 5-player game', () => {
     expect(t.errors).toEqual([]);
   });
 });
+
+describe.skipIf(!CHROME || !BUILT)('the admin\'s next-roll test aid', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let alice: Page;
+  let bob: Page;
+  let game: GameState;
+  beforeAll(async () => {
+    t = await setup();
+    [alice, bob] = await t.lobby(['alice', 'bob']);
+    // Alice's session is an admin's (as after "Admin login"); her phone learns it when it loads.
+    const mine = t.server.ctx.sessions.list().find((s) => s.username === 'alice')!;
+    t.server.ctx.sessions.setAdmin(mine.id, true);
+    await alice.reload({ waitUntil: 'networkidle0' });
+    await tap(alice, '#play'); // the welcome screen: she is still signed in, so this goes straight back to her lobby
+    await alice.waitForSelector('.screen-lobby');
+    await tap(bob, '.bottom-bar .btn');
+    await tap(alice, '#fill-bots');
+    await alice.waitForSelector('#start:not(:disabled)');
+    await tap(alice, '#start');
+    await Promise.all([alice.waitForSelector('.screen-game'), bob.waitForSelector('.screen-game')]);
+    game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+  });
+  afterAll(() => t?.close());
+
+  const menuItems = (p: Page) => p.$$eval('.menu-item', (bs) => bs.map((b) => b.textContent));
+
+  it('only the admin\'s menu has it; the pick sets the next roll, once, and nobody else sees a thing', async () => {
+    await until("alice's turn", async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 20_000);
+    // Bob (not an admin) has no such item.
+    await tap(bob, '#menu');
+    await bob.waitForSelector('.menu-item');
+    expect((await menuItems(bob)).some((x) => x!.includes('Next roll'))).toBe(false);
+    await bob.$$eval('.modal .btn', (bs) => (bs[bs.length - 1] as HTMLElement).click());
+    // Alice has it, set to normal.
+    await tap(alice, '#menu');
+    await alice.waitForSelector('.menu-item');
+    expect(await menuItems(alice)).toContain('🎲 Next roll: normal');
+    await alice.$$eval('.menu-item', (bs) => (bs.find((b) => b.textContent!.includes('Next roll')) as HTMLElement).click());
+    await alice.waitForSelector('.roll-opt');
+    await sleep(300);
+    await shot(alice, 'admin-roll-picker');
+    // Seven choices that fit the phone, each a real touch target.
+    const boxes = await alice.$$eval('.roll-opt', (bs) => bs.map((b) => b.getBoundingClientRect().toJSON()));
+    expect(boxes).toHaveLength(7);
+    for (const b of boxes) {
+      expect(b.height).toBeGreaterThanOrEqual(48);
+      expect(b.x).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width).toBeLessThanOrEqual(390);
+    }
+    const six = (await (await alice.$('.roll-opt[aria-label="Roll 6"]'))!.boundingBox())!;
+    await alice.touchscreen.tap(six.x + six.width / 2, six.y + six.height / 2);
+    await until('armed', () => alice.$eval('#menu', (m) => m.classList.contains('armed')));
+    expect(await bob.$eval('#menu', (m) => m.classList.contains('armed'))).toBe(false);
+    await shot(alice, 'admin-roll-armed');
+    // The dice would have said 3; the chosen 6 wins, and the setting is used up (the dot goes).
+    t.dice.push(3);
+    await tap(alice, '.dice.can-roll');
+    await until('the six', () => (game.stats?.red?.rolls?.[5] ?? 0) === 1, 8000);
+    expect(t.dice).toEqual([3]); // the random source was not asked for that roll
+    await until('back to normal', async () => !(await alice.$eval('#menu', (m) => m.classList.contains('armed'))), 4000);
+    // The six rolls again: this one is the dice's own (the 3).
+    await until("alice's bonus roll", async () => (await alice.$('.dice.can-roll')) !== null, 8000);
+    await tap(alice, '.dice.can-roll');
+    await until('chance again', () => (game.stats?.red?.rolls?.[2] ?? 0) === 1, 8000);
+    expect(game.stats?.red?.rolls?.[5]).toBe(1);
+    // Nothing about it reached bob: no setting, no event.
+    expect(await bob.$eval('#menu', (m) => m.classList.contains('armed'))).toBe(false);
+    expect(t.errors).toEqual([]);
+  });
+});

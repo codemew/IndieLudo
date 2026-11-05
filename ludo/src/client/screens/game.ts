@@ -1085,6 +1085,30 @@ export function gameScreen(root: HTMLElement): () => void {
     setTimeout(() => b.remove(), 900);
   }
 
+  /** The roll I have set for my next turn in this game, if I am an admin and set one. */
+  const forcedNow = (): number | null => (state.isAdmin && gs && state.forcedRoll?.gameId === gs.id ? state.forcedRoll.value : null);
+
+  /** Admin test aid: pick what my next roll will be, 1 to 6 or normal (chance). It is used once and goes back to normal. */
+  function openRollPicker(): void {
+    if (!state.isAdmin || !gs) return;
+    const gameId = gs.id;
+    const body = el(`<div class="roll-pick" role="group" aria-label="Next roll"></div>`);
+    const m = modal({ title: 'Next roll', body, actions: [{ label: 'Close' }] });
+    const choose = async (value: number) => {
+      const r = await emit<{ value: number | null }>('game:force', { gameId, value });
+      if (!r.ok) return showError(r.error);
+      update({ forcedRoll: value ? { gameId, value } : null });
+      m.close();
+      toast(value ? `Your next roll will be ${value}` : 'Your next roll is chance again', 'info', 1800);
+    };
+    const current = forcedNow();
+    for (const v of [0, 1, 2, 3, 4, 5, 6]) {
+      const b = el<HTMLButtonElement>(`<button class="roll-opt${(current ?? 0) === v ? ' on' : ''}" aria-pressed="${(current ?? 0) === v}" aria-label="${v ? `Roll ${v}` : 'Normal (chance)'}">${v ? `${'⚀⚁⚂⚃⚄⚅'[v - 1]}<small> ${v}</small>` : '🎲 Normal'}</button>`);
+      b.onclick = () => void choose(v);
+      body.appendChild(b);
+    }
+  }
+
   function openMenu(): void {
     const body = el(`<div class="menu-list"></div>`);
     const m = modal({ title: 'Game menu', body, actions: [{ label: 'Close' }] });
@@ -1108,6 +1132,8 @@ export function gameScreen(root: HTMLElement): () => void {
       });
     } else if (!gs!.finished) {
       const mine = mySeat()!;
+      // A test aid for admins only: nobody else's menu has it, and nobody else is told it was used.
+      if (state.isAdmin) item(`🎲 Next roll: ${forcedNow() ?? 'normal'}`, () => openRollPicker());
       const spare = respawnable(gs!, mine.color).length;
       if (spare) item(`🃏 Wildcard entry (${spare} at home)`, () => openWildcard());
       if (!gs!.surrendered?.includes(mine.color) && !gs!.ranks.includes(mine.color)) {
@@ -1157,7 +1183,13 @@ export function gameScreen(root: HTMLElement): () => void {
     if (gs && !destroyed) renderChips();
   };
   const offVoice = voice.onChange(repaintVoice);
-  const offStore = subscribe((changed) => (changed.includes('voice') || changed.includes('net')) && repaintVoice());
+  const offStore = subscribe((changed) => {
+    if (changed.includes('voice') || changed.includes('net')) repaintVoice();
+    if (changed.includes('forcedRoll') || changed.includes('isAdmin')) paintArmed();
+  });
+  // A small dot on the menu button while a roll is set, so an admin doesn't forget it (nobody else sees it).
+  const paintArmed = () => $(root, '#menu').classList.toggle('armed', forcedNow() !== null);
+  paintArmed();
   const offVolume = onVolumeChange(repaintVoice);
   const offHold = onHold(root, {
     find: (t) => t.closest<HTMLElement>('.pchip.holdable'),

@@ -4,6 +4,8 @@ import type { Color, LobbySummary, PublicGameState, PublicLobby, VoiceState } fr
 export interface AppState {
   user: { id: number; username: string; avatar?: string; gamesPlayed?: number; wins?: number } | null;
   isAdmin: boolean;
+  /** Admins only: the roll set for my next turn (a test aid); null = chance. Only my own phone ever hears of it. */
+  forcedRoll: { gameId: string; value: number } | null;
   lobbies: LobbySummary[];
   lobby: PublicLobby | null;
   game: PublicGameState | null;
@@ -21,6 +23,7 @@ export interface AppState {
 export const state: AppState = {
   user: null,
   isAdmin: false,
+  forcedRoll: null,
   lobbies: [],
   lobby: null,
   game: null,

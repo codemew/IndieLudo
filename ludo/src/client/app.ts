@@ -87,6 +87,7 @@ function connectSocket(token: string): void {
       s.on('lobby:swapEnded', (e) => onSwapEnded(e));
       s.on('game:state', (u) => onGameUpdate(u));
       s.on('game:roll', (u) => onRollUpdate(u));
+      s.on('game:forced', (u) => update({ forcedRoll: u.value ? { gameId: u.gameId, value: u.value } : null }));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
       s.on('voice:state', (v) => {
         if (v.lobbyId === state.lobby?.id) update({ voice: v });
@@ -212,7 +213,7 @@ export function signOut(message?: string): void {
   disconnect();
   storage.remove(KEYS.session);
   storage.remove(KEYS.lastGame);
-  update({ user: null, isAdmin: false, lobby: null, game: null, voice: null, net: null, lobbies: [] });
+  update({ user: null, isAdmin: false, forcedRoll: null, lobby: null, game: null, voice: null, net: null, lobbies: [] });
   go('signup');
   if (message) toast(message, 'error', 3500);
 }

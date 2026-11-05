@@ -470,6 +470,45 @@ h3 {
   flex-direction: column;
   gap: 8px;
 }
+/* Admin test aid: pick the next roll. */
+.roll-pick {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.roll-opt {
+  min-height: 56px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 26px;
+  font-weight: 700;
+}
+.roll-opt small {
+  font-size: 14px;
+}
+.roll-opt:first-child {
+  grid-column: 1 / -1;
+  font-size: 16px;
+}
+.roll-opt.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+#menu.armed {
+  position: relative;
+}
+#menu.armed::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+}
 .menu-item {
   text-align: left;
   padding: 14px;

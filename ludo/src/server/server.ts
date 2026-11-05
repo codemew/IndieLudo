@@ -113,6 +113,9 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       if (rollerRoom) io.to(rollerRoom).emit('game:state', { state, events });
       (rollerRoom ? io.to(rooms.game(state.id)).except(rollerRoom) : io.to(rooms.game(state.id))).emit('game:roll', slim);
     },
+    isAdminSession: (sessionId) => sessions.get(sessionId)?.is_admin === 1,
+    // An admin's forced roll is private: only that admin's own session hears it was used.
+    onForcedChange: (sessionId, gameId, value) => io?.to(rooms.session(sessionId)).emit('game:forced', { gameId, value }),
     onGameOver: (state) => {
       for (const seat of state.seats) {
         if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, winnersOf(state).includes(seat.color));

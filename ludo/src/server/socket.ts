@@ -115,6 +115,9 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       game: game ? ctx.games.publicState(game) : null,
     };
     socket.emit('hello', hello);
+    // An admin who comes back (a reload, a lost connection) with a roll still set is told so, so the menu isn't wrong.
+    const waiting = game && ctx.sessions.get(sessionId)?.is_admin === 1 ? ctx.games.forcedFor(game.id, userId) : null;
+    if (game && waiting) socket.emit('game:forced', { gameId: game.id, value: waiting });
 
     /**
      * Wraps a handler with the rate limit, strict schema check and error mapping.
@@ -258,6 +261,15 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     // Game intents are schema-checked inside GameManager, which also logs tampering.
     on('game:roll', null, (p) => resync(p?.gameId, ctx.games.roll(userId, p)));
     on('game:move', null, (p) => resync(p?.gameId, ctx.games.move(userId, p)));
+
+    // An admin's test aid. Anyone else gets the answer a game event they cannot use would get, and it is logged.
+    on('game:force', null, (p) => {
+      if (ctx.sessions.get(sessionId)?.is_admin !== 1) {
+        log(`[anticheat] user ${userId} tried to force a roll without being an admin`);
+        return { ok: false, error: 'FORBIDDEN' };
+      }
+      return ctx.games.forceRoll(userId, sessionId, p);
+    });
 
     on('game:resume', SCHEMAS.gameRef, (p) => {
       const state = ctx.games.find(p.gameId);

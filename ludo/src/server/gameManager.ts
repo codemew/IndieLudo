@@ -26,6 +26,10 @@ export interface GameManagerOptions {
   randomInt?: (min: number, max: number) => number;
   onUpdate?: (state: PublicGameState, events?: GameEvent[]) => void;
   onGameOver?: (state: GameState) => void;
+  /** Whether this session is (still) an admin's: a forced roll left behind by one who has since logged out is dropped, not used. */
+  isAdminSession?: (sessionId: number) => boolean;
+  /** An admin's forced roll was used up (`value` null): tell that admin's session, and nobody else. */
+  onForcedChange?: (sessionId: number, gameId: string, value: number | null) => void;
   log?: (msg: string) => void;
 }
 
@@ -37,6 +41,11 @@ interface LiveGame {
   seen: Set<string>;
   /** Events of the last change, so the next timer can wait until clients finish animating them. */
   lastEvents: GameEvent[];
+  /**
+   * An admin's test aid: the next roll of this player's seat comes up `value` instead of from the dice.
+   * Kept here and nowhere else (not in the game state, not saved, not sent to anyone but the admin's own phone).
+   */
+  forced?: { userId: number; sessionId: number; value: number };
 }
 
 const SEEN_LIMIT = 500;
@@ -122,7 +131,36 @@ export class GameManager {
   roll(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.roll)) return this.badPayload(userId, 'game:roll', payload);
     const p = payload as { gameId: string; version: number; actionId: string };
-    return this.intent(userId, p, 'rolling', (state) => applyRoll(state, this.opts.dice()));
+    return this.intent(userId, p, 'rolling', (state) => applyRoll(state, this.takeForced(this.games.get(p.gameId), userId) ?? this.opts.dice()));
+  }
+
+  /**
+   * Admin test aid (the caller has checked the session is an admin's): the next roll of this player's
+   * own seat is `value` (1 to 6) instead of a random one; 0 puts it back to chance. It is used once.
+   */
+  forceRoll(userId: number, sessionId: number, payload: unknown): Ack {
+    if (!matchesSchema(payload, SCHEMAS.gameForce)) return this.badPayload(userId, 'game:force', payload);
+    const p = payload as { gameId: string; value: number };
+    const game = this.games.get(p.gameId);
+    if (!game || game.state.finished || !game.state.seats.some((s) => s.userId === userId && s.controller === 'human')) return { ok: false, error: 'NO_GAME' };
+    game.forced = p.value > 0 ? { userId, sessionId, value: p.value } : undefined;
+    this.opts.log?.(`[admin] user ${userId} ${p.value > 0 ? `set the next roll to ${p.value}` : 'cleared the forced roll'} in ${p.gameId}`);
+    return { ok: true, data: { value: p.value > 0 ? p.value : null } };
+  }
+
+  /** The roll waiting for this player in a game, for a phone that (re)connects. */
+  forcedFor(gameId: string, userId: number): number | null {
+    const f = this.games.get(gameId)?.forced;
+    return f && f.userId === userId ? f.value : null;
+  }
+
+  /** Uses up the forced roll if it is this human's: the value, or undefined when the dice should decide. */
+  private takeForced(game: LiveGame | undefined, userId: number | null): number | undefined {
+    const f = game?.forced;
+    if (!game || !f || userId === null || f.userId !== userId) return undefined;
+    game.forced = undefined;
+    this.opts.onForcedChange?.(f.sessionId, game.state.id, null);
+    return this.opts.isAdminSession && !this.opts.isAdminSession(f.sessionId) ? undefined : f.value;
   }
 
   move(userId: number, payload: unknown): Ack {
@@ -407,7 +445,8 @@ export class GameManager {
     const seatBefore = state.turn.seat;
     let events: GameEvent[];
     if (state.turn.phase === 'rolling') {
-      events = applyRoll(state, this.opts.dice());
+      // A human's own roll played for them (their timer ran out) still honours an admin's forced roll.
+      events = applyRoll(state, (seat.controller === 'human' ? this.takeForced(game, seat.userId) : undefined) ?? this.opts.dice());
     } else {
       const move = chooseMove(state);
       if (!move) return;

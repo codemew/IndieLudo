@@ -5,7 +5,7 @@ import { applyMove, applyRespawn, applyRoll, applySurrender, createGameState, le
 import type { RollUpdate } from '../../../src/shared/protocol.js';
 import type { Color, GameEvent, GameState, PublicGameState } from '../../../src/shared/types.js';
 import { click, flush, modalButton, setupDom, toasts, topModal } from './harness.js';
-import { resetNet, sentOf } from './fakeNet.js';
+import { replies, resetNet, sentOf } from './fakeNet.js';
 
 vi.mock('../../../src/client/net.js', () => import('./fakeNet.js'));
 const app = vi.hoisted(() => ({
@@ -780,6 +780,73 @@ describe('tap and hold on a player card: their volume, for you only', () => {
     go('home');
     await flush(300);
     expect(bubble()).toBeNull();
+  });
+});
+
+describe('the admin\'s next-roll test aid', () => {
+  beforeEach(() => document.body.click());
+  afterEach(() => store.update({ isAdmin: false, forcedRoll: null }));
+  const items = () => [...document.querySelectorAll('.menu-item')].map((b) => b.textContent);
+
+  it('is not in the menu of a player who is not an admin (a host included)', async () => {
+    const g = newGame();
+    mount(g);
+    document.querySelector<HTMLButtonElement>('#menu')!.click();
+    await flush(10);
+    expect(items().some((t) => t!.includes('Next roll'))).toBe(false);
+    expect(document.querySelector('#menu')!.classList.contains('armed')).toBe(false);
+  });
+
+  it('an admin picks the next roll in the menu; it is sent only for their game, and shown until used', async () => {
+    const g = newGame();
+    store.update({ isAdmin: true });
+    mount(g);
+    document.querySelector<HTMLButtonElement>('#menu')!.click();
+    await flush(10);
+    expect(items()).toContain('🎲 Next roll: normal');
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.textContent!.includes('Next roll'))!.click();
+    await flush(10);
+    // Normal and 1 to 6, the current choice marked.
+    expect([...document.querySelectorAll('.roll-opt')].map((b) => b.getAttribute('aria-label'))).toEqual(['Normal (chance)', 'Roll 1', 'Roll 2', 'Roll 3', 'Roll 4', 'Roll 5', 'Roll 6']);
+    expect(document.querySelector('.roll-opt.on')!.getAttribute('aria-label')).toBe('Normal (chance)');
+    document.querySelector<HTMLButtonElement>('.roll-opt[aria-label="Roll 6"]')!.click();
+    await flush(10);
+    expect(sentOf('game:force')).toEqual([{ gameId: g.id, value: 6 }]);
+    expect(store.state.forcedRoll).toEqual({ gameId: g.id, value: 6 });
+    expect(document.querySelector('#menu')!.classList.contains('armed')).toBe(true);
+    // It shows in the menu, and the picker marks it.
+    document.querySelector<HTMLButtonElement>('#menu')!.click();
+    await flush(10);
+    expect(items()).toContain('🎲 Next roll: 6');
+    // The server says it was used (to this phone only): back to normal.
+    document.getElementById('modal-root')!.innerHTML = '';
+    store.update({ forcedRoll: null });
+    expect(document.querySelector('#menu')!.classList.contains('armed')).toBe(false);
+  });
+
+  it('a roll set for another game does not show in this one', async () => {
+    const g = newGame();
+    store.update({ isAdmin: true, forcedRoll: { gameId: 'another', value: 3 } });
+    mount(g);
+    expect(document.querySelector('#menu')!.classList.contains('armed')).toBe(false);
+    document.querySelector<HTMLButtonElement>('#menu')!.click();
+    await flush(10);
+    expect(items()).toContain('🎲 Next roll: normal');
+  });
+
+  it('a refused choice (the server says no) changes nothing', async () => {
+    const g = newGame();
+    store.update({ isAdmin: true });
+    mount(g);
+    replies['game:force'] = () => ({ ok: false, error: 'FORBIDDEN' });
+    document.querySelector<HTMLButtonElement>('#menu')!.click();
+    await flush(10);
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.textContent!.includes('Next roll'))!.click();
+    await flush(10);
+    document.querySelector<HTMLButtonElement>('.roll-opt[aria-label="Roll 4"]')!.click();
+    await flush(10);
+    expect(store.state.forcedRoll).toBeNull();
+    expect(app.errors).toEqual(['FORBIDDEN']);
   });
 });
 

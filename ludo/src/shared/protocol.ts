@@ -49,6 +49,8 @@ export interface ClientToServer {
   'lobby:size': (p: { size: number }, ack: (r: Ack) => void) => void;
   'game:roll': (p: RollIntent, ack: (r: Ack) => void) => void;
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
+  /** Admins only (a test aid): the next roll of my seat comes up `value` (1 to 6; 0 = back to chance). */
+  'game:force': (p: { gameId: string; value: number }, ack: (r: Ack) => void) => void;
   'game:resume': (p: { gameId: string }, ack: (r: Ack<PublicGameState>) => void) => void;
   'game:takeback': (p: { gameId: string }, ack: (r: Ack) => void) => void;
   /** Give up: you're out (ranked below everyone still playing) and watch the rest. */
@@ -185,6 +187,8 @@ export interface ServerToClient {
   'lobby:closed': (info: { byAdmin: boolean }) => void;
   'game:state': (u: GameUpdate) => void;
   'game:roll': (u: RollUpdate) => void;
+  /** To an admin's own phone only: the forced roll that was set (or is used up: null). */
+  'game:forced': (u: { gameId: string; value: number | null }) => void;
   'session:revoked': () => void;
   'voice:state': (s: VoiceState) => void;
   /** Server-timed ping; the client just acknowledges. */
@@ -255,6 +259,7 @@ export const SCHEMAS = {
     lap: { type: 'bool', optional: true },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
+  gameForce: { gameId: { type: 'string', max: 64 }, value: { type: 'int', min: 0, max: 6 } },
   surrender: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 } },
   respawn: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 }, tokens: { type: 'int', min: 1, max: 15 } },
   lobbyMode: { teams: { type: 'bool' } },

@@ -127,6 +127,7 @@ npm run typecheck
    - list open lobbies and **close** any of them, even mid‑game. Everyone in it goes back home with a notice, and a game in progress ends without a result.
    - revoke sessions and devices
    - show the access code or make a new one
+   - **Next roll (a test aid):** an admin who is playing has **🎲 Next roll** in the ☰ game menu, with *Normal* and 1 to 6. Pick one and the next roll of their own seat is exactly that, not from the random source. It is used once (the menu goes back to *Normal* by itself, and a dot on ☰ shows while one is set), and it is also used if their turn is played for them after a timeout. It is for testing on your own devices: the item is not in anyone else's menu (a host who isn't an admin included), the server refuses the request from anyone who isn't an admin (and logs it), and no other player, bot or spectator is told: the roll looks like any other, only the admin's own phone hears that it was used. The rolls still count in that game's stats (so *Dice luck* for the admin reflects them).
 
 ## Rules
 

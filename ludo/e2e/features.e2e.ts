@@ -293,6 +293,49 @@ describe.skipIf(!CHROME || !BUILT)('Team-up with turn sharing', () => {
     await shot(alice, 'sharing-both-home');
     expect(t.errors).toEqual([]);
   });
+
+  it('my token and my teammate\'s on one star: a bubble to choose which to move, and a real touch on the teammate\'s moves it', async () => {
+    // The last test left alice's roll unplayed: play it (her token gets home, which earns her a roll).
+    if (game.turn.phase === 'moving') {
+      await tap(alice, '.token.legal');
+      await sleep(800);
+    }
+    // Clear the board so the turns in between pass on a 1, then alice's turn.
+    game.tokens.red = [B, B, B, B];
+    game.tokens.yellow = [B, B, B, B];
+    await until("alice's turn", async () => {
+      const cur = game.seats[game.turn.seat];
+      if (cur.username === 'bob' && game.turn.phase === 'rolling' && (await bob.$('.dice.can-roll'))) {
+        t.dice.push(1);
+        await tap(bob, '.dice.can-roll');
+        await sleep(300);
+      }
+      return cur.username === 'alice' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null;
+    }, 40_000);
+    game.tokens.red = [34, B, B, B]; // red's square 34 is yellow's 8: the same star
+    game.tokens.yellow = [8, 20, B, B];
+    t.dice.push(3);
+    await tap(alice, '.dice.can-roll');
+    await alice.waitForSelector('.token.legal');
+    await sleep(500);
+    const tok = (await (await alice.$('.token.legal'))!.boundingBox())!;
+    await alice.touchscreen.tap(tok.x + tok.width / 2, tok.y + tok.height / 2);
+    await alice.waitForSelector('.stack-bubble .stack-opt');
+    await sleep(600);
+    await shot(alice, 'sharing-stack-bubble');
+    const opts = await alice.$$eval('.stack-bubble .stack-opt', (os) => os.map((o) => ({ colour: (o as HTMLElement).dataset.color, mate: o.classList.contains('mate'), box: o.getBoundingClientRect().toJSON() })));
+    expect(opts.map((o) => [o.colour, o.mate])).toEqual([['red', false], ['yellow', true]]);
+    for (const o of opts) {
+      expect(Math.min(o.box.width, o.box.height)).toBeGreaterThanOrEqual(44);
+      expect(o.box.x).toBeGreaterThanOrEqual(0);
+      expect(o.box.x + o.box.width).toBeLessThanOrEqual(390);
+    }
+    const y = opts[1].box;
+    await alice.touchscreen.tap(y.x + y.width / 2, y.y + y.height / 2);
+    await until('the teammate moves', () => game.tokens.yellow[0] === 11, 6000);
+    expect(game.tokens.red[0]).toBe(34);
+    expect(t.errors).toEqual([]);
+  });
 });
 
 describe.skipIf(!CHROME || !BUILT)('results with long names and many awards', () => {
@@ -563,6 +606,61 @@ describe.skipIf(!CHROME || !BUILT)('the admin\'s next-roll test aid', () => {
     expect(game.stats?.red?.rolls?.[5]).toBe(1);
     // Nothing about it reached bob: no setting, no event.
     expect(await bob.$eval('#menu', (m) => m.classList.contains('armed'))).toBe(false);
+    expect(t.errors).toEqual([]);
+  });
+});
+
+describe.skipIf(!CHROME || !BUILT)('a choice bubble is never under the player cards', () => {
+  let t: Awaited<ReturnType<typeof setup>>;
+  let phones: Page[];
+  let game: GameState;
+  beforeAll(async () => {
+    t = await setup();
+    phones = await t.lobby(['alice', 'bob', 'carol', 'dave']);
+    for (const p of phones.slice(1)) await tap(p, '.bottom-bar .btn');
+    await phones[0].waitForSelector('.bottom-bar .btn-primary:not(:disabled)', { timeout: 10_000 });
+    await tap(phones[0], '.bottom-bar .btn-primary');
+    await Promise.all(phones.map((p) => p.waitForSelector('.screen-game')));
+    // A short phone (360 x 600): the board fills the height and the cards sit right against it.
+    for (const p of phones) await p.setViewport({ width: 360, height: 600, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+    await sleep(500);
+    game = t.server.ctx.games.get(t.server.ctx.lobbies.all()[0].gameId!)!;
+  });
+  afterAll(() => t?.close());
+
+  it('blue, at the bottom of the board, gets head home / go round again with every picture on top and tappable', async () => {
+    const byName = Object.fromEntries(['alice', 'bob', 'carol', 'dave'].map((n, i) => [n, phones[i]]));
+    // Everyone before dave passes with a 1 (nothing out of base can move).
+    await until("dave's turn", async () => {
+      const cur = game.seats[game.turn.seat];
+      if (cur.username !== 'dave' && game.turn.phase === 'rolling' && (await byName[cur.username!].$('.dice.can-roll'))) {
+        t.dice.push(1);
+        await tap(byName[cur.username!], '.dice.can-roll');
+        await sleep(300);
+      }
+      return cur.username === 'dave' && game.turn.phase === 'rolling' && (await byName.dave.$('.dice.can-roll')) !== null;
+    }, 30_000);
+    game.tokens.blue = [48, B, B, B];
+    t.dice.push(5);
+    await tap(byName.dave, '.dice.can-roll');
+    await byName.dave.waitForSelector('.token.legal', { timeout: 8000 });
+    await sleep(500);
+    await byName.dave.$$eval('.token.legal', (ts) => (ts[0] as HTMLElement).click());
+    await byName.dave.waitForSelector('.stack-bubble .lap-opt');
+    await sleep(600);
+    await shot(byName.dave, 'bubble-over-cards');
+    const under = await byName.dave.$$eval('.stack-bubble .lap-opt', (os) =>
+      os.map((o) => {
+        const b = o.getBoundingClientRect();
+        const e = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+        return e && (e.closest('.pchip') ? 'a player card' : e.closest('.stack-bubble') ? 'the bubble' : e.className);
+      }),
+    );
+    expect(under).toEqual(['the bubble', 'the bubble']);
+    // A real touch on "head home" plays the move.
+    const home = (await (await byName.dave.$('.lap-opt.home'))!.boundingBox())!;
+    await byName.dave.touchscreen.tap(home.x + home.width / 2, home.y + home.height / 2);
+    await until('the move', () => game.tokens.blue[0] > 48, 6000);
     expect(t.errors).toEqual([]);
   });
 });

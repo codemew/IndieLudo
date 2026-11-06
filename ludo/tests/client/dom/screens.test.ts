@@ -265,6 +265,27 @@ describe('the results screen', () => {
     show('results');
   };
 
+  it('the confetti is random from the first frame: no pattern in where, how fast or how far along each piece is', () => {
+    finished({});
+    const pieces = [...document.querySelectorAll<HTMLElement>('.confetti i')];
+    expect(pieces.length).toBeGreaterThanOrEqual(40);
+    const num = (p: HTMLElement, name: string) => parseFloat(p.style.getPropertyValue(name));
+    for (const name of ['--x', '--dur', '--delay', '--dx', '--w', '--h', '--rot']) {
+      const values = pieces.map((p) => num(p, name));
+      expect(new Set(values).size, name).toBeGreaterThan(pieces.length * 0.6); // nearly every piece has its own
+    }
+    // Part-way down already, by a random amount (a negative delay inside its own fall time), and spread across the width.
+    for (const p of pieces) expect(-num(p, '--delay')).toBeGreaterThanOrEqual(0), expect(-num(p, '--delay')).toBeLessThanOrEqual(num(p, '--dur'));
+    const xs = pieces.map((p) => num(p, '--x')).sort((a, b) => a - b);
+    expect(xs[0]).toBeLessThan(25);
+    expect(xs.at(-1)).toBeGreaterThan(75);
+    // Not an even step across the screen (the old look: a row of pieces in lines).
+    const steps = xs.slice(1).map((x, i) => x - xs[i]);
+    expect(Math.max(...steps) - Math.min(...steps)).toBeGreaterThan(1);
+    // And not always the same colours in the same places.
+    expect(new Set(pieces.map((p) => p.style.getPropertyValue('--c'))).size).toBeGreaterThan(2);
+  });
+
   it('classic: the podium, the awards (with the steel ball) and the stats', () => {
     finished({});
     expect(document.querySelector('.results h2')!.textContent).toBe('You won!');

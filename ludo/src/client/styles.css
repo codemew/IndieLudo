@@ -2025,32 +2025,19 @@ h3 {
 }
 .confetti i {
   position: absolute;
-  top: -20px;
-  left: calc(var(--i) * 3.6%);
-  width: 8px;
-  height: 14px;
+  top: -24px;
+  left: var(--x);
+  width: var(--w);
+  height: var(--h);
   border-radius: 2px;
-  background: var(--red);
-  animation: fall calc(2.2s + (var(--i) * 0.07s)) linear calc(var(--i) * -0.13s) infinite;
-}
-.confetti i:nth-child(4n + 1) {
-  background: var(--green);
-}
-.confetti i:nth-child(4n + 2) {
-  background: var(--yellow);
-}
-.confetti i:nth-child(4n + 3) {
-  background: var(--blue);
-}
-.confetti i:nth-child(6n + 5) {
-  background: var(--purple);
-}
-.confetti i:nth-child(6n) {
-  background: var(--orange);
+  background: var(--c);
+  /* Every piece has its own start, size, speed, drift and spin (confettiPieces in results.ts); the
+     negative delay puts it part-way down already, so nothing starts as a line. */
+  animation: fall var(--dur) linear var(--delay) infinite;
 }
 @keyframes fall {
   to {
-    transform: translateY(1000px) rotate(720deg);
+    transform: translate(var(--dx), 112vh) rotate(var(--rot));
   }
 }
 
@@ -2486,6 +2473,12 @@ h3 {
 .screen-game > :not(.floor-fire) {
   position: relative;
   z-index: 1;
+}
+/* The board is above the player cards and the dock: each child of the screen is its own stacking
+   context, so without this the cards below the board (later in the page) painted over, and took the
+   taps of, a choice bubble that reaches past the board's edge on a short screen. */
+.screen-game > .board-wrap {
+  z-index: 2;
 }
 .floor-fire i {
   position: absolute;

@@ -219,11 +219,22 @@ export function gameScreen(root: HTMLElement): () => void {
       $(root, '#queue').animate([{ transform: 'scale(1)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 300 });
       return;
     }
-    // Several of my tokens on this square that aren't alike (moustaches, laps left): which one?
+    // Several tokens on this square that aren't alike (mine with other moustaches or laps left, or my
+    // teammate's when we share turns, who may stand on the same safe square): which one?
     const from = gs!.tokens[color][tokenId];
     if (from !== BASE) {
-      const stacked = distinctChoices(gs!.legalMoves.filter((m) => m.dieIndex === pick.dieIndex && !m.lap && ownerOf(m) === color && gs!.tokens[color][m.tokenId] === from), gs!);
-      if (stacked.length > 1) return chooseStacked(color, stacked, tokenId);
+      const here = tokenCell(color, from, tokenId, geo);
+      const stacked = distinctChoices(
+        gs!.legalMoves.filter((m) => {
+          const owner = ownerOf(m);
+          const at = gs!.tokens[owner][m.tokenId];
+          if (m.dieIndex !== pick.dieIndex || m.lap || at === BASE) return false;
+          const cell = tokenCell(owner, at, m.tokenId, geo);
+          return cell[0] === here[0] && cell[1] === here[1];
+        }),
+        gs!,
+      );
+      if (stacked.length > 1) return chooseStacked(stacked, { color, id: tokenId });
     }
     void moveToken(color, tokenId, pick.dieIndex);
   }
@@ -277,24 +288,31 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   /**
-   * Same-colour tokens on one square that aren't alike (different moustaches, or one on its last
-   * lap): a bubble on that square with one token each, drawn larger than the board's (they
-   * overlap there). The moustaches say which is which.
+   * Tokens on one square that aren't alike (mine with different moustaches or laps left, and, with
+   * turn sharing, my teammate's on the same safe square): a bubble on that square with one token
+   * each, drawn larger than the board's (they overlap there). The colour says whose it is and the
+   * moustaches say which is which.
    */
-  function chooseStacked(color: Color, moves: LegalMove[], tappedId: number): void {
+  function chooseStacked(moves: LegalMove[], tapped: { color: Color; id: number }): void {
     const dieIndex = moves[0].dieIndex;
+    const me = mySeat()?.color;
+    // Mine first, then my teammate's.
+    const ordered = [...moves].sort((a, b) => Number(ownerOf(a) !== me) - Number(ownerOf(b) !== me));
+    const first = ordered[0];
     openBubble(
-      tokenCell(color, gs!.tokens[color][moves[0].tokenId], moves[0].tokenId, geo),
-      { color, id: tappedId },
-      moves.map((m) => {
-        const kills = gs!.kills?.[color]?.[m.tokenId] ?? 0;
-        const last = Boolean(gs!.extraLaps?.[color]?.[m.tokenId]);
+      tokenCell(ownerOf(first), gs!.tokens[ownerOf(first)][first.tokenId], first.tokenId, geo),
+      tapped,
+      ordered.map((m) => {
+        const owner = ownerOf(m);
+        const kills = gs!.kills?.[owner]?.[m.tokenId] ?? 0;
+        const last = Boolean(gs!.extraLaps?.[owner]?.[m.tokenId]);
+        const whose = owner === me ? '' : `${seatName(owner)}'s `;
         return {
-          cls: `stack-opt${last ? ' last-lap' : ''}`,
-          attrs: `data-token="${m.tokenId}"`,
-          html: miniToken(color, kills),
-          label: `${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}`,
-          pick: () => void moveToken(color, m.tokenId, dieIndex),
+          cls: `stack-opt${last ? ' last-lap' : ''}${owner === me ? '' : ' mate'}`,
+          attrs: `data-token="${m.tokenId}" data-color="${owner}"`,
+          html: miniToken(owner, kills),
+          label: `${whose}${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}${owner === me ? '' : ' (your teammate)'}`,
+          pick: () => void moveToken(owner, m.tokenId, dieIndex),
         };
       }),
     );

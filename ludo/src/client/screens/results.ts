@@ -47,7 +47,7 @@ export function resultsScreen(root: HTMLElement): void {
   const heading = g.teams ? (iWon ? 'Your team won!' : `${names.join(' & ')} win!`) : iWon ? 'You won!' : `${names[0] ?? 'Someone'} wins${g.botBattle ? ' the bot battle' : ''}`;
   root.innerHTML = `
     <div class="results">
-      ${iWon ? `<div class="confetti">${Array.from({ length: 28 }, (_, i) => `<i style="--i:${i}"></i>`).join('')}</div>` : ''}
+      ${iWon ? `<div class="confetti">${confettiPieces(44)}</div>` : ''}
       <div class="big-emoji">${iWon ? '🏆' : g.botBattle ? '🤖' : '🎲'}</div>
       <h2>${heading}</h2>
       <ol class="podium">${rows}</ol>
@@ -69,6 +69,31 @@ export function resultsScreen(root: HTMLElement): void {
 }
 
 /** The tabs under the awards: a radio-like group (one Tab stop, arrow keys, Home/End) that shows one panel. */
+const CONFETTI_COLOURS = ['red', 'green', 'yellow', 'blue', 'purple', 'orange'];
+
+/**
+ * Pieces of confetti, each its own: where it starts across the screen, how big, how fast, how far it
+ * drifts and spins, and how far into its fall it already is (a random negative delay), so the
+ * screen is full of it, at random, from the first frame: not a row that sweeps down in lines.
+ */
+export function confettiPieces(count: number): string {
+  const rnd = (a: number, b: number) => a + Math.random() * (b - a);
+  return Array.from({ length: count }, () => {
+    const dur = rnd(2.8, 5.4);
+    const style = [
+      `--x:${rnd(0, 100).toFixed(1)}%`,
+      `--w:${rnd(6, 11).toFixed(1)}px`,
+      `--h:${rnd(10, 19).toFixed(1)}px`,
+      `--dur:${dur.toFixed(2)}s`,
+      `--delay:-${rnd(0, dur).toFixed(2)}s`,
+      `--dx:${Math.round(rnd(-70, 70))}px`,
+      `--rot:${Math.round(rnd(360, 1260)) * (Math.random() < 0.5 ? -1 : 1)}deg`,
+      `--c:var(--${CONFETTI_COLOURS[Math.floor(Math.random() * CONFETTI_COLOURS.length)]})`,
+    ].join(';');
+    return `<i style="${style}"></i>`;
+  }).join('');
+}
+
 function bindStatTabs(root: HTMLElement): void {
   const tabs = [...root.querySelectorAll<HTMLButtonElement>('.stat-tab')];
   if (!tabs.length) return;

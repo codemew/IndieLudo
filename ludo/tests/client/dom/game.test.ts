@@ -247,6 +247,51 @@ async function lift(): Promise<void> {
 }
 
 describe('choosing a token', () => {
+  it('turn sharing: my token and my teammate\'s on the same safe square: one bubble to choose which to move', async () => {
+    const g = newGame({ teams: true, share: true });
+    g.tokens.red = [34, B, B, B]; // red's square 34 is yellow's 8: the same star
+    g.tokens.yellow = [8, 20, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    // Whichever of the two is tapped, the bubble has both, mine first, in their own colours.
+    token('yellow', 0).click();
+    await flush();
+    const bubble = document.querySelector<HTMLElement>('#bubbles .stack-bubble')!;
+    expect(bubble).not.toBeNull();
+    const opts = [...bubble.querySelectorAll<HTMLElement>('.stack-opt')];
+    expect(opts.map((o) => [o.dataset.color, o.dataset.token, o.classList.contains('mate')])).toEqual([
+      ['red', '0', false],
+      ['yellow', '0', true],
+    ]);
+    expect(opts[1].getAttribute('aria-label')).toMatch(/bob's Clean-shaven \(your teammate\)$/);
+    expect(opts[1].querySelector('.mini-token')!.classList.contains('t-yellow')).toBe(true);
+    // Choosing the teammate's moves it, with its colour; the other yellow token (elsewhere) is not in the bubble.
+    click('.stack-opt[data-color="yellow"]');
+    await flush();
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0, color: 'yellow' });
+    // And the same bubble from the other side: tapping mine.
+    token('red', 0).click();
+    await flush();
+    expect(document.querySelectorAll('#bubbles .stack-opt')).toHaveLength(2);
+    click('.stack-opt[data-color="red"]');
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0 });
+    expect(sentOf('game:move').at(-1)).not.toHaveProperty('color');
+  });
+
+  it('without turn sharing a teammate on my square is nothing to choose: my token just moves', async () => {
+    const g = newGame({ teams: true });
+    g.tokens.red = [34, B, B, B];
+    g.tokens.yellow = [8, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    token('red', 0).click();
+    await flush();
+    expect(document.querySelector('.stack-bubble')).toBeNull();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ tokenId: 0 });
+  });
+
   it('stacked tokens with different moustaches: a small bubble on the square with both, and no words', async () => {
     const g = newGame();
     g.tokens.red = [8, 8, B, B];

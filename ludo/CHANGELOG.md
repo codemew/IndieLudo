@@ -2,7 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+- **Player cards covered the home / go-round-again bubble on a short screen.** Each part of the game screen is its own layer, and the cards below the board sat above the board's, so a bubble that reached past the board's lower edge (blue and yellow, whose home turn is at the bottom) went under them and its pictures couldn't be tapped. The board is now above the cards.
+- **The end-of-game confetti started as lines sweeping across the screen.** Every piece used the same spacing and a start that stepped along with its number. Each piece now has its own random position, size, speed, drift, spin and colour, and starts part-way down its fall, so the screen is full of it, at random, from the first frame.
+
 ### Changed
+- **Turn sharing: stacked tokens of you and your teammate get the same choice bubble.** When your token and your teammate's stand on the same (safe) square, tapping either opens a bubble on that square with a large picture of each, yours first and each in its own colour, so you can pick the one you mean on a small screen. Your own tokens with different moustaches or laps left are in the same bubble.
 - **No more "Capture your teammate?" question.** Capturing a teammate is still allowed (token back to base, no bonus roll, the capturer's moustache shrinks a level, counted for Backstabber), but players are expected to know the rule: the move is played at once. The "Friendly fire!" banner and sound stay.
 
 ### Added

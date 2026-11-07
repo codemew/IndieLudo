@@ -1,12 +1,18 @@
 import type { NetStats } from '../shared/net.js';
-import type { Color, LobbySummary, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
+import type { Color, LobbySummary, OnlineUser, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
 
 export interface AppState {
-  user: { id: number; username: string; avatar?: string; gamesPlayed?: number; wins?: number } | null;
+  /**
+   * `canCreate`: this account entered the creation password once and creates lobbies without it.
+   * `showDevice`: others see this player's phone, browser and network in the Users tab.
+   */
+  user: { id: number; username: string; avatar?: string; gamesPlayed?: number; wins?: number; canCreate?: boolean; showDevice?: boolean } | null;
   isAdmin: boolean;
   /** Admins only: the roll set for my next turn (a test aid); null = chance. Only my own phone ever hears of it. */
   forcedRoll: { gameId: string; value: number } | null;
   lobbies: LobbySummary[];
+  /** Everyone online (the home screen's Users tab), live. */
+  onlineUsers: OnlineUser[];
   lobby: PublicLobby | null;
   game: PublicGameState | null;
   /** Voice channel of the current game (who is in it, muted, quality). */
@@ -25,6 +31,7 @@ export const state: AppState = {
   isAdmin: false,
   forcedRoll: null,
   lobbies: [],
+  onlineUsers: [],
   lobby: null,
   game: null,
   voice: null,

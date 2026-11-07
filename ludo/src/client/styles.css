@@ -264,6 +264,9 @@ h3 {
 .field small {
   opacity: 0.8;
 }
+.field[hidden] {
+  display: none;
+}
 .form-help {
   margin: 0;
   font-size: 13px;
@@ -448,6 +451,10 @@ h3 {
 }
 .modal-actions .btn {
   flex: 1;
+}
+/* Three choices don't fit side by side on a phone: stacked, the main one on top. */
+.modal-actions:has(> .btn:nth-child(3)) {
+  flex-direction: column-reverse;
 }
 @keyframes sheet-in {
   from {
@@ -4779,4 +4786,117 @@ polygon.b-inner {
 }
 .vol-opt.on .bubble-ico {
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.95), 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- Home: Lobbies / Users tabs ---- */
+.home-tabs {
+  padding-top: 2px;
+}
+.home-tabs button {
+  min-height: 44px;
+}
+.tab-count:not(:empty) {
+  display: inline-block;
+  min-width: 20px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 12px;
+  line-height: 20px;
+}
+.home-tabs button:not(.active) .tab-count:not(:empty) {
+  background: var(--ok);
+  color: #fff;
+}
+.home-body [role='tabpanel'][hidden] {
+  display: none;
+}
+
+/* ---- The Users list: who is online, where, and on what phone ---- */
+.user-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.user-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.user-row.user-me {
+  border-color: rgba(139, 92, 246, 0.45);
+}
+.avatar.avatar-sm {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  font-size: 17px;
+  flex: none;
+}
+.user-main {
+  min-width: 0;
+  flex: 1;
+}
+.user-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 16px;
+}
+.user-name .you {
+  --c: var(--accent);
+}
+.user-since {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ok);
+  white-space: nowrap;
+}
+.user-where {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.user-device {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.user-list .empty {
+  list-style: none;
+  text-align: center;
+  padding: 24px 0;
+}
+
+/* Small notes in forms: leaving your current lobby, a remembered creation password. */
+.form-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text);
+}
+.form-note.ok {
+  color: var(--ok);
+  background: rgba(34, 197, 94, 0.12);
+}
+.device-check {
+  margin: 4px 0 0;
+  width: 100%;
+}
+.pw-card .form {
+  width: 100%;
+  max-width: 360px;
 }

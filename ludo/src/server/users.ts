@@ -10,6 +10,8 @@ export interface User {
   games_played: number;
   wins: number;
   avatar: string;
+  /** 1: others see this player's phone, browser and network in the Users tab; 0: hidden. */
+  show_device: number;
 }
 
 const USERNAME_RE = /^[A-Za-z0-9_]{3,16}$/;
@@ -62,6 +64,14 @@ export class UserService {
   setAvatar(id: number, avatar: unknown): User {
     if (avatar !== '' && !isAvatarId(avatar)) throw new AppError('INVALID_AVATAR');
     const r = this.db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(avatar, id);
+    if (r.changes === 0) throw new AppError('NOT_FOUND', 404);
+    return this.get(id)!;
+  }
+
+  /** Whether others see this player's phone, browser and network in the Users tab. */
+  setShowDevice(id: number, show: unknown): User {
+    if (typeof show !== 'boolean') throw new AppError('BAD_PAYLOAD');
+    const r = this.db.prepare('UPDATE users SET show_device = ? WHERE id = ?').run(show ? 1 : 0, id);
     if (r.changes === 0) throw new AppError('NOT_FOUND', 404);
     return this.get(id)!;
   }

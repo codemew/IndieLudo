@@ -88,6 +88,8 @@ const ERRORS: Record<string, string> = {
   RATE_LIMITED: 'Slow down a little.',
   INVALID_NAME: 'Give the lobby a name.',
   PASSWORD_REQUIRED: 'Set a lobby password.',
+  PASSWORD_TOO_SHORT: 'Use at least 4 characters.',
+  PASSWORD_TOO_LONG: 'That password is too long.',
   MIC_DENIED: 'Microphone access is blocked. Allow it for this site in your browser settings.',
   NO_MIC_SUPPORT: "This browser can't do voice chat.",
   NOT_IN_VOICE: 'Join the voice chat first.',

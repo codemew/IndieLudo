@@ -40,6 +40,7 @@ import { threatenedTokens } from '../../shared/threats.js';
 import { openBubbleAt, type BubbleOption } from '../bubble.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 import { onHold } from '../holdPress.js';
+import { markLeaving } from '../leaving.js';
 import { onVolumeChange, volumeOf, volumeText } from '../listenVolume.js';
 import { canAdjust, closeVolumeBubble, openVolumeBubble } from '../volumeBubble.js';
 
@@ -1143,6 +1144,7 @@ export function gameScreen(root: HTMLElement): () => void {
     item('🏠 Back to home (game keeps running)', () => go('home'));
     if (!mySeat()) {
       item('🚪 Stop watching (leave the lobby)', async () => {
+        markLeaving();
         const r = await emit('lobby:leave', {});
         if (!r.ok) showError(r.error);
         update({ game: null });
@@ -1170,6 +1172,7 @@ export function gameScreen(root: HTMLElement): () => void {
       }
       item('🚪 Leave game for good', async () => {
         if (!(await confirmDialog('Leave the game?', 'A bot will play your seat until the end. You cannot come back to this game.', 'Leave', true))) return;
+        markLeaving();
         const r = await emit('lobby:leave', {});
         if (!r.ok) showError(r.error);
         update({ game: null });

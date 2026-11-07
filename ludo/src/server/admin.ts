@@ -8,6 +8,11 @@ function idParam(raw: string | string[] | undefined): number {
   return id;
 }
 
+function lobbyParam(raw: string | string[] | undefined): string {
+  if (typeof raw !== 'string' || raw.length > 64) throw new AppError('LOBBY_NOT_FOUND', 404);
+  return raw;
+}
+
 /** Admin-only routes. The caller has already checked the admin session server-side. */
 export function adminRouter(ctx: Ctx): express.Router {
   const r = express.Router();
@@ -22,6 +27,7 @@ export function adminRouter(ctx: Ctx): express.Router {
     const user = ctx.users.rename(id, req.body?.username);
     ctx.lobbies.updateUser(id, user);
     ctx.games.updateUser(id, user);
+    ctx.refreshPresence();
     res.json(user);
   });
 
@@ -62,9 +68,31 @@ export function adminRouter(ctx: Ctx): express.Router {
   });
 
   r.delete('/lobbies/:id', (req, res) => {
-    const id = req.params.id;
-    if (typeof id !== 'string' || id.length > 64) throw new AppError('LOBBY_NOT_FOUND', 404);
-    ctx.lobbies.closeByAdmin(id);
+    ctx.lobbies.closeByAdmin(lobbyParam(req.params.id));
+    res.json({ ok: true });
+  });
+
+  // A new join password for a lobby: who is in it stays, new joiners need the new one.
+  r.patch('/lobbies/:id', (req, res) => {
+    ctx.lobbies.setPasswordByAdmin(lobbyParam(req.params.id), req.body?.password);
+    res.json({ ok: true });
+  });
+
+  // The creation password (from the config, or set here) and the accounts that may create without it.
+  r.get('/create-access', (_req, res) => {
+    res.json({ source: ctx.hosts.source(), hosts: ctx.hosts.list() });
+  });
+
+  // A new creation password; `null` goes back to the config's. Either way every remembered account is forgotten.
+  r.put('/create-password', (req, res) => {
+    const password = req.body?.password;
+    if (password === null) ctx.hosts.useConfig();
+    else ctx.hosts.set(password);
+    res.json({ source: ctx.hosts.source(), hosts: ctx.hosts.list() });
+  });
+
+  r.delete('/create-access/:id', (req, res) => {
+    ctx.hosts.revoke(idParam(req.params.id));
     res.json({ ok: true });
   });
 

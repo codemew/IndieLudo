@@ -32,6 +32,12 @@ export interface Config {
    * as the server), or once the internet route has failed.
    */
   voice: { iceServers: RTCIceServerConfig[]; turn?: TurnConfig | null; sfu?: SfuConfig; localMaxPingMs: number };
+  /**
+   * The ISP shown beside each online player in the Users tab, looked up locally in the free
+   * iptoasn.com list, which the server downloads to the data folder and refreshes every
+   * `refreshDays`. `enabled: false` shows no ISP and downloads nothing.
+   */
+  isp: IspConfig;
   /** Not in config.json: directory for generated certificates. */
   certDir: string;
 }
@@ -51,6 +57,14 @@ export interface SfuConfig {
    */
   announcedIp: string;
 }
+
+export interface IspConfig {
+  enabled: boolean;
+  url: string;
+  refreshDays: number;
+}
+
+export const DEFAULT_ISP: IspConfig = { enabled: true, url: 'https://iptoasn.com/data/ip2asn-combined.tsv.gz', refreshDays: 7 };
 
 export const DEFAULT_SFU: SfuConfig = { enabled: true, portMin: 40000, portMax: 40099, announcedIp: '' };
 
@@ -78,13 +92,15 @@ export const DEFAULTS: Config = {
   trustProxy: false,
   gate: { maxFailsPerIp: 5, globalFailRotateThreshold: 50 },
   voice: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }], sfu: DEFAULT_SFU, localMaxPingMs: 40 },
+  isp: DEFAULT_ISP,
   certDir: './data/certs',
 };
 
-export type ConfigOverrides = Partial<Omit<Config, 'https' | 'gate' | 'voice'>> & {
+export type ConfigOverrides = Partial<Omit<Config, 'https' | 'gate' | 'voice' | 'isp'>> & {
   https?: Partial<Config['https']>;
   gate?: Partial<Config['gate']>;
   voice?: Partial<Config['voice']>;
+  isp?: Partial<Config['isp']>;
 };
 
 export function mergeConfig(base: Config, over: ConfigOverrides): Config {
@@ -94,6 +110,7 @@ export function mergeConfig(base: Config, over: ConfigOverrides): Config {
     https: { ...base.https, ...over.https },
     gate: { ...base.gate, ...over.gate },
     voice: { ...base.voice, ...over.voice, sfu: { ...DEFAULT_SFU, ...base.voice.sfu, ...over.voice?.sfu } },
+    isp: { ...DEFAULT_ISP, ...base.isp, ...over.isp },
   };
 }
 
@@ -115,6 +132,7 @@ const ENV_MAP: [string, (c: ConfigOverrides, v: string) => void][] = [
   }],
   ['LUDO_VOICE_IP', (c, v) => (c.voice = { ...c.voice, sfu: { ...DEFAULT_SFU, ...c.voice?.sfu, announcedIp: v.trim() } })],
   ['LUDO_VOICE_LOCAL_PING_MS', (c, v) => (c.voice = { ...c.voice, localMaxPingMs: Number(v) })],
+  ['LUDO_ISP', (c, v) => (c.isp = { ...c.isp, enabled: v !== 'false' && v !== '0' })],
   ['LUDO_TURN_SECRET', (c, v) => (c.voice = { ...c.voice, turn: { urls: [], ...c.voice?.turn, secret: v } })],
 ];
 
@@ -149,6 +167,9 @@ export function validateConfig(c: Config): string[] {
     if (!port(sfu.portMin) || !port(sfu.portMax) || sfu.portMax < sfu.portMin) errors.push('voice.sfu.portMin/portMax must be a UDP port range between 1024 and 65535');
     if (sfu.announcedIp && !/^\d{1,3}(\.\d{1,3}){3}$|^[0-9a-f:]+$/i.test(sfu.announcedIp)) errors.push('voice.sfu.announcedIp must be an IP address');
   }
+  if (typeof c.isp.enabled !== 'boolean') errors.push('isp.enabled must be true or false');
+  if (c.isp.enabled && !/^https?:\/\//.test(c.isp.url)) errors.push('isp.url must be an http(s) URL');
+  if (!Number.isFinite(c.isp.refreshDays) || c.isp.refreshDays < 1) errors.push('isp.refreshDays must be at least 1');
   const turn = c.voice.turn;
   if (turn) {
     const urls = Array.isArray(turn.urls) ? turn.urls : [turn.urls];

@@ -1,6 +1,6 @@
 import type { LocalRoute } from './ice.js';
 import type { NetStats } from './net.js';
-import type { Color, GameEvent, LobbySummary, PublicGameState, PublicLobby, SwapEnd, SwapRequest, Turn, VoiceSlot, VoiceState } from './types.js';
+import type { Color, GameEvent, LobbySummary, OnlineUser, PublicGameState, PublicLobby, SwapEnd, SwapRequest, Turn, VoiceSlot, VoiceState } from './types.js';
 import { ALL_COLORS, MAX_VOICE_PEERS } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
@@ -18,12 +18,18 @@ export interface MoveIntent extends RollIntent {
 
 export interface ClientToServer {
   'lobby:list': (p: Record<string, never>, ack: (r: Ack<LobbySummary[]>) => void) => void;
+  /** Who is online now (the Users tab); changes also arrive as `users:online`. */
+  'users:list': (p: Record<string, never>, ack: (r: Ack<OnlineUser[]>) => void) => void;
+  /** This phone's model, system and browser, from its client hints (Chromium browsers have them). */
+  'device:info': (p: DeviceInfo, ack: (r: Ack) => void) => void;
   /** "Are you still there?" from the phone, after a network change: answered at once. */
   'net:probe': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:create': (p: { createPassword: string; name: string; password: string }, ack: (r: Ack<PublicLobby>) => void) => void;
   /** `watch`: join without a seat, to watch (the only way into a lobby whose game is running, or whose seats are full). */
   'lobby:join': (p: { lobbyId: string; password: string; watch?: boolean }, ack: (r: Ack<PublicLobby>) => void) => void;
   'lobby:leave': (p: Record<string, never>, ack: (r: Ack) => void) => void;
+  /** Host, between games: leave and close the lobby for everyone (they all go back home). */
+  'lobby:close': (p: Record<string, never>, ack: (r: Ack) => void) => void;
   'lobby:ready': (p: { ready: boolean }, ack: (r: Ack) => void) => void;
   'lobby:color': (p: { color: Color }, ack: (r: Ack) => void) => void;
   /** Ask whoever is on `color` to swap colours (a bot swaps at once). */
@@ -73,6 +79,15 @@ export interface ClientToServer {
   'voice:sfuAnswer': (p: { lobbyId: string; sdp: string }, ack: (r: Ack) => void) => void;
   /** Late ICE candidates from the phone, as JSON (a list of RTCIceCandidateInit). */
   'voice:sfuCand': (p: { lobbyId: string; sdp: string }, ack: (r: Ack) => void) => void;
+}
+
+/** What a phone says about itself; every field optional, plain text, short. */
+export interface DeviceInfo {
+  model?: string;
+  platform?: string;
+  platformVersion?: string;
+  brand?: string;
+  brandVersion?: string;
 }
 
 export interface SfuOffer {
@@ -151,7 +166,8 @@ export interface VoiceFramesIn {
 export interface Hello {
   /** The version the server is running, so a phone on an older build can offer to update. */
   appVersion: string;
-  user: { id: number; username: string; avatar?: string };
+  /** `canCreate`: this account may create lobbies without the creation password (it entered it once). */
+  user: { id: number; username: string; avatar?: string; canCreate?: boolean };
   lobby: PublicLobby | null;
   game: PublicGameState | null;
 }
@@ -178,13 +194,15 @@ export interface RollUpdate {
 export interface ServerToClient {
   hello: (h: Hello) => void;
   'lobby:list': (l: LobbySummary[]) => void;
+  /** Everyone online, sent when it changes (someone comes or goes, moves, renames, switches phones). */
+  'users:online': (l: OnlineUser[]) => void;
   'lobby:state': (l: PublicLobby | null) => void;
   /** Someone asks you to swap colours. */
   'lobby:swapRequest': (r: SwapRequest) => void;
   /** A swap request you made or received is over. */
   'lobby:swapEnded': (e: { from: number; to: number; how: SwapEnd }) => void;
-  /** The lobby you are in was closed by an admin; a `lobby:state` null follows. */
-  'lobby:closed': (info: { byAdmin: boolean }) => void;
+  /** The lobby you are in was closed by an admin or by its host; a `lobby:state` null follows. */
+  'lobby:closed': (info: { byAdmin: boolean; byHost?: boolean }) => void;
   'game:state': (u: GameUpdate) => void;
   'game:roll': (u: RollUpdate) => void;
   /** To an admin's own phone only: the forced roll that was set (or is used up: null). */
@@ -241,6 +259,13 @@ export function matchesSchema(payload: unknown, schema: Schema): boolean {
 
 export const SCHEMAS = {
   empty: {},
+  deviceInfo: {
+    model: { type: 'string', max: 64, optional: true },
+    platform: { type: 'string', max: 32, optional: true },
+    platformVersion: { type: 'string', max: 32, optional: true },
+    brand: { type: 'string', max: 48, optional: true },
+    brandVersion: { type: 'string', max: 32, optional: true },
+  },
   lobbyCreate: { createPassword: { type: 'string', max: 128 }, name: { type: 'string', min: 1, max: 32 }, password: { type: 'string', min: 1, max: 64 } },
   lobbyJoin: { lobbyId: { type: 'string', max: 64 }, password: { type: 'string', max: 64 }, watch: { type: 'bool', optional: true } },
   lobbyReady: { ready: { type: 'bool' } },

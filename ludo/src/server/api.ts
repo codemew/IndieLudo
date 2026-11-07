@@ -146,30 +146,40 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
     next();
   });
 
-  const publicUser = (u: User) => ({ id: u.id, username: u.username, avatar: u.avatar, gamesPlayed: u.games_played, wins: u.wins });
+  const publicUser = (u: User) => ({
+    id: u.id,
+    username: u.username,
+    avatar: u.avatar,
+    gamesPlayed: u.games_played,
+    wins: u.wins,
+    showDevice: u.show_device !== 0,
+  });
 
   api.get('/me', (_req, res) => {
     const { user, isAdmin } = locals(res).auth!;
-    res.json({ user: user && publicUser(user), isAdmin });
+    res.json({ user: user && { ...publicUser(user), canCreate: ctx.hosts.isTrusted(user.id) }, isAdmin });
   });
 
   // Players edit their profile (a new name and/or an avatar); lobbies and games in progress show it right away.
   api.patch('/me', (req, res) => {
     const { user } = locals(res).auth!;
     if (!user) throw new AppError('NOT_FOUND', 404);
-    const { username, avatar } = (req.body ?? {}) as { username?: unknown; avatar?: unknown };
-    if (username === undefined && avatar === undefined) throw new AppError('NOTHING_TO_CHANGE');
+    const { username, avatar, showDevice } = (req.body ?? {}) as { username?: unknown; avatar?: unknown; showDevice?: unknown };
+    if (username === undefined && avatar === undefined && showDevice === undefined) throw new AppError('NOTHING_TO_CHANGE');
     // Renaming is limited tightly (impersonation, churn); an avatar-only save has its own limit.
     if (!(username !== undefined ? renameLimiter : avatarLimiter).hit(String(user.id))) throw new AppError('RATE_LIMITED', 429);
     // Check both before changing either, so a bad avatar doesn't leave a half-done edit.
     if (avatar !== undefined && avatar !== '' && !isAvatarId(avatar)) throw new AppError('INVALID_AVATAR');
+    if (showDevice !== undefined && typeof showDevice !== 'boolean') throw new AppError('BAD_PAYLOAD');
     let updated = user;
     if (username !== undefined) updated = ctx.users.rename(user.id, username);
     if (avatar !== undefined) updated = ctx.users.setAvatar(user.id, avatar);
+    if (showDevice !== undefined) updated = ctx.users.setShowDevice(user.id, showDevice);
     const profile = { username: updated.username, avatar: updated.avatar };
     ctx.lobbies.updateUser(user.id, profile);
     ctx.games.updateUser(user.id, profile);
-    res.json({ user: publicUser(updated) });
+    ctx.refreshPresence();
+    res.json({ user: { ...publicUser(updated), canCreate: ctx.hosts.isTrusted(user.id) } });
   });
 
   api.post('/logout', (_req, res) => {

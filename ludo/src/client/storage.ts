@@ -28,6 +28,8 @@ export const KEYS = {
   session: 'ludo.sessionToken',
   muted: 'ludo.muted',
   lastGame: 'ludo.lastGameId',
+  /** The home screen's open tab: lobbies or users. */
+  homeTab: 'ludo.homeTab',
   a2hsDismissed: 'ludo.a2hsDismissed',
   wildcardTip: 'ludo.wildcardTipShown',
   listenVolume: 'ludo.listenVolume',

@@ -10,7 +10,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T = unknown>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+export async function api<T = unknown>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   const device = storage.get(KEYS.device);
   const session = storage.get(KEYS.session);

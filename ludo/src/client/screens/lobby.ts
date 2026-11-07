@@ -9,6 +9,7 @@ import { state, subscribe } from '../store.js';
 import { $, COLOR_NAME, confirmDialog, el, esc } from '../ui.js';
 import { voice } from '../voice.js';
 import { pingText, signalBars } from '../netUi.js';
+import { leaveLobby } from '../leaveUi.js';
 import { askSwap, cancelSwap } from '../swapUi.js';
 import { bindMuteButton, voiceBadge, voicePanel } from '../voiceUi.js';
 import { onHold } from '../holdPress.js';
@@ -28,7 +29,7 @@ const SEAT_ORDER: Record<BoardSize, Color[]> = {
 export function lobbyScreen(root: HTMLElement): () => void {
   root.innerHTML = `
     <header class="topbar">
-      <button class="icon-btn" id="back" aria-label="Leave lobby">‹</button>
+      <button class="icon-btn" id="back" aria-label="Home (you stay in the lobby)">‹</button>
       <div class="topbar-title">
         <div class="eyebrow">Lobby</div>
         <div class="lobby-name" id="lobby-name"></div>
@@ -59,13 +60,9 @@ export function lobbyScreen(root: HTMLElement): () => void {
     </section>
     <footer class="bottom-bar" id="actions"></footer>`;
 
-  $(root, '#back').onclick = async () => {
-    if (await confirmDialog('Leave lobby?', 'You can join again if there is a free seat.', 'Leave', true)) {
-      go('home');
-      const r = await emit('lobby:leave', {});
-      if (!r.ok) showError(r.error);
-    }
-  };
+  // Home without leaving: the seat (and the voice chat) stay yours, and the home screen's
+  // "You're in" card brings you back. Leaving for good is the Leave button below.
+  $(root, '#back').onclick = () => go('home');
 
   const act = async (event: Parameters<typeof emit>[0], payload: object = {}) => {
     play('tap');
@@ -144,6 +141,9 @@ export function lobbyScreen(root: HTMLElement): () => void {
       b.onclick = () => act('lobby:spectate');
       extras.appendChild(b);
     }
+    const leave = el<HTMLButtonElement>(`<button class="chip chip-danger" id="leave">🚪 Leave lobby</button>`);
+    leave.onclick = () => void leaveLobby();
+    extras.appendChild(leave);
     if (isHost && free > 0) {
       const b = el<HTMLButtonElement>(`<button class="chip" id="fill-bots">🤖 Fill open seats with bots</button>`);
       b.onclick = () => act('lobby:fillBots');

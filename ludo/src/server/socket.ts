@@ -94,6 +94,8 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     const userSockets = inc(perUser, userId, 1);
     socket.join([rooms.user(userId), rooms.session(sessionId)]);
     ctx.net.add(socket.id, userId);
+    ctx.presence.add(socket.id, { userId, sessionId, userAgent: String(socket.handshake.headers['user-agent'] ?? ''), ip });
+    ctx.refreshPresence();
 
     if (userSockets === 1) {
       ctx.lobbies.setConnected(userId, true);
@@ -110,11 +112,13 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     }
     const hello: Hello = {
       appVersion: ctx.appVersion,
-      user: { id: userId, username: socket.data.username, avatar: socket.data.avatar },
+      user: { id: userId, username: socket.data.username, avatar: socket.data.avatar, canCreate: ctx.hosts.isTrusted(userId) },
       lobby: lobby ? ctx.lobbies.toPublic(lobby) : null,
       game: game ? ctx.games.publicState(game) : null,
     };
     socket.emit('hello', hello);
+    // Who is online now; changes follow as they happen (to everyone).
+    socket.emit('users:online', ctx.presence.list());
     // An admin who comes back (a reload, a lost connection) with a roll still set is told so, so the menu isn't wrong.
     const waiting = game && ctx.sessions.get(sessionId)?.is_admin === 1 ? ctx.games.forcedFor(game.id, userId) : null;
     if (game && waiting) socket.emit('game:forced', { gameId: game.id, value: waiting });
@@ -182,24 +186,37 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       }
       return { id: userId, username: socket.data.username, avatar: socket.data.avatar };
     };
-    /** Joins all of this user's sockets to the lobby room, then sends them the state they missed. */
-    const joinLobbyRoom = (lobby: Lobby) => {
+    /**
+     * Joins all of this user's sockets to the lobby room, then sends them the state they missed.
+     * Creating or joining another lobby leaves the one they were in (players can be on the home
+     * screen while in a lobby), so its room is left too: its updates are no longer theirs.
+     */
+    const joinLobbyRoom = (lobby: Lobby, previous?: { id: string; gameId: string | null }) => {
+      if (previous && previous.id !== lobby.id) io.in(rooms.user(userId)).socketsLeave([rooms.lobby(previous.id), ...(previous.gameId ? [rooms.game(previous.gameId)] : [])]);
       io.in(rooms.user(userId)).socketsJoin(rooms.lobby(lobby.id));
       io.to(rooms.user(userId)).emit('lobby:state', ctx.lobbies.toPublic(lobby));
     };
 
     on('lobby:list', SCHEMAS.empty, () => ({ ok: true, data: ctx.lobbies.summaries() }));
+    on('users:list', SCHEMAS.empty, () => ({ ok: true, data: ctx.presence.list() }));
+    // The phone's model, system and browser from its client hints (where the browser has them).
+    on('device:info', SCHEMAS.deviceInfo, (p) => {
+      ctx.presence.setHints(socket.id, p);
+      ctx.refreshPresence();
+    });
     on('net:probe', SCHEMAS.empty, () => ({ ok: true }));
 
     on('lobby:create', SCHEMAS.lobbyCreate, (p) => {
+      const previous = ctx.lobbies.forUser(userId);
       const l = ctx.lobbies.create(me(), p);
-      joinLobbyRoom(l);
+      joinLobbyRoom(l, previous);
       return { ok: true, data: ctx.lobbies.toPublic(l) };
     });
 
     on('lobby:join', SCHEMAS.lobbyJoin, (p) => {
+      const previous = ctx.lobbies.forUser(userId);
       const l = ctx.lobbies.join(me(), p.lobbyId, p.password, p.watch === true);
-      joinLobbyRoom(l);
+      joinLobbyRoom(l, previous);
       const game = l.gameId ? ctx.games.get(l.gameId) : undefined;
       if (game) {
         // Watching a game already under way: straight to the board.
@@ -217,6 +234,9 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
         io.to(rooms.user(userId)).emit('lobby:state', null);
       }
     });
+
+    // The host closes the lobby on the way out: everyone in it is told (lobby:closed) and sent home.
+    on('lobby:close', SCHEMAS.empty, () => void ctx.lobbies.closeByHost(userId));
 
     on('lobby:ready', SCHEMAS.lobbyReady, (p) => void ctx.lobbies.setReady(userId, p.ready));
     on('lobby:color', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.setColor(userId, p.color as Color));
@@ -363,6 +383,8 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     socket.on('disconnect', () => {
       ctx.voice.dropSocket(socket.id);
       ctx.net.remove(socket.id);
+      ctx.presence.remove(socket.id);
+      ctx.refreshPresence();
       inc(perIp, ip, -1);
       if (inc(perUser, userId, -1) === 0) {
         ctx.lobbies.setConnected(userId, false);

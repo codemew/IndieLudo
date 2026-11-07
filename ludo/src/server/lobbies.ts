@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { boardOf, BOARD_SIZES, type BoardSize } from '../shared/board.js';
 import { MAX_SEATS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
+import { humanIds } from '../shared/lobbyPeople.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
 
@@ -35,9 +36,18 @@ export interface LobbyUser {
   avatar?: string;
 }
 
+/** Who may create lobbies: the creation password, and the accounts that already entered it (hosts.ts). */
+export interface CreateGate {
+  /** True when `userId` may create a lobby with `password` (remembered accounts need none). */
+  allow(userId: number, password: string): boolean;
+}
+
 export interface LobbyManagerOptions {
   db: DB;
+  /** The creation password; used when no `createGate` is given (tests). */
   lobbyCreatePassword: string;
+  /** Checks the creation password and remembers accounts that entered it; replaces `lobbyCreatePassword`. */
+  createGate?: CreateGate;
   maxLobbies: number;
   lobbyIdleCloseSec: number;
   now?: () => number;
@@ -47,8 +57,8 @@ export interface LobbyManagerOptions {
   onLeaveGame?: (lobby: Lobby, userId: number) => void;
   /** A human member left, was kicked, or was dropped after a game. */
   onMemberLeft?: (lobby: Lobby, userId: number) => void;
-  /** `admin` when an admin closed it; otherwise it emptied out or sat idle. */
-  onClosed?: (lobby: Lobby, byAdmin: boolean) => void;
+  /** `byAdmin` when an admin closed it, `byHost` when its host did; otherwise it emptied out or sat idle. */
+  onClosed?: (lobby: Lobby, byAdmin: boolean, byHost?: boolean) => void;
   /** A colour-swap request ended (answered, cancelled, expired, or a player left). */
   onSwapEnded?: (req: SwapRequest, how: SwapEnd) => void;
   /** Picks seat colours; crypto.randomInt by default, injectable so tests get fixed colours. */
@@ -83,10 +93,7 @@ export function safeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ha, hb) && a.length === b.length;
 }
 
-/** Every person in the lobby, seated players first, then spectators. */
-export function humanIds(lobby: Pick<Lobby, 'members' | 'spectators'>): number[] {
-  return [...lobby.members.filter((m) => !m.isBot && m.userId !== null).map((m) => m.userId!), ...lobby.spectators.map((s) => s.userId)];
-}
+export { humanIds };
 
 /** A bot is named after the seat it sits on: "Bot Red", "Bot Green"… */
 export function botName(color: Color): string {
@@ -182,7 +189,8 @@ export class LobbyManager {
   }
 
   create(user: LobbyUser, input: { createPassword: string; name: string; password: string }): Lobby {
-    if (!safeEqual(input.createPassword, this.opts.lobbyCreatePassword)) throw new AppError('WRONG_CREATE_PASSWORD', 403);
+    const gate = this.opts.createGate;
+    if (gate ? !gate.allow(user.id, input.createPassword) : !safeEqual(input.createPassword, this.opts.lobbyCreatePassword)) throw new AppError('WRONG_CREATE_PASSWORD', 403);
     const name = input.name.trim();
     if (!name || name.length > 32) throw new AppError('INVALID_NAME');
     if (!input.password) throw new AppError('PASSWORD_REQUIRED');
@@ -554,12 +562,32 @@ export class LobbyManager {
     this.close(lobby, true);
   }
 
-  private close(lobby: Lobby, byAdmin = false): void {
+  /**
+   * The host leaves and closes the lobby for everyone, between games (during one, leaving hands
+   * the seat to a bot and the game goes on). Everyone in it goes back home.
+   */
+  closeByHost(userId: number): Lobby {
+    const lobby = this.hostLobby(userId);
+    this.close(lobby, false, true);
+    return lobby;
+  }
+
+  /** Admin: a new join password for a lobby. Who is already in it stays; new joiners need the new one. */
+  setPasswordByAdmin(lobbyId: string, password: unknown): void {
+    const lobby = this.lobbies.get(lobbyId);
+    if (!lobby) throw new AppError('LOBBY_NOT_FOUND', 404);
+    if (typeof password !== 'string' || !password) throw new AppError('PASSWORD_REQUIRED');
+    if (password.length > 64) throw new AppError('PASSWORD_TOO_LONG');
+    lobby.passwordHash = hashLobbyPassword(password);
+    this.changed(lobby);
+  }
+
+  private close(lobby: Lobby, byAdmin = false, byHost = false): void {
     this.dropSwaps((r) => r.lobbyId === lobby.id, 'cancelled');
     this.lobbies.delete(lobby.id);
     for (const id of humanIds(lobby)) if (this.byUser.get(id) === lobby.id) this.byUser.delete(id);
     this.opts.db.prepare('DELETE FROM lobbies WHERE id = ?').run(lobby.id);
-    this.opts.onClosed?.(lobby, byAdmin);
+    this.opts.onClosed?.(lobby, byAdmin, byHost);
     this.opts.onChange?.(lobby.id, null);
   }
 

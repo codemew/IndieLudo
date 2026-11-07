@@ -265,15 +265,25 @@ describe('the results screen', () => {
     show('results');
   };
 
+  /** A fixed stream of numbers for Math.random, so the checks below can't pass or fail by chance. */
+  const seeded = (seed: number) => {
+    let x = seed;
+    return vi.spyOn(Math, 'random').mockImplementation(() => ((x = (x * 1664525 + 1013904223) % 4294967296) / 4294967296));
+  };
+
   it('the confetti is random from the first frame: no pattern in where, how fast or how far along each piece is', () => {
+    const rand = seeded(12345);
     finished({});
+    rand.mockRestore();
     const pieces = [...document.querySelectorAll<HTMLElement>('.confetti i')];
     expect(pieces.length).toBeGreaterThanOrEqual(40);
     const num = (p: HTMLElement, name: string) => parseFloat(p.style.getPropertyValue(name));
-    for (const name of ['--x', '--dur', '--delay', '--dx', '--w', '--h', '--rot']) {
-      const values = pieces.map((p) => num(p, name));
-      expect(new Set(values).size, name).toBeGreaterThan(pieces.length * 0.6); // nearly every piece has its own
+    // Where it starts, how fast, how far it drifts and spins: nearly every piece has its own.
+    for (const name of ['--x', '--dur', '--delay', '--dx', '--rot']) {
+      expect(new Set(pieces.map((p) => num(p, name))).size, name).toBeGreaterThan(pieces.length * 0.6);
     }
+    // (Sizes come from a few dozen steps, so repeats are fine: only that they vary.)
+    for (const name of ['--w', '--h']) expect(new Set(pieces.map((p) => num(p, name))).size, name).toBeGreaterThan(10);
     // Part-way down already, by a random amount (a negative delay inside its own fall time), and spread across the width.
     for (const p of pieces) expect(-num(p, '--delay')).toBeGreaterThanOrEqual(0), expect(-num(p, '--delay')).toBeLessThanOrEqual(num(p, '--dur'));
     const xs = pieces.map((p) => num(p, '--x')).sort((a, b) => a - b);
@@ -284,6 +294,25 @@ describe('the results screen', () => {
     expect(Math.max(...steps) - Math.min(...steps)).toBeGreaterThan(1);
     // And not always the same colours in the same places.
     expect(new Set(pieces.map((p) => p.style.getPropertyValue('--c'))).size).toBeGreaterThan(2);
+  });
+
+  it('whatever the random numbers are, every piece stays inside its limits (many renders)', async () => {
+    const { confettiPieces } = await import('../../../src/client/screens/results.js');
+    const box = document.createElement('div');
+    for (let n = 0; n < 200; n++) {
+      box.innerHTML = confettiPieces(44);
+      for (const p of box.querySelectorAll<HTMLElement>('i')) {
+        const v = (name: string) => parseFloat(p.style.getPropertyValue(name));
+        expect(v('--x')).toBeGreaterThanOrEqual(0);
+        expect(v('--x')).toBeLessThanOrEqual(100);
+        expect(-v('--delay')).toBeGreaterThanOrEqual(0);
+        expect(-v('--delay')).toBeLessThanOrEqual(v('--dur'));
+        expect(v('--dur')).toBeGreaterThanOrEqual(2.8);
+        expect(v('--dur')).toBeLessThanOrEqual(5.4);
+        expect(Math.abs(v('--rot'))).toBeGreaterThanOrEqual(360);
+        expect(p.style.getPropertyValue('--c')).toMatch(/^var\(--(red|green|yellow|blue|purple|orange)\)$/);
+      }
+    }
   });
 
   it('classic: the podium, the awards (with the steel ball) and the stats', () => {

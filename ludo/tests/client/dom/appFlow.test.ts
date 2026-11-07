@@ -58,6 +58,8 @@ vi.mock('socket.io-client', () => ({
 const http: Record<string, (body: any) => [number, unknown]> = {};
 const calls: string[] = [];
 const emittedOf = (ev: string) => sock.emitted.filter(([e]) => e === ev).map(([, p]) => p);
+/** The screen showing now (one on its way out may still be in the page). */
+const live = () => document.querySelector<HTMLElement>('#app main:not(.screen-out)')!;
 const screen = () => /\b(screen-(?!out)\w+)/.exec(document.querySelector('#app main:not(.screen-out)')?.className ?? '')?.[1];
 async function waitFor(what: string, ok: () => boolean, ms = 3000): Promise<void> {
   for (const end = Date.now() + ms; Date.now() < end; await flush(20)) if (ok()) return;
@@ -223,6 +225,23 @@ describe('the app, end to end', () => {
     modalButton('Save');
     await waitFor('the error', () => topModal().querySelector('.form-error')!.textContent === 'That avatar is not available.');
     modalButton('Cancel');
+    await flush(250);
+    // Hiding my phone from the Users tab: on by default; only that is sent.
+    click('#me');
+    await flush(80);
+    const showBox = topModal().querySelector<HTMLInputElement>('input[name=showDevice]')!;
+    expect(showBox.checked).toBe(true);
+    showBox.checked = false;
+    http['PATCH /api/me'] = (b) => ((sent = b), [200, { user: { id: 1, username: 'alice2', avatar: 'cat', showDevice: false } }]);
+    modalButton('Save');
+    await waitFor('saved', () => toasts().includes('Profile saved'));
+    expect(sent).toEqual({ showDevice: false });
+    expect(store.state.user!.showDevice).toBe(false);
+    click('#me');
+    await flush(80);
+    expect(topModal().querySelector<HTMLInputElement>('input[name=showDevice]')!.checked).toBe(false);
+    modalButton('Cancel');
+    await flush(250);
     // Create a lobby: checked first, then sent.
     click('#create');
     await flush(10);
@@ -258,6 +277,108 @@ describe('the app, end to end', () => {
     click('#lobby');
     sock.s.fire('lobby:state', lobby());
     await waitFor('back in the lobby', () => screen() === 'screen-lobby');
+  });
+
+  it('home while in a lobby: the Users tab, a remembered creation password, the host closing it, the host leaving', async () => {
+    // The phone said what it is once connected (no client hints in this browser: an empty report).
+    expect(emittedOf('device:info').length).toBeGreaterThan(0);
+    // ‹ goes home and keeps the seat.
+    const leavesBefore = emittedOf('lobby:leave').length;
+    click('#back', live());
+    await waitFor('home', () => screen() === 'screen-home');
+    expect(emittedOf('lobby:leave').length).toBe(leavesBefore);
+    expect(live().querySelector('.my-lobby-card')!.textContent).toContain('Family');
+
+    // The Users tab: everyone online, where they are, and their phones unless hidden.
+    sock.s.fire('users:online', [
+      { id: 1, username: 'alice2', avatar: 'cat', since: Date.now() - 5 * 60_000, where: { kind: 'lobby', lobby: 'Family' }, devices: [{ model: 'Samsung SM-S918B', os: 'Android 14', browser: 'Chrome 130', isp: 'Reliance Jio Infocomm Limited' }] },
+      { id: 2, username: 'bob', since: Date.now(), where: { kind: 'home' }, hidden: true },
+      { id: 3, username: 'carol', since: Date.now(), where: { kind: 'playing', lobby: 'Other' }, devices: [{ model: 'iPhone', os: 'iOS 17.5', browser: 'Safari 17.5', isp: '' }, { model: '', os: 'Windows 11', browser: 'Edge 130', isp: 'Local network' }] },
+    ]);
+    await flush(10);
+    expect(live().querySelector('#users-count')!.textContent).toBe('3');
+    expect(live().querySelector<HTMLElement>('#panel-users')!.hidden).toBe(true);
+    click('#tab-users', live());
+    expect(live().querySelector<HTMLElement>('#panel-users')!.hidden).toBe(false);
+    expect(live().querySelector<HTMLElement>('#panel-lobbies')!.hidden).toBe(true);
+    expect(live().querySelector('#tab-users')!.getAttribute('aria-selected')).toBe('true');
+    expect(live().querySelector<HTMLElement>('#create')!.hidden).toBe(true);
+    const rows = [...live().querySelectorAll('.user-row')].map((r) => r.textContent!.replace(/\s+/g, ' ').trim());
+    expect(live().querySelector('.user-row.user-me .user-name')!.textContent).toContain('alice2');
+    expect(live().querySelector('.user-row.user-me .user-since')!.textContent).toBe('online 5m');
+    expect(rows[0]).toContain('In lobby Family');
+    expect(rows[0]).toContain('Samsung SM-S918B · Android 14 · Chrome 130');
+    expect(rows[0]).toContain('Reliance Jio Infocomm Limited');
+    expect(rows[1]).toContain('On the home screen');
+    expect(rows[1]).toContain('Phone details hidden');
+    expect(rows[2]).toContain('Playing in Other');
+    expect(rows[2]).toContain('iPhone · iOS 17.5 · Safari 17.5');
+    expect(rows[2]).toContain('Windows 11 · Edge 130');
+    expect(rows[2]).toContain('Local network');
+    expect(localStorage.getItem('ludo.homeTab')).toBe('users');
+    // Alone online (on a computer): my row, and a note that nobody else is.
+    sock.s.fire('users:online', [{ id: 1, username: 'alice2', since: Date.now(), where: { kind: 'home' }, devices: [{ model: '', os: 'Windows 11', browser: 'Edge 130', isp: '' }] }]);
+    await flush(10);
+    expect(live().querySelectorAll('.user-row')).toHaveLength(1);
+    expect(live().querySelector('#user-list')!.textContent).toContain('💻 Windows 11 · Edge 130');
+    expect(live().querySelector('#user-list')!.textContent).toContain('Nobody else is online right now.');
+    expect(live().querySelector('#users-count')!.textContent).toBe('1');
+    // Arrow keys switch tabs.
+    live().querySelector('#tab-users')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(live().querySelector<HTMLElement>('#panel-lobbies')!.hidden).toBe(false);
+    expect(document.activeElement).toBe(live().querySelector('#tab-lobbies'));
+
+    // Creating again: this account entered the creation password before (in the step above), so it isn't asked;
+    // and the dialog says the current lobby will be left.
+    click('#create', live());
+    await flush(10);
+    expect(topModal().querySelector<HTMLElement>('#create-pw')!.hidden).toBe(true);
+    expect(topModal().querySelector('#create-ok')).not.toBeNull();
+    expect(topModal().querySelector('.form-note')!.textContent).toBe("You'll leave Family.");
+    (topModal().querySelector('[name=name]') as HTMLInputElement).value = 'Again';
+    (topModal().querySelector('[name=password]') as HTMLInputElement).value = 'pw';
+    // An admin changed the creation password meanwhile: it is asked again, in the same dialog.
+    sock.replies['lobby:create'] = () => ({ ok: false, error: 'WRONG_CREATE_PASSWORD' });
+    modalButton('Create');
+    await waitFor('asked again', () => !topModal().querySelector<HTMLElement>('#create-pw')!.hidden);
+    expect(topModal().querySelector('.form-error')!.textContent).toBe('The creation password is needed again (it was changed).');
+    modalButton('Cancel');
+    await flush(250);
+
+    // The host closes the lobby while we're on the home screen: told here, and the card goes.
+    sock.s.fire('lobby:closed', { byAdmin: false, byHost: true });
+    sock.s.fire('lobby:state', null);
+    await flush(10);
+    expect(screen()).toBe('screen-home');
+    expect(toasts()).toContain('Family was closed by the host.');
+    expect(live().querySelector('.my-lobby-card')).toBeNull();
+
+    // As host with someone else in it: leaving asks whether to close it for everyone.
+    const bob = { color: 'green' as const, userId: 2, username: 'bob', isBot: false, ready: false, connected: true };
+    sock.s.fire('lobby:state', lobby({ members: [...lobby().members, bob] }));
+    await waitFor('the card', () => live().querySelector('.my-lobby-card') !== null);
+    click('.my-lobby-card', live());
+    await waitFor('the lobby', () => screen() === 'screen-lobby');
+    click('#leave', live());
+    await flush(10);
+    expect(topModal().querySelector('h2')!.textContent).toBe('Leave the lobby?');
+    expect(topModal().textContent).toContain('bob becomes the host');
+    modalButton('Close for everyone');
+    await waitFor('home', () => screen() === 'screen-home');
+    await flush(10);
+    expect(emittedOf('lobby:close').length).toBe(1);
+    // The server's echo of our own close isn't news to us.
+    const before = toasts().length;
+    sock.s.fire('lobby:closed', { byAdmin: false, byHost: true });
+    sock.s.fire('lobby:state', null);
+    await flush(10);
+    expect(toasts().length).toBe(before);
+
+    // Back into the lobby for the next steps.
+    sock.s.fire('lobby:state', lobby());
+    await waitFor('the card', () => live().querySelector('.my-lobby-card') !== null);
+    click('.my-lobby-card', live());
+    await waitFor('the lobby', () => screen() === 'screen-lobby');
   });
 
   it('removed from the lobby, a colour-swap request, a reconnect, and being signed out', async () => {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import { DEFAULTS, mergeConfig, type ConfigOverrides } from '../src/server/config.js';
-import { startServer, type LudoServer } from '../src/server/server.js';
+import { startServer, type LudoServer, type StartOptions } from '../src/server/server.js';
 
 export const CHROME = [process.env.CHROME_PATH, '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find((p) => p && existsSync(p));
 export const BUILT = existsSync('dist/client/index.html');
@@ -20,6 +20,8 @@ export interface SetupOptions {
   /** Extra Chrome flags (e.g. a fake microphone file). */
   chromeArgs?: string[];
   config?: ConfigOverrides;
+  /** Extra server start options (e.g. a stub ISP lookup). */
+  start?: StartOptions;
   /** Runs on each new page before the app loads (e.g. to watch its WebRTC connections). */
   onPage?: (p: Page) => Promise<void>;
 }
@@ -30,7 +32,7 @@ export async function setup(o: SetupOptions = {}) {
   const dice: number[] = [];
   const server: LudoServer = await startServer(
     mergeConfig(DEFAULTS, { lobbyCreatePassword: 'create', adminPassword: 'admin', dbPath: ':memory:', port: 0, turnTimeoutSec: 120, moveTimeoutSec: 120, https: { enabled: false }, certDir: dir, voice: { iceServers: [], sfu: { enabled: true, portMin: 43000, portMax: 43199, announcedIp: '' } }, ...o.config }),
-    { dice: () => dice.shift() ?? 1, randomInt: () => 0, log: () => {}, gateDelayMs: 0 },
+    { dice: () => dice.shift() ?? 1, randomInt: () => 0, log: () => {}, gateDelayMs: 0, ...o.start },
   );
   // 127.0.0.1, not localhost (::1 in Chrome): like a LAN phone, the test phones reach the server over IPv4.
   const url = `http://127.0.0.1:${server.port}`;

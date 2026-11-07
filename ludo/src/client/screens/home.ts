@@ -1,5 +1,6 @@
 import { AVATARS, avatarFace, isAvatarId } from '../../shared/avatars.js';
-import { MAX_SPECTATORS, type LobbySummary, type PublicLobby } from '../../shared/types.js';
+import { MAX_SPECTATORS, type LobbySummary, type OnlineUser, type PublicLobby } from '../../shared/types.js';
+import { humanIds } from '../../shared/lobbyPeople.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
 import { canInstall, promptInstall } from '../install.js';
@@ -9,7 +10,8 @@ import { emit } from '../net.js';
 import { go } from '../router.js';
 import { isMuted, play, setMuted } from '../sound.js';
 import { state, subscribe, update } from '../store.js';
-import { $, el, errorText, esc, modal, toast } from '../ui.js';
+import { $, el, errorText, esc, modal, timeAgo, toast } from '../ui.js';
+import { KEYS, storage } from '../storage.js';
 import { bindMuteButton } from '../voiceUi.js';
 import { adminLoginDialog } from './admin.js';
 
@@ -30,10 +32,20 @@ export function homeScreen(root: HTMLElement): () => void {
         <button class="icon-btn" id="menu" aria-label="Menu">⋯</button>
       </div>
     </header>
+    <nav class="tabs home-tabs" role="tablist" aria-label="Home">
+      <button role="tab" id="tab-lobbies" data-tab="lobbies" aria-controls="panel-lobbies">🏠 Lobbies</button>
+      <button role="tab" id="tab-users" data-tab="users" aria-controls="panel-users">👥 Users <span class="tab-count" id="users-count"></span></button>
+    </nav>
     <section class="home-body">
       <div id="my-lobby"></div>
-      <div class="section-title"><h3>Lobbies</h3><span class="live-dot" title="Live"></span></div>
-      <div class="lobby-list" id="lobby-list"></div>
+      <div role="tabpanel" id="panel-lobbies" aria-labelledby="tab-lobbies">
+        <div class="section-title"><h3>Lobbies</h3><span class="live-dot" title="Live"></span></div>
+        <div class="lobby-list" id="lobby-list"></div>
+      </div>
+      <div role="tabpanel" id="panel-users" aria-labelledby="tab-users" hidden>
+        <div class="section-title"><h3>Online now</h3><span class="live-dot" title="Live"></span></div>
+        <ul class="user-list" id="user-list"></ul>
+      </div>
     </section>
     <footer class="bottom-bar">
       <div class="app-update" id="app-update"></div>
@@ -56,6 +68,32 @@ export function homeScreen(root: HTMLElement): () => void {
   // While in a lobby you are in its voice chat even here, so the mute control stays at hand.
   const offMute = bindMuteButton($<HTMLButtonElement>(root, '#mute'));
 
+  // Lobbies or Users: one Tab stop, arrow keys switch; the choice is remembered on this phone.
+  let tab: HomeTab = storage.get(KEYS.homeTab) === 'users' ? 'users' : 'lobbies';
+  const tabs = [...root.querySelectorAll<HTMLButtonElement>('.home-tabs [role=tab]')];
+  const showTab = (next: HomeTab, focus = false) => {
+    tab = next;
+    storage.set(KEYS.homeTab, next);
+    for (const b of tabs) {
+      const on = b.dataset.tab === next;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', String(on));
+      b.tabIndex = on ? 0 : -1;
+      if (on && focus) b.focus();
+    }
+    $(root, '#panel-lobbies').hidden = next !== 'lobbies';
+    $(root, '#panel-users').hidden = next !== 'users';
+    $<HTMLButtonElement>(root, '#create').hidden = next !== 'lobbies';
+    if (next === 'users') renderUsers($(root, '#user-list'), state.onlineUsers);
+  };
+  for (const b of tabs) b.onclick = () => showTab(b.dataset.tab as HomeTab);
+  $(root, '.home-tabs').addEventListener('keydown', (e) => {
+    const ke = e as KeyboardEvent;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ke.key)) return;
+    ke.preventDefault();
+    showTab(ke.key === 'Home' ? 'lobbies' : ke.key === 'End' ? 'users' : tab === 'lobbies' ? 'users' : 'lobbies', true);
+  });
+
   const render = () => {
     const u = state.user;
     if (u) {
@@ -68,18 +106,85 @@ export function homeScreen(root: HTMLElement): () => void {
     renderMyLobby($(root, '#my-lobby'), state.lobby);
     renderUpdate($(root, '#app-update'));
     renderList($(root, '#lobby-list'), state.lobbies, state.lobby);
+    renderUsersCount();
+    if (tab === 'users') renderUsers($(root, '#user-list'), state.onlineUsers);
     // Cards animate in on the first paint only, not on every live list update.
     root.classList.add('settled');
   };
+  const renderUsersCount = () => {
+    const n = state.onlineUsers.length;
+    $(root, '#users-count').textContent = n ? String(n) : '';
+    $(root, '#tab-users').setAttribute('aria-label', `Users, ${n} online`);
+  };
+  showTab(tab);
   render();
   const offStore = subscribe((changed) => {
     if (changed.some((k) => k === 'lobbies' || k === 'lobby' || k === 'user' || k === 'serverVersion')) render();
+    else if (changed.includes('onlineUsers')) {
+      renderUsersCount();
+      if (tab === 'users') renderUsers($(root, '#user-list'), state.onlineUsers);
+    }
   });
+  // "Online 5m" moves on by itself.
+  const tick = setInterval(() => tab === 'users' && renderUsers($(root, '#user-list'), state.onlineUsers), 30_000);
   return () => {
+    clearInterval(tick);
     offStore();
     offFs();
     offMute();
   };
+}
+
+type HomeTab = 'lobbies' | 'users';
+
+const WHERE: Record<string, string> = { lobby: 'In lobby', playing: 'Playing in', watching: 'Watching' };
+
+/** "5m", "2h 10m": how long someone has been online. */
+function onlineFor(since: number): string {
+  const m = Math.max(0, Math.floor((Date.now() - since) / 60_000));
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
+}
+
+/**
+ * Everyone online: name and avatar, where they are (home, a lobby, a game), how long they've been
+ * on, and each phone they're on (model, system, browser and network) unless they hid it.
+ */
+/** Desktop systems get a computer icon; phones and tablets (and unknowns) a phone. */
+const DESKTOP = /^(Windows|macOS|Linux|ChromeOS)\b/;
+
+function renderUsers(list: HTMLElement, users: OnlineUser[]): void {
+  const me = state.user?.id;
+  // You first, then everyone else, longest online first (the server's order).
+  const sorted = [...users.filter((u) => u.id === me), ...users.filter((u) => u.id !== me)];
+  const alone = !users.some((u) => u.id !== me);
+  const html = sorted.map((u) => userRow(u, u.id === me)).join('') + (alone ? '<li class="empty"><p class="muted">Nobody else is online right now.</p></li>' : '');
+  if (list.dataset.html === html) return;
+  list.dataset.html = html;
+  list.innerHTML = html;
+}
+
+function userRow(u: OnlineUser, mine: boolean): string {
+  const where = u.where.kind === 'home' ? 'On the home screen' : `${WHERE[u.where.kind]} <b>${esc(u.where.lobby)}</b>`;
+  const devices = u.hidden
+    ? `<div class="user-device muted">🙈 ${mine ? 'Your phone is hidden from others (Edit profile to show it)' : 'Phone details hidden'}</div>`
+    : (u.devices ?? [])
+        .map((d) => {
+          const phone = [d.model, d.os, d.browser].filter(Boolean).join(' · ') || 'Unknown device';
+          const icon = !d.model && DESKTOP.test(d.os) ? '💻' : '📱';
+          return `<div class="user-device"><span aria-hidden="true">${icon}</span> ${esc(phone)}${d.isp ? `<br><span aria-hidden="true">🌐</span> ${esc(d.isp)}` : ''}</div>`;
+        })
+        .join('');
+  return `
+    <li class="user-row${mine ? ' user-me' : ''}" data-user="${u.id}">
+      <div class="avatar avatar-sm${u.avatar ? ' has-avatar' : ''}" aria-hidden="true">${esc(avatarFace(u.avatar, u.username))}</div>
+      <div class="user-main">
+        <div class="user-name"><b>${esc(u.username)}</b>${mine ? ' <span class="you">you</span>' : ''}<span class="user-since">online ${onlineFor(u.since)}</span></div>
+        <div class="user-where">${where}</div>
+        ${devices}
+      </div>
+    </li>`;
 }
 
 function renderMyLobby(box: HTMLElement, lobby: PublicLobby | null): void {
@@ -87,7 +192,7 @@ function renderMyLobby(box: HTMLElement, lobby: PublicLobby | null): void {
   if (!lobby) return;
   const card = el(`
     <button class="my-lobby-card">
-      <div><div class="eyebrow">You're in</div><div class="lobby-name">${esc(lobby.name)}</div></div>
+      <div><div class="eyebrow">You're in · your place is kept</div><div class="lobby-name">${esc(lobby.name)}</div></div>
       <span class="chev">${lobby.status === 'playing' ? 'Resume ▶' : 'Open ›'}</span>
     </button>`);
   card.onclick = () => go(lobby.status === 'playing' ? 'game' : 'lobby');
@@ -127,6 +232,7 @@ function joinLobbyDialog(l: LobbySummary): void {
   const canWatch = (l.watching ?? 0) < MAX_SPECTATORS;
   const body = el(`
     <form class="form" autocomplete="off">
+      ${leaveNote(l.id)}
       <input class="input" type="password" name="password" placeholder="Lobby password" maxlength="64" enterkeyhint="go" />
       <p class="form-error"></p>
     </form>`);
@@ -156,12 +262,31 @@ function joinLobbyDialog(l: LobbySummary): void {
   });
 }
 
+/**
+ * A line in the join and create dialogs when you're already in another lobby: going ahead leaves
+ * it (and as its host, the next player there takes over).
+ */
+function leaveNote(target?: string): string {
+  const lobby = state.lobby;
+  const me = state.user?.id;
+  if (!lobby || lobby.id === target || me === undefined) return '';
+  const nextHost = lobby.hostId === me ? [...lobby.members, ...lobby.spectators].find((m) => m.userId !== null && m.userId !== me && humanIds(lobby).includes(m.userId)) : undefined;
+  return `<p class="form-note">You'll leave <b>${esc(lobby.name)}</b>${nextHost ? ` and <b>${esc(nextHost.username)}</b> becomes its host` : ''}.</p>`;
+}
+
+/**
+ * New lobby: a name and a join password. The creation password is asked only until this account
+ * has entered it once; after that the server remembers the account (an admin can undo that).
+ */
 function createLobbyDialog(): void {
+  const remembered = Boolean(state.user?.canCreate);
   const body = el(`
     <form class="form" autocomplete="off">
+      ${leaveNote()}
       <label class="field"><span>Lobby name</span><input class="input" name="name" maxlength="32" placeholder="Friday night" /></label>
       <label class="field"><span>Lobby password <small>(share with friends)</small></span><input class="input" name="password" maxlength="64" /></label>
-      <label class="field"><span>Creation password <small>(from the server config)</small></span><input class="input" type="password" name="createPassword" maxlength="128" /></label>
+      <label class="field" id="create-pw"${remembered ? ' hidden' : ''}><span>Creation password <small>(asked once: this account is remembered)</small></span><input class="input" type="password" name="createPassword" maxlength="128" /></label>
+      ${remembered ? '<p class="form-note ok" id="create-ok">✓ You can create lobbies without the creation password.</p>' : ''}
       <p class="form-error"></p>
     </form>`);
   const val = (n: string) => $<HTMLInputElement>(body, `[name=${n}]`).value;
@@ -174,9 +299,25 @@ function createLobbyDialog(): void {
     }
     const r = await emit<PublicLobby>('lobby:create', { name: val('name').trim(), password: val('password'), createPassword: val('createPassword') });
     if (!r.ok) {
+      const field = $(body, '#create-pw');
+      if (r.error === 'WRONG_CREATE_PASSWORD' && field.hidden) {
+        // An admin changed the creation password or forgot this account: ask for it once more.
+        field.hidden = false;
+        body.querySelector('#create-ok')?.remove();
+        if (state.user) update({ user: { ...state.user, canCreate: false } });
+        errEl.textContent = 'The creation password is needed again (it was changed).';
+        $<HTMLInputElement>(field, 'input').focus();
+        return false;
+      }
+      if (r.error === 'WRONG_CREATE_PASSWORD') {
+        errEl.textContent = errorText(r.error);
+        play('error');
+        return false;
+      }
       showError(r.error);
       return false;
     }
+    if (state.user && !state.user.canCreate) update({ user: { ...state.user, canCreate: true } });
     update({ lobby: r.data ?? null });
     play('turn');
     go('lobby');
@@ -224,9 +365,15 @@ function profileDialog(): void {
         <input class="input" name="username" value="${esc(user.username)}" maxlength="16" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" />
       </label>
       <p class="muted small">3–16 letters, numbers or _</p>
+      <label class="rule-check device-check">
+        <input type="checkbox" name="showDevice"${user.showDevice !== false ? ' checked' : ''} />
+        <span class="rule-box" aria-hidden="true"></span>
+        <span class="rule-text"><b>Show my phone in Users</b><small>Others see your phone model, browser and network (ISP) while you're online</small></span>
+      </label>
       <p class="form-error"></p>
     </form>`);
-  const input = $<HTMLInputElement>(body, 'input');
+  const input = $<HTMLInputElement>(body, 'input[name=username]');
+  const showDevice = $<HTMLInputElement>(body, 'input[name=showDevice]');
   const grid = $(body, '.avatar-grid');
   const preview = $(body, '#avatar-preview');
   const paint = () => {
@@ -270,14 +417,15 @@ function profileDialog(): void {
 
   const save = async () => {
     const username = input.value.trim();
-    const patch: { username?: string; avatar?: string } = {};
+    const patch: { username?: string; avatar?: string; showDevice?: boolean } = {};
     if (username !== user.username) patch.username = username;
     if (avatar !== (user.avatar ?? '')) patch.avatar = avatar;
+    if (showDevice.checked !== (user.showDevice !== false)) patch.showDevice = showDevice.checked;
     if (!Object.keys(patch).length) return true;
     try {
       const r = await api<{ user: NonNullable<typeof state.user> }>('PATCH', '/me', patch);
       update({ user: { ...user, ...r.user } });
-      toast(patch.username ? `You're now ${r.user.username}` : 'Avatar saved', 'success');
+      toast(patch.username ? `You're now ${r.user.username}` : patch.avatar !== undefined ? 'Avatar saved' : 'Profile saved', 'success');
       return true;
     } catch (e) {
       $(body, '.form-error').textContent = errorText((e as ApiError).code);

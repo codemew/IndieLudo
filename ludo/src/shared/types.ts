@@ -276,6 +276,34 @@ export interface LobbySummary {
 }
 
 /** What the admin panel shows per lobby. */
+/** One phone a player is signed in on, as the Users tab shows it ('' where unknown). */
+export interface OnlineDevice {
+  /** e.g. "Samsung SM-S918B", "Pixel 8", "iPhone". */
+  model: string;
+  /** e.g. "Android 14", "iOS 17.5". */
+  os: string;
+  /** e.g. "Chrome 130". */
+  browser: string;
+  /** The network the phone is on, e.g. "Reliance Jio Infocomm Limited", or "Local network". */
+  isp: string;
+}
+
+/** Where an online player is right now. */
+export type OnlineWhere = { kind: 'home' } | { kind: 'lobby' | 'playing' | 'watching'; lobby: string };
+
+/** A player who is online, for the home screen's Users tab. */
+export interface OnlineUser {
+  id: number;
+  username: string;
+  avatar?: string;
+  /** When they came online (their first open connection). */
+  since: number;
+  where: OnlineWhere;
+  /** Their phones; absent when they chose to hide them (`hidden`). */
+  devices?: OnlineDevice[];
+  hidden?: boolean;
+}
+
 export interface AdminLobby extends LobbySummary {
   createdAt: number;
   members: { username: string; isBot: boolean; connected: boolean; watching?: boolean }[];

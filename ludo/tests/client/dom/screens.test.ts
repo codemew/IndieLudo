@@ -148,12 +148,62 @@ describe('the lobby screen', () => {
     expect(shown.at(-1)).toBe('game');
     show('lobby');
     store.update({ game: null, lobby: lobby() });
+    // ‹ goes home and keeps the seat: nothing is sent.
     click('#back');
     await flush(10);
+    expect(router.currentScreen()).toBe('home');
+    expect(sentOf('lobby:leave')).toHaveLength(0);
+    expect(document.querySelector('.modal')).toBeNull();
+    // Leaving for good is its own button, asked first.
+    show('lobby');
+    click('#leave');
+    await flush(10);
+    expect(topModal().querySelector('p')!.textContent).toBe('You can join again with the password if there is room.');
     modalButton('Leave');
     await flush(10);
     expect(sentOf('lobby:leave')).toHaveLength(1);
     expect(router.currentScreen()).toBe('home');
+  });
+
+  it('the host leaving: asked whether to close it for everyone, or to leave it open for the next host', async () => {
+    store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
+    show('lobby');
+    click('#leave');
+    await flush(10);
+    expect(topModal().querySelector('h2')!.textContent).toBe('Leave the lobby?');
+    expect(topModal().querySelector('p')!.textContent).toBe('Close Fam for everyone too, or leave it open? If it stays open, bob becomes the host.');
+    // Cancel: nothing sent, still here.
+    modalButton('Cancel');
+    await flush(250);
+    expect(sentOf('lobby:leave')).toHaveLength(0);
+    expect(sentOf('lobby:close')).toHaveLength(0);
+    expect(router.currentScreen()).toBe('lobby');
+    // Leave it open: an ordinary leave.
+    click('#leave');
+    await flush(10);
+    modalButton('Leave, keep it open');
+    await flush(10);
+    expect(sentOf('lobby:leave')).toHaveLength(1);
+    expect(sentOf('lobby:close')).toHaveLength(0);
+    expect(router.currentScreen()).toBe('home');
+    // Close it: refused by the server (a game started meanwhile) → told, and the lobby isn't left behind silently.
+    show('lobby');
+    replies['lobby:close'] = () => ({ ok: false, error: 'GAME_IN_PROGRESS' });
+    click('#leave');
+    await flush(10);
+    modalButton('Close for everyone');
+    await flush(20);
+    expect(sentOf('lobby:close')).toHaveLength(1);
+    expect(toasts().length).toBeGreaterThan(0);
+    // Alone in it: no choice to make, it just closes.
+    store.update({ lobby: lobby({ members: [member('red', 1, 'alice'), member('green', null, 'Bot Green')], spectators: [] }) });
+    show('lobby');
+    click('#leave');
+    await flush(10);
+    expect(topModal().querySelector('p')!.textContent).toBe('Nobody else is in it, so it closes.');
+    modalButton('Leave');
+    await flush(10);
+    expect(sentOf('lobby:leave')).toHaveLength(2);
   });
 });
 

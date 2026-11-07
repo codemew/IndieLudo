@@ -10,6 +10,9 @@ import { errorText, toast } from './ui.js';
 import { onSwapEnded, onSwapRequest } from './swapUi.js';
 import { reportUpdate } from './update.js';
 import { voice } from './voice.js';
+import { takeLeaving } from './leaving.js';
+import { deviceHints } from './deviceHints.js';
+import { humanIds } from '../shared/lobbyPeople.js';
 
 /** The game screen registers itself here while mounted so it can animate updates. */
 let gameHandler: ((u: GameUpdate) => void) | null = null;
@@ -73,6 +76,8 @@ interface PublicUser {
   avatar?: string;
   gamesPlayed?: number;
   wins?: number;
+  canCreate?: boolean;
+  showDevice?: boolean;
 }
 
 function connectSocket(token: string): void {
@@ -81,8 +86,9 @@ function connectSocket(token: string): void {
     bind: (s) => {
       s.on('hello', (h) => void onHello(h));
       s.on('lobby:list', (l) => update({ lobbies: l }));
+      s.on('users:online', (l) => update({ onlineUsers: l }));
       s.on('lobby:state', (l) => onLobbyState(l));
-      s.on('lobby:closed', (info) => (closedByAdmin = info.byAdmin));
+      s.on('lobby:closed', (info) => (closedBy = info.byAdmin ? 'admin' : info.byHost ? 'host' : null));
       s.on('lobby:swapRequest', (r) => onSwapRequest(r));
       s.on('lobby:swapEnded', (e) => onSwapEnded(e));
       s.on('game:state', (u) => onGameUpdate(u));
@@ -109,6 +115,8 @@ function connectSocket(token: string): void {
 async function onHello(h: Hello): Promise<void> {
   update({ user: { ...state.user, ...h.user }, lobby: h.lobby, serverVersion: h.appVersion });
   reportUpdate();
+  // What phone this is, for the Users tab (each connection, so a new socket has it too).
+  void deviceHints().then((info) => emit('device:info', info));
   void emit<typeof state.lobbies>('lobby:list', {}).then((r) => r.ok && r.data && update({ lobbies: r.data }));
   const wasFirst = firstHello;
   firstHello = false;
@@ -132,23 +140,31 @@ async function onHello(h: Hello): Promise<void> {
   if (wasFirst || currentScreen() === 'game') go(h.lobby ? 'lobby' : 'home');
 }
 
-/** Set by `lobby:closed` just before the lobby state goes null. */
-let closedByAdmin = false;
+/** Set by `lobby:closed` just before the lobby state goes null: who closed it. */
+let closedBy: 'admin' | 'host' | null = null;
 
 function onLobbyState(l: PublicLobby | null): void {
+  const me = state.user?.id;
+  // The state of a lobby we're no longer in (a room we were still in for a moment after moving on).
+  if (l && me !== undefined && !humanIds(l).includes(me)) return;
+  const had = state.lobby;
   update(l ? { lobby: l } : { lobby: l, swapOut: null });
-  const byAdmin = closedByAdmin;
-  closedByAdmin = false;
-  // Leaving on purpose navigates home first, so still being on the lobby (or a running game's)
-  // screen means we were removed, or an admin closed the lobby.
+  const by = closedBy;
+  closedBy = null;
+  const onPurpose = takeLeaving();
+  if (l || !had || onPurpose) return;
+  // We didn't leave: we were removed, or the host or an admin closed the lobby. Players may be on
+  // the home screen while in a lobby, so they're told wherever they are.
   const screen = currentScreen();
-  if (l || (screen !== 'lobby' && !(screen === 'game' && byAdmin))) return;
   if (screen === 'game') {
+    // A running game goes on for the others (a player can't be removed from one); only a closed lobby ends it here.
+    if (!by) return;
     storage.remove(KEYS.lastGame);
     update({ game: null });
   }
-  go('home');
-  toast(byAdmin ? 'An admin closed the lobby.' : 'You were removed from the lobby.', byAdmin ? 'error' : 'info', 3000);
+  if (screen === 'lobby' || screen === 'game') go('home');
+  const text = by === 'admin' ? 'An admin closed the lobby.' : by === 'host' ? `${had.name} was closed by the host.` : 'You were removed from the lobby.';
+  toast(text, by ? 'error' : 'info', 3000);
 }
 
 function onGameUpdate(u: GameUpdate): void {
@@ -213,7 +229,7 @@ export function signOut(message?: string): void {
   disconnect();
   storage.remove(KEYS.session);
   storage.remove(KEYS.lastGame);
-  update({ user: null, isAdmin: false, forcedRoll: null, lobby: null, game: null, voice: null, net: null, lobbies: [] });
+  update({ user: null, isAdmin: false, forcedRoll: null, lobby: null, game: null, voice: null, net: null, lobbies: [], onlineUsers: [] });
   go('signup');
   if (message) toast(message, 'error', 3500);
 }

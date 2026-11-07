@@ -106,7 +106,10 @@ npm run typecheck
    - **Changing it later:** tap your name tag at the top of the home screen (or ⋯ → Edit my profile). Your seat in the lobby, and in a game in progress, shows the new name to everyone at once.
    - **Avatars:** the same profile screen has 36 animals and pets to pick from (or none, to keep the first letter of your name). Your pick shows on the home screen and above your seat in the lobby, on your player card in the game and on the results podium, on every phone, and changes there the moment you save it. Bots keep the 🤖.
 4. **Lobby:**
-   - Creating a lobby needs the `lobbyCreatePassword` from `config.json` and a lobby password of the creator's choosing. Friends join with that lobby password.
+   - Creating a lobby needs the creation password (`lobbyCreatePassword` from `config.json`, or one an admin set in the panel) and a lobby password of the creator's choosing. Friends join with that lobby password.
+     - **Asked once per account:** after one correct entry the server remembers the account, and from then on it creates lobbies without the creation password, on any phone (the dialog says *✓ You can create lobbies without the creation password*). A new creation password (set in the admin panel, or changed in `config.json` while the server is down) forgets every remembered account, and an admin can forget one; the dialog then asks for it again.
+   - **Home without leaving:** **‹** in the lobby goes to the home screen and keeps your seat. The home screen shows *You're in · your place is kept* with the lobby's name; tap it to go back. **🚪 Leave lobby** (under the seats) leaves for good. Joining or creating another lobby from the home screen leaves the one you are in, and its dialog says so.
+   - **The host leaving:** with others in the lobby, the host is asked to **Close for everyone** or **Leave, keep it open** (the next player becomes host). Closing sends everyone in it home, with *"Family was closed by the host."* Only between games: during one, leaving hands the seat to a bot as before.
    - Everyone, the host included, starts on a random free colour, picked by the server. Players can then move or swap, and tap ready. The host can add a bot to any open seat with that seat's **＋ Bot** (a bot is always named after its seat, e.g. "Bot Green"), and then start the game.
    - **Swapping colours:** tap an open seat to move there, or **⇄ Swap** on another player's seat to ask them to swap.
      - **Asking:** they get a prompt showing who becomes which colour, with 20 seconds to answer. You can cancel while you wait.
@@ -125,6 +128,8 @@ npm run typecheck
 5. **Admin:** tap *Admin login* and enter `adminPassword`. The admin panel can:
    - list, search, rename and delete users
    - list open lobbies and **close** any of them, even mid‑game. Everyone in it goes back home with a notice, and a game in progress ends without a result.
+   - give any lobby a new join password (**🔑 Password** on its row). Whoever is in it stays; anyone joining from then on needs the new one.
+   - **Passwords** tab: set a new lobby creation password (it replaces the one in `config.json` until you choose **Use the password from config.json again**; it is stored hashed), and see the **remembered hosts**, the accounts that create lobbies without it, with **Forget** for each. A new creation password forgets them all.
    - revoke sessions and devices
    - show the access code or make a new one
    - **Next roll (a test aid):** an admin who is playing has **🎲 Next roll** in the ☰ game menu, with *Normal* and 1 to 6. Pick one and the next roll of their own seat is exactly that, not from the random source. It is used once (the menu goes back to *Normal* by itself, and a dot on ☰ shows while one is set), and it is also used if their turn is played for them after a timeout. It is for testing on your own devices: the item is not in anyone else's menu (a host who isn't an admin included), the server refuses the request from anyone who isn't an admin (and logs it), and no other player, bot or spectator is told: the roll looks like any other, only the admin's own phone hears that it was used. The rolls still count in that game's stats (so *Dice luck* for the admin reflects them).
@@ -370,6 +375,16 @@ Everyone in a lobby, up to 10 people (6 seats and 4 spectators), is automaticall
   Each ping lost among the last 5 costs one bar, but a phone that still replies never drops below 1.
 - **Colours:** green, lime, amber, red.
 
+## Who's online (the Users tab)
+
+The home screen has two tabs, **🏠 Lobbies** and **👥 Users** (with the number online; the app remembers the one you used last). Users lists every signed-in player who has the app open, you first, live as people come and go:
+
+- **Where they are:** on the home screen, in lobby *X*, playing in *X*, or watching *X*, and for how long they have been online.
+- **Their phone:** model, system and browser, e.g. *📱 Samsung SM-S918B · Android 14 · Chrome 130*, one line per phone they are signed in on (💻 for a computer).
+  - Chrome, Edge, Samsung Internet and other Chromium browsers report the real model and Android version (client hints) over HTTPS; their user agent alone gives neither. Safari gives *iPhone*/*iPad* and the iOS version, but no model; Firefox gives no model either. Models are shown as the phone reports them (Samsung's *SM-S918B* rather than *Galaxy S23 Ultra*), with the maker added to bare codes (realme, OPPO, vivo, Motorola, OnePlus …).
+- **Their network (ISP):** e.g. *🌐 Reliance Jio Infocomm Limited*. The server looks it up offline, in the free [iptoasn.com](https://iptoasn.com) list of IP ranges, which it downloads into the data folder (`data/ip2asn-combined.tsv.gz`, a few MB) and refreshes weekly. No address is sent to anyone else. Phones on the same Wi‑Fi as the server show *Local network*. With no internet access on the server, or with `isp.enabled` off (`LUDO_ISP=false`), the ISP line is simply left out. Behind a reverse proxy set `trustProxy`, or every phone shows the proxy's network.
+- **Privacy:** only signed-in players see the list. Anyone can hide their phone and network: **Edit profile → Show my phone in Users** off, and others then see only that they are online and where (*🙈 Phone details hidden*). Who is online, and the phone details, are kept in memory only, never stored.
+
 ## Data use and connection
 
 - **Slim roll messages:** a roll that only adds to the queue sends the whole game state to the roller's phone alone. Everyone else gets a slim update of about 240 bytes (the new turn and the roll) instead of the whole state (about 2–3 KB), and their phone applies it to the state it has. The move that follows goes to everyone whole. A phone that missed an update asks for the whole state.
@@ -439,8 +454,9 @@ Plain HTTP on `httpRedirectPort` redirects to HTTPS.
 | `voice.iceServers` | Google STUN | STUN/TURN servers for voice chat; see [Voice chat](#voice-chat) |
 | `voice.sfu.enabled` / `portMin` / `portMax` / `announcedIp` | `true` / 40000 / 40099 / `""` | The built-in voice server and its UDP ports (forward them on the router to play over the internet); `announcedIp` sets the public IP (empty: learnt from how internet phones connect, then STUN) |
 | `voice.localMaxPingMs` | 40 | Voice goes internet first; a phone also offers local-network routes only on IPv4 with a ping below this |
+| `isp.enabled` / `url` / `refreshDays` | `true` / iptoasn.com's `ip2asn-combined.tsv.gz` / 7 | The network (ISP) names in the Users tab: the list to download into the data folder, and how often to fetch a fresh one; see [Who's online](#whos-online-the-users-tab) |
 
-Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH`, `LUDO_TRUST_PROXY`, `LUDO_VOICE_SFU` (`false` turns the voice server off), `LUDO_VOICE_PORTS` (e.g. `40000-40099`), `LUDO_VOICE_IP` and `LUDO_VOICE_LOCAL_PING_MS`.
+Environment variables override the file. The available ones are `LUDO_CONFIG`, `LUDO_PORT`, `LUDO_DB_PATH`, `LUDO_LOBBY_CREATE_PASSWORD`, `LUDO_ADMIN_PASSWORD`, `LUDO_HTTPS`, `LUDO_HTTPS_PORT`, `LUDO_CERT_PATH`, `LUDO_KEY_PATH`, `LUDO_TRUST_PROXY`, `LUDO_VOICE_SFU` (`false` turns the voice server off), `LUDO_VOICE_PORTS` (e.g. `40000-40099`), `LUDO_VOICE_IP`, `LUDO_VOICE_LOCAL_PING_MS` and `LUDO_ISP` (`false` turns the ISP lookup off).
 
 ## Project layout
 

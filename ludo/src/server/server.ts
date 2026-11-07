@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import type { AddressInfo } from 'node:net';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import express from 'express';
 import helmet from 'helmet';
 import { Server } from 'socket.io';
@@ -17,6 +17,9 @@ import { openDb, type DB } from './db.js';
 import { cryptoDice, type DiceFn } from './dice.js';
 import { GameManager } from './gameManager.js';
 import { Gate } from './gate.js';
+import { CreateAccess } from './hosts.js';
+import { IspLookup } from './isp.js';
+import { Presence } from './presence.js';
 import { LobbyManager, humanIds } from './lobbies.js';
 import { NetStatsTracker } from './netStats.js';
 import { DeviceService, SessionService } from './sessions.js';
@@ -45,6 +48,13 @@ export interface StartOptions {
   /** Built client to serve; null disables static serving. Defaults to ./dist/client when present. */
   staticDir?: string | null;
   onGateRotate?: (code: string, reason: 'manual' | 'brute-force') => void;
+  /**
+   * The ISP lookup for the Users tab. Default: the iptoasn list in the data folder, downloaded
+   * when `isp.enabled` (never for an in-memory database, as tests use); null shows no ISP.
+   */
+  isp?: { lookup(ip: string): string; start?(): Promise<void>; stop?(): void } | null;
+  /** How long changes wait before the online list is sent to everyone (ms). */
+  presenceDelayMs?: number;
 }
 
 export interface LudoServer {
@@ -86,6 +96,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   const users = new UserService(db);
   const devices = new DeviceService(db);
   const sessions = new SessionService(db);
+  const hosts = new CreateAccess(db, config.lobbyCreatePassword);
 
   let io: LudoServerIO | undefined;
   let ctx: Ctx | undefined;
@@ -127,18 +138,22 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   const lobbies: LobbyManager = new LobbyManager({
     db,
     lobbyCreatePassword: config.lobbyCreatePassword,
+    createGate: hosts,
     maxLobbies: config.maxLobbies,
     lobbyIdleCloseSec: config.lobbyIdleCloseSec,
-    onChange: (lobbyId) => broadcastLobby(lobbyId),
+    onChange: (lobbyId) => {
+      broadcastLobby(lobbyId);
+      refreshPresence();
+    },
     onLeaveGame: (lobby, userId) => lobby.gameId && games.leave(lobby.gameId, userId),
     winsOf: (userId) => users.get(userId)?.wins ?? 0,
     randomInt: opts.randomInt,
     onSwapEnded: (req, how) => io?.to([rooms.user(req.from), rooms.user(req.to)]).emit('lobby:swapEnded', { from: req.from, to: req.to, how }),
     // Voice belongs to the lobby: leaving it (or being kicked or dropped) leaves the channel.
     onMemberLeft: (lobby, userId) => voice.leave(lobby.id, userId),
-    onClosed: (lobby, byAdmin) => {
+    onClosed: (lobby, byAdmin, byHost) => {
       // Sent while the members are still in the lobby room, just before it empties.
-      if (byAdmin) io?.to(rooms.lobby(lobby.id)).emit('lobby:closed', { byAdmin: true });
+      if (byAdmin || byHost) io?.to(rooms.lobby(lobby.id)).emit('lobby:closed', { byAdmin, byHost: Boolean(byHost) });
       voice.close(lobby.id);
       sfu.close(lobby.id);
       if (lobby.gameId) games.abort(lobby.gameId);
@@ -167,6 +182,42 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   });
 
   const net = new NetStatsTracker();
+
+  // ---- Who is online (the home screen's Users tab) ----
+  let presenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastPresence = '';
+  const refreshPresence = () => {
+    if (presenceTimer) return;
+    presenceTimer = setTimeout(() => {
+      presenceTimer = null;
+      if (!io) return;
+      const list = presence.list();
+      const key = JSON.stringify(list);
+      if (key === lastPresence) return;
+      lastPresence = key;
+      io.emit('users:online', list);
+    }, opts.presenceDelayMs ?? 250);
+    presenceTimer.unref?.();
+  };
+  const isp =
+    opts.isp !== undefined
+      ? opts.isp
+      : config.isp.enabled && config.dbPath !== ':memory:'
+        ? new IspLookup({ file: join(dirname(resolve(config.dbPath)), 'ip2asn-combined.tsv.gz'), url: config.isp.url, refreshDays: config.isp.refreshDays, log, onReady: () => refreshPresence() })
+        : null;
+  const presence = new Presence({
+    userOf: (id) => {
+      const u = users.get(id);
+      return u && { username: u.username, avatar: u.avatar, showDevice: u.show_device !== 0 };
+    },
+    whereOf: (id) => {
+      const lobby = lobbies.forUser(id);
+      if (!lobby) return { kind: 'home' };
+      const seated = lobby.members.some((m) => m.userId === id);
+      return { kind: !seated ? 'watching' : lobby.status === 'playing' ? 'playing' : 'lobby', lobby: lobby.name };
+    },
+    ispOf: (ip) => isp?.lookup(ip) ?? '',
+  });
   const gate = new Gate({ ...config.gate, onRotate: opts.onGateRotate });
 
   lobbies.load();
@@ -184,12 +235,15 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     users,
     devices,
     sessions,
+    hosts,
     gate,
     lobbies,
     games,
     voice,
     sfu,
     net,
+    presence,
+    refreshPresence,
     kickSessions: (ids) => {
       if (!io || ids.length === 0) return;
       const r = ids.map(rooms.session);
@@ -279,6 +333,9 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
   }) as LudoServerIO;
   attachSocketHandlers(io, ctx, log);
 
+  // In the background: the server is up long before a first download finishes.
+  void isp?.start?.().catch((err: Error) => log(`[isp] ${err.message}`));
+
   const sweeper = setInterval(() => lobbies.sweep(), 30_000);
   sweeper.unref();
 
@@ -335,6 +392,8 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       closed = true;
       clearInterval(sweeper);
       clearInterval(pinger);
+      if (presenceTimer) clearTimeout(presenceTimer);
+      isp?.stop?.();
       games.shutdown();
       sfu.shutdown();
       await new Promise<void>((r) => io!.close(() => r()));

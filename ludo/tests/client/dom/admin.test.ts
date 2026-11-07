@@ -114,6 +114,76 @@ describe('the admin panel', () => {
     expect(document.querySelector('#code')!.textContent).toBe('654 321');
   });
 
+  it("passwords: a lobby's join password, the creation password, and remembered hosts", async () => {
+    // A lobby's join password, from its row in Lobbies.
+    const sent: unknown[] = [];
+    http['PATCH /api/admin/lobbies/L1'] = (b) => (sent.push(b), [200, { ok: true }]);
+    await tab('lobbies');
+    click('[data-act=password]', panel());
+    await flush(10);
+    expect(topModal().querySelector('h2')!.textContent).toBe('Password for "Fam"');
+    modalButton('Save');
+    await flush(10);
+    expect(topModal().querySelector('.form-error')!.textContent).toBe('Type the new password.');
+    topModal().querySelector<HTMLInputElement>('[name=password]')!.value = 'new-pw';
+    modalButton('Save');
+    await flush(30);
+    expect(sent).toEqual([{ password: 'new-pw' }]);
+    expect(toasts()).toContain('New password for Fam');
+
+    // The creation password and the accounts that skip it.
+    let info = { source: 'config', hosts: [{ userId: 1, username: 'alice', grantedAt: Date.now() - DAY }] };
+    const puts: unknown[] = [];
+    http['GET /api/admin/create-access'] = () => [200, info];
+    http['PUT /api/admin/create-password'] = (b) => {
+      puts.push(b);
+      info = { source: b.password === null ? 'config' : 'admin', hosts: [] };
+      return [200, info];
+    };
+    http['DELETE /api/admin/create-access/1'] = () => ((info = { ...info, hosts: [] }), [200, { ok: true }]);
+    await tab('passwords');
+    expect(panel().textContent).toContain('From config.json');
+    expect(panel().textContent).toContain('Remembered hosts (1)');
+    expect(panel().textContent).toContain('alice');
+    expect(panel().querySelector('#use-config')).toBeNull();
+    const form = panel().querySelector<HTMLFormElement>('#create-pw-form')!;
+    const set = (a: string, b: string) => {
+      form.querySelector<HTMLInputElement>('[name=pw]')!.value = a;
+      form.querySelector<HTMLInputElement>('[name=pw2]')!.value = b;
+      form.dispatchEvent(new Event('submit', { cancelable: true }));
+    };
+    set('abc', 'abc');
+    expect(form.querySelector('.form-error')!.textContent).toBe('Use at least 4 characters.');
+    set('secret', 'secreT');
+    expect(form.querySelector('.form-error')!.textContent).toBe("The two don't match.");
+    set('secret', 'secret');
+    await flush(10);
+    // alice is remembered, so it says she'll have to type it again.
+    expect(topModal().textContent).toContain('The 1 remembered host will need to type the new one once.');
+    modalButton('Change');
+    await flush(30);
+    expect(puts).toEqual([{ password: 'secret' }]);
+    expect(toasts()).toContain('Creation password changed');
+    expect(panel().textContent).toContain('Set here in the admin panel');
+    expect(panel().textContent).toContain('Remembered hosts (0)');
+    // Back to config.json's.
+    click('#use-config', panel());
+    await flush(10);
+    modalButton('Use config.json');
+    await flush(30);
+    expect(puts.at(-1)).toEqual({ password: null });
+    expect(panel().textContent).toContain('From config.json');
+
+    // Forgetting one account.
+    info = { source: 'config', hosts: [{ userId: 1, username: 'alice', grantedAt: Date.now() }] };
+    await tab('code');
+    await tab('passwords');
+    click('li[data-id="1"] .chip-danger', panel());
+    await flush(30);
+    expect(calls).toContain('DELETE /api/admin/create-access/1');
+    expect(panel().textContent).toContain('Nobody yet.');
+  });
+
   it('an expired admin session goes back home; other errors are shown', async () => {
     http['GET /api/admin/devices'] = () => [500, { error: 'INTERNAL' }];
     await tab('devices');

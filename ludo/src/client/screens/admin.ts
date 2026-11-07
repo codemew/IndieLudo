@@ -66,7 +66,12 @@ export function adminLoginDialog(): void {
   });
 }
 
-type Tab = 'users' | 'lobbies' | 'devices' | 'sessions' | 'code';
+type Tab = 'users' | 'lobbies' | 'passwords' | 'devices' | 'sessions' | 'code';
+
+interface CreateAccessInfo {
+  source: 'config' | 'admin';
+  hosts: { userId: number; username: string; grantedAt: number }[];
+}
 
 export function adminScreen(root: HTMLElement): void {
   let tab: Tab = 'users';
@@ -79,6 +84,7 @@ export function adminScreen(root: HTMLElement): void {
     <nav class="tabs">
       <button data-tab="users" class="active">Users</button>
       <button data-tab="lobbies">Lobbies</button>
+      <button data-tab="passwords">Passwords</button>
       <button data-tab="devices">Devices</button>
       <button data-tab="sessions">Sessions</button>
       <button data-tab="code">Code</button>
@@ -126,6 +132,7 @@ export function adminScreen(root: HTMLElement): void {
     panel.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
     if (tab === 'users') return renderUsers('');
     if (tab === 'lobbies') return renderLobbies();
+    if (tab === 'passwords') return renderPasswords();
     if (tab === 'devices') return renderDevices();
     if (tab === 'sessions') return renderSessions();
     return renderCode();
@@ -202,10 +209,15 @@ export function adminScreen(root: HTMLElement): void {
             <span class="muted small">host ${esc(l.hostName)} · ${l.players}/${l.size ?? 4} · opened ${timeAgo(l.createdAt)}</span>
             <span class="muted small">${l.members.map((m) => `${m.isBot ? '🤖 ' : m.watching ? '👀 ' : ''}${esc(m.username)}${!m.isBot && !m.connected ? ' (offline)' : ''}`).join(', ')}</span>
           </div>
-          <div class="row-actions"><button class="chip chip-danger">Close lobby</button></div>
+          <div class="row-actions"><button class="chip" data-act="password">🔑 Password</button><button class="chip chip-danger">Close lobby</button></div>
         </li>`,
         )
         .join('')}</ul>`;
+    panel.querySelectorAll<HTMLButtonElement>('[data-act=password]').forEach((b) => {
+      const id = b.closest('li')!.dataset.id!;
+      const lobby = lobbies.find((l) => l.id === id)!;
+      b.onclick = () => lobbyPasswordDialog(lobby.id, lobby.name);
+    });
     panel.querySelectorAll<HTMLButtonElement>('.chip-danger').forEach((b) => {
       const id = b.closest('li')!.dataset.id!;
       const lobby = lobbies.find((l) => l.id === id)!;
@@ -214,6 +226,107 @@ export function adminScreen(root: HTMLElement): void {
         if (!(await confirmDialog(`Close "${lobby.name}"?`, `Everyone in it goes back home${playing ? ' and the game in progress ends without a result' : ''}.`, 'Close lobby', true))) return;
         if (await guard(() => api('DELETE', `/admin/lobbies/${encodeURIComponent(id)}`))) toast('Lobby closed', 'success');
         void renderLobbies();
+      };
+    });
+  }
+
+  /** A new join password for one lobby: who is in it stays; new joiners need the new one. */
+  function lobbyPasswordDialog(id: string, name: string): void {
+    const body = el(`
+      <form class="form" autocomplete="off">
+        <p class="muted small">Players already in it stay. Anyone joining from now on needs the new password.</p>
+        <input class="input" name="password" maxlength="64" placeholder="New lobby password" />
+        <p class="form-error"></p>
+      </form>`);
+    const input = $<HTMLInputElement>(body, 'input');
+    const save = async () => {
+      if (!input.value) {
+        $(body, '.form-error').textContent = 'Type the new password.';
+        return false;
+      }
+      try {
+        await api('PATCH', `/admin/lobbies/${encodeURIComponent(id)}`, { password: input.value });
+        toast(`New password for ${name}`, 'success');
+        return true;
+      } catch (e) {
+        const err = e as ApiError;
+        $(body, '.form-error').textContent = errorText(err.code);
+        return false;
+      }
+    };
+    const m = modal({ title: `Password for "${name}"`, body, actions: [{ label: 'Cancel' }, { label: 'Save', kind: 'primary', onClick: save }] });
+    body.addEventListener('submit', (e) => {
+      e.preventDefault();
+      void save().then((ok) => ok && m.close());
+    });
+  }
+
+  /**
+   * The creation password (the one in config.json until one is set here; a password set here
+   * wins) and the accounts that entered it once and create lobbies without it.
+   */
+  async function renderPasswords(): Promise<void> {
+    const info = await guard(() => api<CreateAccessInfo>('GET', '/admin/create-access'));
+    if (!info) return;
+    paintPasswords(info);
+  }
+
+  function paintPasswords(info: CreateAccessInfo): void {
+    panel.innerHTML = `
+      <div class="code-card pw-card">
+        <p class="muted">Lobby creation password</p>
+        <p><b>${info.source === 'admin' ? 'Set here in the admin panel' : 'From config.json'}</b></p>
+        <form class="form" id="create-pw-form" autocomplete="off">
+          <input class="input" type="password" name="pw" maxlength="128" placeholder="New creation password" autocomplete="new-password" />
+          <input class="input" type="password" name="pw2" maxlength="128" placeholder="Type it again" autocomplete="new-password" />
+          <p class="form-error"></p>
+          <button class="btn btn-primary" type="submit">Save new creation password</button>
+        </form>
+        ${info.source === 'admin' ? '<button class="btn btn-ghost" id="use-config">Use the password from config.json again</button>' : ''}
+        <p class="muted small">A new creation password (here, or back to config.json's) forgets every remembered host below: they type it once more. To change a lobby's join password, use 🔑 in Lobbies.</p>
+      </div>
+      <div class="menu-heading">Remembered hosts (${info.hosts.length})</div>
+      <p class="muted small">These accounts entered the creation password once and create lobbies without it, on any phone.</p>
+      <ul class="admin-list">${
+        info.hosts.length
+          ? info.hosts
+              .map(
+                (h) => `
+        <li data-id="${h.userId}">
+          <div class="row-main"><b>${esc(h.username)}</b><span class="muted small">#${h.userId} · remembered ${timeAgo(h.grantedAt)}</span></div>
+          <div class="row-actions"><button class="chip chip-danger">Forget</button></div>
+        </li>`,
+              )
+              .join('')
+          : '<li class="muted">Nobody yet.</li>'
+      }</ul>`;
+    const form = $<HTMLFormElement>(panel, '#create-pw-form');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const pw = $<HTMLInputElement>(form, '[name=pw]').value;
+      const err = $(form, '.form-error');
+      if (pw.length < 4) return void (err.textContent = 'Use at least 4 characters.');
+      if (pw !== $<HTMLInputElement>(form, '[name=pw2]').value) return void (err.textContent = "The two don't match.");
+      if (info.hosts.length && !(await confirmDialog('Change the creation password?', `The ${info.hosts.length} remembered host${info.hosts.length === 1 ? '' : 's'} will need to type the new one once.`, 'Change'))) return;
+      const next = await guard(() => api<CreateAccessInfo>('PUT', '/admin/create-password', { password: pw }));
+      if (next) {
+        toast('Creation password changed', 'success');
+        paintPasswords(next);
+      }
+    };
+    panel.querySelector<HTMLButtonElement>('#use-config')?.addEventListener('click', async () => {
+      if (!(await confirmDialog('Use config.json again?', 'The password set here is removed, and remembered hosts type the config.json one once.', 'Use config.json'))) return;
+      const next = await guard(() => api<CreateAccessInfo>('PUT', '/admin/create-password', { password: null }));
+      if (next) {
+        toast('Using the config.json creation password', 'success');
+        paintPasswords(next);
+      }
+    });
+    panel.querySelectorAll<HTMLButtonElement>('.admin-list .chip-danger').forEach((b) => {
+      const id = Number(b.closest('li')!.dataset.id);
+      b.onclick = async () => {
+        if (await guard(() => api('DELETE', `/admin/create-access/${id}`))) toast('Forgotten: they need the creation password again', 'success');
+        void renderPasswords();
       };
     });
   }

@@ -46,6 +46,18 @@ const MIGRATIONS: string[] = [
    );`,
   // Profile avatars (shared/avatars.ts ids; '' = none, the initial is shown).
   `ALTER TABLE users ADD COLUMN avatar TEXT NOT NULL DEFAULT '';`,
+  // Server settings changed from the admin panel (the creation password), and the accounts that
+  // entered the creation password once and may create lobbies without it (hosts.ts).
+  `CREATE TABLE settings (
+     key TEXT PRIMARY KEY,
+     value TEXT NOT NULL
+   );
+   CREATE TABLE trusted_hosts (
+     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+     granted_at INTEGER NOT NULL
+   );`,
+  // Whether others see this player's phone, browser and network in the Users tab (1 = shown).
+  `ALTER TABLE users ADD COLUMN show_device INTEGER NOT NULL DEFAULT 1;`,
 ];
 
 export function openDb(path: string): DB {

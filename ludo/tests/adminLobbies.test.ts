@@ -53,7 +53,7 @@ describe('admin: closing lobbies', () => {
     const admin = await adminToken();
     expect((await http(t.base, 'DELETE', `/api/admin/lobbies/${lobbyId}`, { session: host.token })).status).toBe(403);
     expect((await http(t.base, 'DELETE', `/api/admin/lobbies/${lobbyId}`, { session: admin })).status).toBe(200);
-    expect(await told).toEqual({ byAdmin: true });
+    expect(await told).toEqual({ byAdmin: true, byHost: false });
     await wait(50);
 
     expect(guest.lobbyStates.at(-1)).toBeNull();

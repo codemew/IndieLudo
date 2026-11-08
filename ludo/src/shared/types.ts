@@ -46,11 +46,11 @@ export type Controller = 'human' | 'bot' | 'takeover';
  * - double: every move goes twice as far (when that doesn't overshoot; otherwise as rolled).
  * - shield: the first capture of it fails; the shield breaks instead.
  * - cloak: only its owner (and teammate) can see it; it can still be captured by landing on it.
- * - thief: may turn into another player's home column, capturing their tokens there; reaching
+ * - vampire: may turn into another player's home column, capturing their tokens there; reaching
  *   their home exactly brings it out at their start square.
  */
-export type Power = 'double' | 'shield' | 'cloak' | 'thief';
-export const POWERS: readonly Power[] = ['double', 'shield', 'cloak', 'thief'];
+export type Power = 'double' | 'shield' | 'cloak' | 'vampire';
+export const POWERS: readonly Power[] = ['double', 'shield', 'cloak', 'vampire'];
 
 export interface Seat {
   color: Color;
@@ -177,7 +177,7 @@ export interface LegalMove {
   captures: { color: Color; tokenId: number }[];
   /** Goes round the board a second time instead of turning into the home column. */
   lap?: true;
-  /** Power ups: a thief turns into (or is in) this colour's home column. */
+  /** Power ups: a vampire turns into (or is in) this colour's home column. */
   raid?: Color;
   /** Squares it moves when that isn't the die (a doubled move). */
   steps?: number;
@@ -192,7 +192,7 @@ export type GameEvent =
   | { type: 'penalty'; color: Color; queue: number[] }
   /**
    * `kills`: the moving token's captures so far, which set how heavily it hops. `steps`: squares
-   * moved when not the die (doubled). `via`: the home column a thief went up. `cloaked`: the token
+   * moved when not the die (doubled). `via`: the home column a vampire went up. `cloaked`: the token
    * moved unseen (only its owner and teammate get this event).
    */
   | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number; kills?: number; steps?: number; via?: Color; cloaked?: true }

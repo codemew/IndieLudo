@@ -253,10 +253,10 @@ export function gameScreen(root: HTMLElement): () => void {
     void moveToken(color, tokenId, pick.dieIndex);
   }
 
-  /** Moves the chosen token with the chosen die: asks which way when there's more than one (its home turn, a thief's raid). */
+  /** Moves the chosen token with the chosen die: asks which way when there's more than one (its home turn, a vampire's raid). */
   async function moveToken(color: Color, tokenId: number, dieIndex: number): Promise<void> {
     const options = gs!.legalMoves.filter((m) => m.tokenId === tokenId && m.dieIndex === dieIndex && ownerOf(m) === color);
-    // At its home turn on the first lap the token may go round again, and a thief may raid a home column: ask which way.
+    // At its home turn on the first lap the token may go round again, and a vampire may raid a home column: ask which way.
     const plain = options.find((m) => !m.lap && !m.raid);
     if (options.length > 1) return chooseWay(options);
     const only = plain ?? options[0];
@@ -335,7 +335,7 @@ export function gameScreen(root: HTMLElement): () => void {
   /**
    * The choice for a token with more than one way to go: a bubble on its square with a round picture
    * per way, coloured like the trails and markers on the board: at its home turn gold 🏠 head home and
-   * blue ↻ round again; for a thief (power ups) the raided colour's 🦹 up their home column, beside
+   * blue ↻ round again; for a vampire (power ups) the raided colour's 🧛 up their home column, beside
    * staying on the track. The board's markers can be tapped instead.
    */
   function chooseWay(options: LegalMove[]): void {
@@ -352,7 +352,7 @@ export function gameScreen(root: HTMLElement): () => void {
       const victims = victimsOf(m);
       const caps = victims ? `, captures ${esc(victims)}` : '';
       if (m.raid) {
-        return { cls: `lap-opt raid r-${m.raid}`, attrs: `data-go="raid" data-raid="${m.raid}"`, html: '<span class="bubble-ico">🦹</span>', label: `Raid ${esc(seatName(m.raid))}'s home column${caps}`, pick: () => void answer(m) };
+        return { cls: `lap-opt raid r-${m.raid}`, attrs: `data-go="raid" data-raid="${m.raid}"`, html: '<span class="bubble-ico">🧛</span>', label: `Raid ${esc(seatName(m.raid))}'s home column${caps}`, pick: () => void answer(m) };
       }
       if (m.lap) {
         return { cls: 'lap-opt round', attrs: 'data-go="round"', html: '<span class="bubble-ico">↻</span>', label: `Go round again${caps}, uses this token's extra lap so it can't make a wildcard entry later`, pick: () => void answer(m) };
@@ -577,7 +577,7 @@ export function gameScreen(root: HTMLElement): () => void {
           lastMover = el;
           lastMove = { color: e.color, tokenId: e.tokenId };
           const start = tokenCell(e.color, e.from, e.tokenId, geo);
-          // A thief's raid goes up another colour's home column (power ups).
+          // A vampire's raid goes up another colour's home column (power ups).
           const path = pathCells(e.color, e.from, e.to, e.tokenId, geo, e.via);
           const idx = work.turn.queue.indexOf(e.die);
           if (idx >= 0) work.turn.queue.splice(idx, 1);
@@ -794,7 +794,7 @@ export function gameScreen(root: HTMLElement): () => void {
     rulesTold.add(gs.id);
     // Only at the start of a game (not when coming back to one halfway through).
     if (gs.version > 3) return;
-    const parts = [gs.powerUps ? '⚡ Power ups: land on an orb on a star to get its power' : '', gs.golden ? `${GOLDEN_INFO.icon} Your crowned token leaves base on any roll` : ''].filter(Boolean);
+    const parts = [gs.powerUps ? '⚡ Power ups: land on a power-up on a star to get its power' : '', gs.golden ? `${GOLDEN_INFO.icon} Your crowned token leaves base on any roll` : ''].filter(Boolean);
     toast(parts.join(' · '), 'info', 5000);
   }
 
@@ -1144,7 +1144,7 @@ export function gameScreen(root: HTMLElement): () => void {
     const at = (c: readonly [number, number]) => `left:${((c[0] + 0.5) / geo.w) * 100}%;top:${((c[1] + 0.5) / geo.h) * 100}%`;
     for (const m of mySeat() ? moves : []) {
       const color = ownerOf(m);
-      // More than one way with this die: home or round again, or (power ups) a thief's raid or the track.
+      // More than one way with this die: home or round again, or (power ups) a vampire's raid or the track.
       const branches = moves.filter((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && ownerOf(o) === color).length > 1;
       const way = m.raid ? 'raid' : m.lap ? 'round' : m.to > geo.last && m.to <= geo.home ? 'home' : 'track';
       if (branches) {
@@ -1158,7 +1158,7 @@ export function gameScreen(root: HTMLElement): () => void {
       seen.add(key);
       const label = m.raid ? `Raid ${seatName(m.raid)}'s home column` : m.lap ? 'Go round again' : m.to > geo.last && m.to <= geo.home ? 'Head home' : 'Stay on the track';
       const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}"${m.raid ? ` data-raid="${m.raid}"` : ''} role="button" aria-label="${esc(label)}"` : '';
-      const mark = branches && m.raid ? '<span>🦹</span>' : branches && m.lap ? '<span>↻</span>' : '';
+      const mark = branches && m.raid ? '<span>🧛</span>' : branches && m.lap ? '<span>↻</span>' : '';
       html += `<div class="target t-${color}${color !== mySeat()!.color ? ' mate' : ''}${branches ? ` ${way}` : ''}" style="${at([x, y])}"${pick}>${mark}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.

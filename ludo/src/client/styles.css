@@ -4915,26 +4915,44 @@ polygon.b-inner {
   inset: 0;
   pointer-events: none;
 }
+/* A power-up waiting on a star: a flat diamond tile with the power's icon, not round like a token,
+   floating a little over the square with a dashed ring turning round it. */
 .orb {
   --o: #f5b400;
   position: absolute;
-  width: calc(100% / var(--bw, 15) * 0.78);
-  height: calc(100% / var(--bh, 15) * 0.78);
+  width: calc(100% / var(--bw, 15) * 0.92);
+  height: calc(100% / var(--bh, 15) * 0.92);
   transform: translate(-50%, -50%);
-  border-radius: 50%;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 35% 30%, #fff 0, color-mix(in srgb, var(--o) 55%, #fff) 30%, var(--o) 70%);
-  border: 1.5px solid #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 10px 2px var(--o);
-  animation: orb-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) both, orb-glow 1.8s ease-in-out 0.45s infinite;
+  animation: orb-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) both, orb-float 2.2s ease-in-out 0.45s infinite;
+}
+.orb::before {
+  content: '';
+  position: absolute;
+  inset: 15%;
+  transform: rotate(45deg);
+  border-radius: 16%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--o) 70%, #fff), var(--o));
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 3px 6px rgba(0, 0, 0, 0.35);
+}
+.orb::after {
+  content: '';
+  position: absolute;
+  inset: 4%;
+  transform: rotate(45deg);
+  border-radius: 20%;
+  border: 1.5px dashed color-mix(in srgb, var(--o) 80%, #fff);
+  animation: orb-spin 6s linear infinite;
 }
 .orb span {
-  font-size: 52cqw;
+  position: relative;
+  font-size: 38cqw;
   font-weight: 900;
   line-height: 1;
   color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 .orb,
 .target.raid {
@@ -4949,7 +4967,7 @@ polygon.b-inner {
 .orb.o-cloak {
   --o: #8e7cc3;
 }
-.orb.o-thief {
+.orb.o-vampire {
   --o: #d81b60;
 }
 @keyframes orb-in {
@@ -4957,9 +4975,20 @@ polygon.b-inner {
     transform: translate(-50%, -50%) scale(0);
   }
 }
-@keyframes orb-glow {
+@keyframes orb-float {
   50% {
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 0 16px 5px var(--o);
+    transform: translate(-50%, -62%);
+  }
+}
+@keyframes orb-spin {
+  to {
+    transform: rotate(405deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb,
+  .orb::after {
+    animation: none;
   }
 }
 
@@ -4996,7 +5025,7 @@ polygon.b-inner {
 .token.pw-cloak .tok-badge {
   --o: #8e7cc3;
 }
-.token.pw-thief .tok-badge {
+.token.pw-vampire .tok-badge {
   --o: #d81b60;
 }
 /* A shield is a ring of light round the token. */
@@ -5017,12 +5046,11 @@ polygon.b-inner {
 .token.pw-double .tok-body {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), -4px 0 0 -1px rgba(255, 138, 0, 0.75), -8px 0 0 -3px rgba(255, 138, 0, 0.45);
 }
-/* The thief: a dark mask band across the token. */
-.token.pw-thief .tok-body {
-  background:
-    linear-gradient(transparent 36%, rgba(20, 10, 20, 0.82) 36%, rgba(20, 10, 20, 0.82) 54%, transparent 54%),
-    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.8) 0, rgba(255, 255, 255, 0) 36%),
-    var(--c);
+/* The vampire: a dark mask band across the token. */
+/* The vampire: a dark cape-red rim and a blood-red glow. */
+.token.pw-vampire .tok-body {
+  border-color: #3b0a14;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 0 0 3px #b0123b, 0 0 10px 3px rgba(176, 18, 59, 0.7);
 }
 .token.unseen {
   visibility: hidden;
@@ -5041,7 +5069,7 @@ polygon.b-inner {
   transform: rotate(-18deg);
 }
 
-/* A thief's raid: crimson trail and marker, and its way in the choice bubble. */
+/* A vampire's raid: crimson trail and marker, and its way in the choice bubble. */
 .trail.raid,
 .target.raid,
 .lap-opt.raid {
@@ -5076,7 +5104,7 @@ polygon.b-inner {
   background: color-mix(in srgb, #f5b400 24%, transparent);
   color: var(--text);
 }
-/* Staying on the track (beside a thief's raid): a plain marker. */
+/* Staying on the track (beside a vampire's raid): a plain marker. */
 .trail.track,
 .target.track,
 .lap-opt.track {

@@ -695,7 +695,7 @@ describe('the power ups and golden token switches in the lobby', () => {
     store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
     show('lobby');
     expect(document.querySelector<HTMLElement>('#powerups-rule')!.hidden).toBe(false);
-    expect(document.querySelector('#powerups-rule')!.textContent).toMatch(/Power ups[\s\S]*Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Thief/);
+    expect(document.querySelector('#powerups-rule')!.textContent).toMatch(/Power ups[\s\S]*Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Vampire/);
     expect(document.querySelector('#golden-rule')!.textContent).toContain('Golden token');
     expect([box('powerups').checked, box('powerups').disabled, box('golden').checked, box('golden').disabled]).toEqual([false, false, false, false]);
     box('powerups').checked = true;

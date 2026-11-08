@@ -17,8 +17,8 @@ export const BASE = -1;
 export const HIDDEN = -2;
 
 /**
- * Power ups: a thief in another player's home column ("raiding" it). Progress below -10 says
- * whose column (`lane`), how far up it is (`step`, 1 to 5) and whether the thief came in on its
+ * Power ups: a vampire in another player's home column ("raiding" it). Progress below -10 says
+ * whose column (`lane`), how far up it is (`step`, 1 to 5) and whether the vampire came in on its
  * second lap (it comes out on the same lap). See raidOf.
  */
 export function raidProgress(lane: Color, step: number, secondLap = false): number {
@@ -259,19 +259,19 @@ export function isSafeSquare(abs: number, b: Board = BOARD4): boolean {
   return b.safe.has(abs);
 }
 
-/** The square where a colour's tokens turn into its home column: a thief turns in there too. */
+/** The square where a colour's tokens turn into its home column: a vampire turns in there too. */
 export function laneEntry(color: Color, b: Board = BOARD4): number {
   return ((b.start[color] ?? 0) + b.last) % b.trackLength;
 }
 
-/** A spot in a home column, a colour's own token or a thief: whose column, and how far up (1 to 5). */
+/** A spot in a home column, a colour's own token or a vampire: whose column, and how far up (1 to 5). */
 export function laneSpot(color: Color, progress: number, b: Board = BOARD4): { lane: Color; step: number } | null {
   if (progress > b.last && progress < b.home) return { lane: color, step: progress - b.last };
   const r = raidOf(progress);
   return r && { lane: r.lane, step: r.step };
 }
 
-/** Where a thief comes out of a raided column (that colour's start square), as its own progress on the same lap. */
+/** Where a vampire comes out of a raided column (that colour's start square), as its own progress on the same lap. */
 export function raidExitProgress(color: Color, lane: Color, secondLap: boolean, b: Board = BOARD4): number {
   const rel = ((b.start[lane] ?? 0) - (b.start[color] ?? 0) + b.trackLength) % b.trackLength;
   return secondLap ? rel + (b.lap2First - b.last - 1) + b.trackLength : rel;
@@ -305,7 +305,7 @@ const MAX_STEPS = 12;
 
 /**
  * Every cell a token passes through moving from `from` to `to`, excluding the start. `via`: the
- * home column a thief goes up (power ups): along the track to that colour's turn, up its column,
+ * home column a vampire goes up (power ups): along the track to that colour's turn, up its column,
  * and, if the move takes it all the way in, out at that colour's start square.
  */
 export function pathCells(color: Color, from: number, to: number, tokenId: number, b: Board = BOARD4, via?: Color): Cell[] {

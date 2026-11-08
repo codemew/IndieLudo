@@ -14,7 +14,7 @@ export interface MoveIntent extends RollIntent {
   color?: Color;
   /** Go round the board again instead of into the home column; absent means head home. */
   lap?: boolean;
-  /** Power ups: a thief turns into this colour's home column; absent means it stays on the track. */
+  /** Power ups: a vampire turns into this colour's home column; absent means it stays on the track. */
   raid?: Color;
 }
 

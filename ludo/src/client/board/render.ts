@@ -252,7 +252,7 @@ export class TokenLayer {
   /**
    * Power ups and the golden token: a badge for the token's power and a crown for the golden one,
    * there for as long as it has them. An opponent's cloaked token isn't shown at all; your own is
-   * see-through. A thief up someone's home column wears that colour's ring.
+   * see-through. A vampire up someone's home column wears that colour's ring.
    */
   private setMarks(b: HTMLButtonElement, state: GameState, color: Color, id: number, p: number): void {
     const power = powerOf(state, color, id);
@@ -333,7 +333,7 @@ export function renderOrbs(layer: HTMLElement, state: Pick<GameState, 'orbs' | '
     node.style.left = `${((x + 0.5) / b.w) * 100}%`;
     node.style.top = `${((y + 0.5) / b.h) * 100}%`;
     node.setAttribute('role', 'img');
-    node.setAttribute('aria-label', `${info.name} orb: ${info.what}`);
+    node.setAttribute('aria-label', `${info.name} power-up: ${info.what}`);
     node.innerHTML = `<span>${info.icon}</span>`;
     layer.appendChild(node);
   }

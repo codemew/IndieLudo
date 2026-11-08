@@ -1003,15 +1003,15 @@ describe('power ups and the golden token', () => {
   const viewOf = async (s: GameState, color: Color | null) => (await import('../../../src/shared/powers.js')).viewFor(pub(s), color);
 
   it('the orbs on the stars, the crowned golden tokens, and the rules told once at the start', async () => {
-    const g = powerGame([{ square: 8, power: 'double' }, { square: 21, power: 'shield' }, { square: 34, power: 'cloak' }, { square: 47, power: 'thief' }]);
+    const g = powerGame([{ square: 8, power: 'double' }, { square: 21, power: 'shield' }, { square: 34, power: 'cloak' }, { square: 47, power: 'vampire' }]);
     mount(g);
     await flush(10);
     const orbs = [...document.querySelectorAll<HTMLElement>('#orbs .orb')];
-    expect(orbs.map((o) => o.className)).toEqual(['orb o-double', 'orb o-shield', 'orb o-cloak', 'orb o-thief']);
-    expect(orbs[3].getAttribute('aria-label')).toContain('Thief orb');
+    expect(orbs.map((o) => o.className)).toEqual(['orb o-double', 'orb o-shield', 'orb o-cloak', 'orb o-vampire']);
+    expect(orbs[3].getAttribute('aria-label')).toContain('Vampire power-up');
     expect([...document.querySelectorAll('.token.golden')].map((t) => t.getAttribute('aria-label'))).toEqual(['red token 2 (Golden token)', 'green token 3 (Golden token)']);
     expect(document.querySelectorAll('.token.golden .tok-crown')).toHaveLength(2);
-    expect(toasts().join(' ')).toContain('Power ups: land on an orb');
+    expect(toasts().join(' ')).toContain('Power ups: land on a power-up');
     expect(toasts().join(' ')).toContain('Your crowned token leaves base on any roll');
   });
 
@@ -1065,10 +1065,10 @@ describe('power ups and the golden token', () => {
     expect(token('green', 0).classList.contains('pw-cloak')).toBe(false);
   });
 
-  it("a thief's raid is a way of its own: in the bubble and as a crimson marker, and it is what's sent", async () => {
+  it("a vampire's raid is a way of its own: in the bubble and as a crimson marker, and it is what's sent", async () => {
     const g = powerGame();
     g.tokens.red = [35, B, B, B];
-    g.powers = { red: ['thief', null, null, null] };
+    g.powers = { red: ['vampire', null, null, null] };
     g.golden = {};
     mount(g);
     await step((s) => applyRoll(s, 4), 200);

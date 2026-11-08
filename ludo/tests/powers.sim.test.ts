@@ -22,7 +22,7 @@ function check(s: GameState): void {
       if (!ok) throw new Error(`${st.color} ${id} at ${p}`);
       const power = s.powers?.[st.color]?.[id] ?? null;
       if (power && (p === BASE || p === b.home)) throw new Error(`${st.color} ${id} keeps ${power} at ${p}`);
-      if (raidOf(p) && power !== 'thief') throw new Error(`${st.color} ${id} raids without being a thief`);
+      if (raidOf(p) && power !== 'vampire') throw new Error(`${st.color} ${id} raids without being a vampire`);
     });
   }
   // Every star has an orb or one on its way back.

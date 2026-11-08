@@ -1,5 +1,5 @@
 /**
- * Browser tests for v3.7's optional rules: power ups (orbs on the stars; 2x, shield, cloak, thief)
+ * Browser tests for v3.7's optional rules: power ups (orbs on the stars; 2x, shield, cloak, vampire)
  * and the golden token. Run with `npm run test:e2e`.
  */
 import type { Page } from 'puppeteer-core';
@@ -42,7 +42,7 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
     await tap(alice, '#golden');
     await until('bob sees both', async () => (await bob.$$eval('#powerups, #golden', (xs) => xs.map((x) => (x as HTMLInputElement).checked))).every(Boolean));
     expect(await bob.$eval('#powerups', (x) => (x as HTMLInputElement).disabled)).toBe(true);
-    expect(await alice.$eval('#powerups-rule', (x) => x.textContent)).toMatch(/Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Thief/);
+    expect(await alice.$eval('#powerups-rule', (x) => x.textContent)).toMatch(/Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Vampire/);
     await alice.$eval('#golden-rule', (x) => x.scrollIntoView({ block: 'center' }));
     await sleep(300);
     await shot(alice, 'powers-lobby');
@@ -61,12 +61,14 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
       await until('orbs', async () => (await p.$$('#orbs .orb')).length === 4);
       expect(await p.$$eval('.token.golden .tok-crown', (xs) => xs.length)).toBe(2);
     }
-    expect((await alice.$$eval('#orbs .orb', (os) => os.map((o) => o.getAttribute('aria-label') ?? ''))).join(' ')).toMatch(/Double move orb/);
+    await sleep(600);
+    await shot(alice, 'powers-start');
+    expect((await alice.$$eval('#orbs .orb', (os) => os.map((o) => o.getAttribute('aria-label') ?? ''))).join(' ')).toMatch(/Double move power-up/);
   });
 
   it("each power wears its badge; an opponent's cloaked token isn't on their board at all", async () => {
     game.orbs = game.orbs!.slice(0, 2);
-    game.powers = { [a]: ['shield', 'double', 'cloak', null], [b]: ['thief', null, null, null] };
+    game.powers = { [a]: ['shield', 'double', 'cloak', null], [b]: ['vampire', null, null, null] };
     game.tokens[a] = [4, 17, 30, BASE];
     game.tokens[b] = [2, BASE, BASE, BASE];
     nudge();
@@ -98,12 +100,12 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
     await until('badge', async () => (await alice.$$(`.token.t-${a}.pw-${power} .tok-badge`)).length === 1, 5000);
   });
 
-  it("a thief can raid an opponent's home column: asked which way, and it captures there", async () => {
+  it("a vampire can raid an opponent's home column: asked which way, and it captures there", async () => {
     await sleep(1500);
     const entry = laneEntry(b, B4);
     const p = (entry - B4.start[a]! + 52) % 52;
     game.orbs = [];
-    game.powers = { [a]: ['thief', null, null, null] };
+    game.powers = { [a]: ['vampire', null, null, null] };
     game.tokens[a] = [p - 2, BASE, BASE, BASE];
     game.tokens[b] = [B4.last + 2, BASE, BASE, BASE];
     await aliceRolls(4);
@@ -113,12 +115,12 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
     await alice.waitForSelector('.lap-opt.raid');
     expect(await alice.$eval('.lap-opt.raid', (x) => x.getAttribute('aria-label'))).toContain("Raid bob's home column, captures bob");
     await sleep(300);
-    await shot(alice, 'powers-thief-choice');
+    await shot(alice, 'powers-vampire-choice');
     await tap(alice, '.lap-opt.raid');
     await until('raided', () => game.tokens[a][0] === raidProgress(b, 2), 5000);
     expect(game.tokens[b][0]).toBe(BASE);
     await sleep(2500);
-    await shot(bob, 'powers-thief-raided');
+    await shot(bob, 'powers-vampire-raided');
     expect(t.errors).toEqual([]);
   });
 });

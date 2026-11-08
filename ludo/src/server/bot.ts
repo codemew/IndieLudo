@@ -4,7 +4,7 @@ import { currentColor, isTeammate, legalMoves } from '../shared/rules.js';
 import type { Color, GameState, LegalMove, Power } from '../shared/types.js';
 
 /** How much a bot wants each power (power ups). */
-const POWER_WANT: Record<Power, number> = { double: 30, shield: 25, cloak: 25, thief: 20 };
+const POWER_WANT: Record<Power, number> = { double: 30, shield: 25, cloak: 25, vampire: 20 };
 
 /** True if an opponent token sits 1..6 squares behind the given absolute square (a teammate is no threat). */
 function threatened(state: GameState, me: Color, abs: number): boolean {
@@ -33,7 +33,7 @@ function score(state: GameState, actor: Color, m: LegalMove): number {
   if (onTrack(m.from, b) && m.to > b.last && m.to < b.home) s += 40;
   // Going round again only to capture someone; otherwise head home.
   if (m.lap) s -= 50;
-  // Power ups: a thief raids a home column for the captures there (counted above), not for the detour.
+  // Power ups: a vampire raids a home column for the captures there (counted above), not for the detour.
   if (m.raid) s -= 30;
   if (m.orb) s += POWER_WANT[m.orb];
   s += (m.breaks?.length ?? 0) * 15;
@@ -46,7 +46,7 @@ function score(state: GameState, actor: Color, m: LegalMove): number {
     else if (threatened(state, me, toAbs)) s -= shielded ? 8 : 25;
   }
   if (fromAbs !== null && threatened(state, me, fromAbs) && (toAbs === null || !threatened(state, me, toAbs))) s += shielded ? 6 : 20;
-  // Prefer moving tokens further along (a second-lap token counts as one lap further; a raiding thief stays where it was).
+  // Prefer moving tokens further along (a second-lap token counts as one lap further; a raiding vampire stays where it was).
   const along = m.to === b.home ? b.home : raidOf(m.to) ? Math.max(m.from, 0) : isSecondLap(m.to, b) ? m.to - 6 : m.to;
   // Between tokens on the same square, move the one with the smaller moustache: the macho one
   // stays put, and a clean-shaven one that captures grows a moustache of its own.

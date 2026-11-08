@@ -54,7 +54,7 @@ export function lobbyScreen(root: HTMLElement): () => void {
       <label class="rule-check" id="powerups-rule">
         <input type="checkbox" id="powerups" />
         <span class="rule-box" aria-hidden="true"></span>
-        <span class="rule-text"><b>⚡ Power ups</b><small>Orbs on the stars give a token a power until it's captured or home:
+        <span class="rule-text"><b>⚡ Power ups</b><small>Power-ups on the stars: a token that lands on one keeps its power until it's captured or home:
           <span class="rule-powers">${POWERS.map((p) => `<span>${POWER_INFO[p].icon} ${POWER_INFO[p].name}</span>`).join('')}</span></small></span>
       </label>
       <label class="rule-check" id="golden-rule">

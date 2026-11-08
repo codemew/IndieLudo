@@ -110,12 +110,12 @@ describe('the orbs', () => {
 
   it('a new orb replaces the power a token had', () => {
     const s = bare();
-    s.orbs = [{ square: 21, power: 'thief' }];
+    s.orbs = [{ square: 21, power: 'vampire' }];
     s.tokens.red[0] = 18;
     give(s, 'red', 0, 'shield');
     withQueue(s, [3]);
     applyMove(s, 0, 0);
-    expect(s.powers!.red![0]).toBe('thief');
+    expect(s.powers!.red![0]).toBe('vampire');
   });
 });
 
@@ -243,11 +243,11 @@ describe('the invisibility cloak', () => {
   });
 });
 
-describe('the thief', () => {
+describe('the vampire', () => {
   it("may turn into an opponent's home column where it passes their turn, capturing there", () => {
     const s = bare(['red', 'blue']);
     s.tokens.red[0] = 35;
-    give(s, 'red', 0, 'thief');
+    give(s, 'red', 0, 'vampire');
     s.tokens.blue[0] = 52; // up its own column, 2 squares in
     withQueue(s, [4]);
     const options = legalMoves(s).filter((m) => m.tokenId === 0);
@@ -269,7 +269,7 @@ describe('the thief', () => {
   it("comes out at that player's start square by reaching their home exactly", () => {
     const s = bare(['red', 'blue']);
     s.tokens.red[0] = raidProgress('blue', 2);
-    give(s, 'red', 0, 'thief');
+    give(s, 'red', 0, 'vampire');
     withQueue(s, [5, 4]);
     expect(legalMoves(s).filter((m) => m.tokenId === 0 && m.die === 5)).toEqual([]); // overshoots
     const out = legalMoves(s).find((m) => m.tokenId === 0 && m.die === 4)!;
@@ -277,13 +277,13 @@ describe('the thief', () => {
     expect(absoluteSquare('red', out.to)).toBe(39); // blue's start
     applyMove(s, 1, 0);
     expect(s.tokens.red[0]).toBe(39);
-    expect(s.powers!.red![0]).toBe('thief'); // kept until captured or home
+    expect(s.powers!.red![0]).toBe('vampire'); // kept until captured or home
   });
 
   it('a 6 from the turn square goes in and straight out again', () => {
     const s = bare(['red', 'blue']);
     s.tokens.red[0] = 37; // on blue's turn square
-    give(s, 'red', 0, 'thief');
+    give(s, 'red', 0, 'vampire');
     withQueue(s, [6]);
     const raid = legalMoves(s).find((m) => m.raid === 'blue')!;
     expect(raid.to).toBe(39);
@@ -291,11 +291,11 @@ describe('the thief', () => {
     expect(pathCells('red', 37, 39, 0, b, 'blue')).toEqual([...b.homeColumn.blue!, b.homeSpot.blue!, b.track[39]]);
   });
 
-  it('the owner coming up their own column captures a thief there', () => {
+  it('the owner coming up their own column captures a vampire there', () => {
     const s = bare(['red', 'blue'], {});
     s.turn.seat = 1; // blue
     s.tokens.red[0] = raidProgress('blue', 2);
-    give(s, 'red', 0, 'thief');
+    give(s, 'red', 0, 'vampire');
     s.tokens.blue[0] = 50;
     withQueue(s, [2]);
     const m = legalMoves(s).find((x) => x.tokenId === 0)!;
@@ -308,7 +308,7 @@ describe('the thief', () => {
   it("in Team-up it leaves the partner's column alone", () => {
     const s = bare(['red', 'green', 'yellow', 'blue'], { teams: true });
     s.tokens.red[0] = 22; // two before yellow's turn (24)
-    give(s, 'red', 0, 'thief');
+    give(s, 'red', 0, 'vampire');
     withQueue(s, [4]);
     expect(laneEntry('yellow')).toBe(24);
     expect(
@@ -318,10 +318,10 @@ describe('the thief', () => {
     ).toEqual([undefined]);
   });
 
-  it('on its second lap it comes out on its second lap, and only a thief can raid', () => {
+  it('on its second lap it comes out on its second lap, and only a vampire can raid', () => {
     const s = bare(['red', 'green']);
     s.tokens.red[0] = 64; // second lap, square 6 + … : 64 - 6 = 58 → square 6
-    give(s, 'red', 0, 'thief');
+    give(s, 'red', 0, 'vampire');
     withQueue(s, [6]);
     // Green's turn is square 11: 5 on, then 1 up the column.
     const raid = legalMoves(s).find((m) => m.raid === 'green')!;

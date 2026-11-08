@@ -253,7 +253,7 @@ export function targetProgress(progress: number, die: number, b: Board = boardOf
   return targetsFor(progress, die, true, b)[0]?.to ?? null;
 }
 
-/** Where a token could go with this many squares (power ups: a thief may also turn into another player's home column). */
+/** Where a token could go with this many squares (power ups: a vampire may also turn into another player's home column). */
 interface Target {
   to: number;
   lap?: true;
@@ -265,13 +265,13 @@ function stepTargets(state: GameState, color: Color, tokenId: number, from: numb
   const b = boardFor(state);
   const raid = raidOf(from);
   if (raid) {
-    // A thief up someone's home column: on up it, or exactly into their home and out at their start.
+    // A vampire up someone's home column: on up it, or exactly into their home and out at their start.
     const s = raid.step + d;
     if (s <= 5) return [{ to: raidProgress(raid.lane, s, raid.secondLap) }];
     return s === 6 ? [{ to: raidExitProgress(color, raid.lane, raid.secondLap, b) }] : [];
   }
   const out: Target[] = targetsFor(from, d, hasExtraLap(state, color, tokenId), b);
-  if (powerOf(state, color, tokenId) !== 'thief' || !onTrack(from, b)) return out;
+  if (powerOf(state, color, tokenId) !== 'vampire' || !onTrack(from, b)) return out;
   const second = isSecondLap(from, b);
   const lastOnTrack = second ? b.lap2Last : b.last;
   for (const seat of state.seats) {
@@ -304,7 +304,7 @@ export function tokenTargets(state: GameState, color: Color, tokenId: number, di
 
 /**
  * Tokens a move to `to` would capture, and shielded ones it would only knock the shield off. On
- * the track, any opponent on that square unless it is safe; in a home column (power ups: a thief
+ * the track, any opponent on that square unless it is safe; in a home column (power ups: a vampire
  * in someone's, or the owner coming up their own), anyone else on that spot.
  */
 function hitsAt(state: GameState, mover: Color, to: number): { captures: LegalMove['captures']; breaks: LegalMove['captures'] } {
@@ -432,7 +432,7 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
 /**
  * `lap`: take the token round the board again instead of into its home column (when it may).
  * `owner`: whose token, for a partner's under turn sharing; absent means the current player's own.
- * `raid`: power ups: a thief turns into this colour's home column (when it may).
+ * `raid`: power ups: a vampire turns into this colour's home column (when it may).
  * The move's effects on the board belong to the token (its moustache, its extra lap, the colour in
  * the events); the player's stats belong to whoever moved it.
  */

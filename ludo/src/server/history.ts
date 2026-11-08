@@ -35,6 +35,16 @@ export class MatchHistory {
     return { matches: rows.slice(0, limit).map((r) => summarize(JSON.parse(r.state_json) as GameState, r.updated_at)), more: rows.length > limit };
   }
 
+  /** Admin: one finished match gone from the history (a game still being played is never touched). */
+  delete(id: string): boolean {
+    return Number(this.db.prepare('DELETE FROM games WHERE id = ? AND finished = 1').run(id).changes) > 0;
+  }
+
+  /** Admin: every finished match gone from the history. How many there were. */
+  deleteAll(): number {
+    return Number(this.db.prepare('DELETE FROM games WHERE finished = 1').run().changes);
+  }
+
   /** A whole finished match, for its page (podium, awards, stats, dice luck); undefined if there is none. */
   get(id: string): (GameState & { endedAt: number }) | undefined {
     const row = this.db.prepare('SELECT state_json, updated_at FROM games WHERE id = ? AND finished = 1').get(id) as

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Lobby music.** With every seat taken by a person (not a bot), every phone in the lobby plays the lobby track at 30% volume on repeat, each repeat crossfading over the last 4 seconds. When the game starts it stops repeating and plays on to the end; it starts again when the match ends (results, and back in the lobby). It follows the sound button and fades out on leaving. Web Audio, one decoded buffer (`lobbyMusic.ts`); the track is a hashed, long-cached asset loaded only when it first plays.
+- **Admin resets.** In the admin panel's **Users** tab, reset one player's wins and games played or everyone's; a new **History** tab deletes one finished match or the whole match history (games being played are kept). `POST /api/admin/users/:id/reset-stats`, `POST /api/admin/stats/reset`, `DELETE /api/admin/history/:id`, `DELETE /api/admin/history`.
+
+### Fixed
+- **Admin panel: a tab picked while another was still loading could be replaced by that one.** Each tab now draws only if it is still the one picked.
+
 ## 4.1.0
 
 ### Fixed

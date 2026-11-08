@@ -127,3 +127,42 @@ describe('the match history over the API', () => {
     expect((await http(t.base, 'GET', '/api/history/nope', { session: alice.token })).status).toBe(404);
   });
 });
+
+describe('admin resets', () => {
+  let t: TestServer;
+  afterEach(async () => t?.close());
+
+  it("resets one player's stats or everyone's, deletes one match or the whole history; games being played are kept; admins only", async () => {
+    const { ADMIN_PW, verifiedDevice } = await import('./serverHelpers.js');
+    t = await startTestServer();
+    const alice = await signup(t, 'alice');
+    const bob = await signup(t, 'bob');
+    db = t.server.ctx.db;
+    t.server.ctx.users.recordGame(alice.userId, true);
+    t.server.ctx.users.recordGame(alice.userId, false);
+    t.server.ctx.users.recordGame(bob.userId, true);
+    save(finished('m1', ['red', 'green'], [alice.userId, bob.userId], ['green']), 100);
+    save(finished('m2', ['red', 'green'], [alice.userId, bob.userId], ['red']), 200);
+    save(createGameState({ id: 'live', lobbyId: 'L', seats: [seat('red', 1), seat('green', 2)] }), 300);
+    const admin = (await http(t.base, 'POST', '/api/admin/login', { body: { password: ADMIN_PW }, device: await verifiedDevice(t) })).json.token as string;
+
+    // Not for players.
+    expect((await http(t.base, 'POST', `/api/admin/users/${bob.userId}/reset-stats`, { session: alice.token })).status).toBe(403);
+    expect((await http(t.base, 'DELETE', '/api/admin/history', { session: alice.token })).status).toBe(403);
+
+    expect((await http(t.base, 'POST', `/api/admin/users/${alice.userId}/reset-stats`, { session: admin })).status).toBe(200);
+    expect(t.server.ctx.users.get(alice.userId)).toMatchObject({ wins: 0, games_played: 0 });
+    expect(t.server.ctx.users.get(bob.userId)).toMatchObject({ wins: 1, games_played: 1 });
+    expect((await http(t.base, 'POST', '/api/admin/users/9999/reset-stats', { session: admin })).status).toBe(404);
+    expect((await http(t.base, 'POST', '/api/admin/stats/reset', { session: admin })).json).toEqual({ ok: true, users: 2 });
+    expect(t.server.ctx.users.get(bob.userId)).toMatchObject({ wins: 0, games_played: 0 });
+
+    expect((await http(t.base, 'DELETE', '/api/admin/history/m1', { session: admin })).status).toBe(200);
+    expect((await http(t.base, 'DELETE', '/api/admin/history/m1', { session: admin })).status).toBe(404);
+    expect((await http(t.base, 'DELETE', '/api/admin/history/live', { session: admin })).status).toBe(404);
+    expect(t.server.ctx.history.list().matches.map((m) => m.id)).toEqual(['m2']);
+    expect((await http(t.base, 'DELETE', '/api/admin/history', { session: admin })).json).toEqual({ ok: true, matches: 1 });
+    expect(t.server.ctx.history.list().matches).toEqual([]);
+    expect(db.prepare("SELECT id FROM games WHERE id = 'live'").get()).toBeDefined();
+  });
+});

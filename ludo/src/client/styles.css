@@ -5281,3 +5281,24 @@ polygon.b-inner {
   display: block;
   margin: 12px auto 0;
 }
+/* Admin rows with several actions: the actions go under the name when they don't fit beside it. */
+.admin-list li {
+  flex-wrap: wrap;
+}
+.admin-list .row-main {
+  flex: 1 1 160px;
+}
+.admin-list .row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.admin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.admin-bar p {
+  margin: 0;
+}

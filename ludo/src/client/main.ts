@@ -16,6 +16,7 @@ import { matchScreen } from './screens/match.js';
 import { signupScreen } from './screens/signup.js';
 import { splashScreen } from './screens/splash.js';
 import { installUnlockListeners } from './sound.js';
+import { startLobbyMusic } from './lobbyMusic.js';
 import { installTalkUi } from './talkUi.js';
 import { installWakeLock } from './wakelock.js';
 
@@ -31,6 +32,7 @@ register('match', matchScreen);
 register('admin', adminScreen);
 
 installUnlockListeners();
+startLobbyMusic();
 installWakeLock();
 installKeyboardAvoidance();
 installInstallPrompt();

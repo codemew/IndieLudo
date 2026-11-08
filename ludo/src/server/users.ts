@@ -85,6 +85,13 @@ export class UserService {
     this.db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(now, id);
   }
 
+  /** Admin: a player's wins and games played back to zero (every player's without `id`). How many were reset. */
+  resetStats(id?: number): number {
+    const r = id === undefined ? this.db.prepare('UPDATE users SET games_played = 0, wins = 0').run() : this.db.prepare('UPDATE users SET games_played = 0, wins = 0 WHERE id = ?').run(id);
+    if (id !== undefined && r.changes === 0) throw new AppError('NOT_FOUND', 404);
+    return Number(r.changes);
+  }
+
   recordGame(id: number, won: boolean): void {
     this.db
       .prepare('UPDATE users SET games_played = games_played + 1, wins = wins + ? WHERE id = ?')

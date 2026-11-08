@@ -22,16 +22,26 @@ function pick<T>(state: GameState, list: readonly T[]): T {
   return list[Math.floor(nextRandom(state) * list.length)];
 }
 
-/** An orb on every star, each power once in shuffled order (a 5- or 6-player board adds random ones). */
-export function initialOrbs(state: GameState): { square: number; power: Power }[] {
-  const stars = [...boardFor(state).stars].sort((a, b) => a - b);
-  const deck: Power[] = [...POWERS];
-  while (deck.length < stars.length) deck.push(pick(state, POWERS));
+function shuffled<T>(state: GameState, list: readonly T[]): T[] {
+  const deck = [...list];
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(nextRandom(state) * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
-  return stars.map((square, i) => ({ square, power: deck[i] }));
+  return deck;
+}
+
+/**
+ * Each power once, never two of the same on the board: on the 4-player board one on every star in
+ * shuffled order; on the 5- and 6-player boards (more stars than powers) on four random stars.
+ */
+export function initialOrbs(state: GameState): { square: number; power: Power }[] {
+  const stars = shuffled(
+    state,
+    [...boardFor(state).stars].sort((a, b) => a - b),
+  ).slice(0, POWERS.length);
+  const powers = shuffled(state, POWERS);
+  return stars.map((square, i) => ({ square, power: powers[i] })).sort((a, b) => a.square - b.square);
 }
 
 export function powerOf(state: Pick<GameState, 'powers'>, color: Color, tokenId: number): Power | null {
@@ -62,8 +72,9 @@ export function orbRespawnTurns(state: GameState): number {
 
 /**
  * On each turn change: taken orbs count down, and the ones due come back on a random star without
- * one, with a random power. Tokens on the star don't matter (it would give away where a cloaked one
- * is); a token already there takes the orb only by landing on it again.
+ * one, with one of the powers not on the board (so never two of the same). Tokens on the star don't
+ * matter (it would give away where a cloaked one is); a token already there takes the orb only by
+ * landing on it again.
  */
 export function tickOrbs(state: GameState, events: GameEvent[]): void {
   if (!state.powerUps || !state.orbsDue?.length) return;
@@ -74,7 +85,10 @@ export function tickOrbs(state: GameState, events: GameEvent[]): void {
     const free = [...b.stars].filter((s) => !busy.has(s)).sort((x, y) => x - y);
     if (!free.length) return;
     state.orbsDue.splice(state.orbsDue.indexOf(0), 1);
-    const orb = { square: pick(state, free), power: pick(state, POWERS) };
+    const onBoard = new Set((state.orbs ?? []).map((o) => o.power));
+    const missing = POWERS.filter((p) => !onBoard.has(p));
+    if (!missing.length) return;
+    const orb = { square: pick(state, free), power: pick(state, missing) };
     (state.orbs ??= []).push(orb);
     events.push({ type: 'orb', ...orb });
   }
@@ -117,7 +131,10 @@ export function viewFor<T extends GameState & { legalMoves?: LegalMove[] }>(stat
   return out;
 }
 
-/** The events one phone gets: a cloaked token's moves only reach those who can see it. */
+/**
+ * The events one phone gets: a cloaked token's moves only reach those who can see it; everyone
+ * else gets a 'ghost' instead (something unseen moved: no square, no distance).
+ */
 export function eventsFor(state: Pick<GameState, 'teams'>, events: GameEvent[], viewer: Color | null): GameEvent[] {
-  return events.filter((e) => e.type !== 'move' || !e.cloaked || seesCloaked(state, viewer, e.color));
+  return events.map((e) => (e.type === 'move' && e.cloaked && !seesCloaked(state, viewer, e.color) ? { type: 'ghost', color: e.color } : e));
 }

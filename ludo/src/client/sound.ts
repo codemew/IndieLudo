@@ -9,7 +9,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let muted = storage.get(KEYS.muted) === '1';
 
-export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire' | 'powerUp' | 'shieldBreak' | 'orb';
+export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire' | 'powerUp' | 'shieldBreak' | 'orb' | 'ghost';
 
 export function unlock(): void {
   try {
@@ -253,6 +253,13 @@ export function play(name: Sfx): void {
       [1500, 2210, 3050].forEach((f, i) => tone(f, 0, 0.5 - i * 0.1, 'sine', 0.1 - i * 0.02));
       noise(0.02, 0.25, 0.14, 5000);
       tone(700, 0.05, 0.3, 'triangle', 0.08, 300);
+      break;
+    case 'ghost':
+      // A cloaked token moved: one airy, wavering "whooo" that slides down and fades, with breath.
+      tone(620, 0, 0.9, 'sine', 0.09, 300);
+      tone(628, 0.02, 0.85, 'sine', 0.05, 306);
+      tone(930, 0.05, 0.6, 'triangle', 0.025, 450);
+      noise(0, 0.8, 0.05, 1800);
       break;
     case 'orb':
       // A new orb appears on a star: a soft bubbling pop.

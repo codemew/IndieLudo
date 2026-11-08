@@ -94,7 +94,7 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
     game.tokens[b] = [BASE, BASE, BASE, BASE];
     await aliceRolls(3);
     await until('the power', () => game.powers?.[a]?.[3] === power, 8000);
-    await until('the callout on bob', async () => /got it/.test(await toastsOf(bob)), 5000);
+    await until('the callout on bob', async () => /alice's token/.test(await toastsOf(bob)), 5000);
     await sleep(150);
     await shot(bob, 'powers-pickup');
     await until('badge', async () => (await alice.$$(`.token.t-${a}.pw-${power} .tok-badge`)).length === 1, 5000);

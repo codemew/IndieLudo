@@ -16,6 +16,8 @@ export const FIRST_BLOOD_MS = 1800;
 export const POWER_PICKUP_MS = 900;
 export const SHIELD_BREAK_MS = 700;
 export const ORB_SPAWN_MS = 500;
+/** An opponent's cloaked token moving, unseen: the ghostly whoosh. */
+export const GHOST_MS = 700;
 /** How long the phones show a surrender (tokens sliding home, the white flag going up). */
 export const SURRENDER_MS = 1400;
 /** How long the phones show a wildcard entry (the banner, the token flying from home back to base). */
@@ -206,6 +208,8 @@ export type GameEvent =
   | { type: 'shield'; color: Color; victim: Color; tokenId: number }
   /** Power ups: a new orb appeared. */
   | { type: 'orb'; square: number; power: Power }
+  /** Power ups: an opponent's cloaked token moved, somewhere unseen (what a phone gets instead of the move). */
+  | { type: 'ghost'; color: Color }
   | { type: 'home'; color: Color; tokenId: number }
   | { type: 'rank'; color: Color; rank: number }
   | { type: 'noMoves'; color: Color; discarded: number[] }

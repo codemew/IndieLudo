@@ -26,7 +26,9 @@ function check(s: GameState): void {
     });
   }
   // Every star has an orb or one on its way back.
-  if ((s.orbs?.length ?? 0) + (s.orbsDue?.length ?? 0) !== b.stars.size) throw new Error('orbs lost');
+  // Every power is on the board or on its way back, and never two of the same.
+  if ((s.orbs?.length ?? 0) + (s.orbsDue?.length ?? 0) !== 4) throw new Error('orbs lost');
+  if (new Set((s.orbs ?? []).map((o) => o.power)).size !== (s.orbs?.length ?? 0)) throw new Error('two of the same power');
 }
 
 /** Bots play a whole game with both rules on; every state on the way is checked. */

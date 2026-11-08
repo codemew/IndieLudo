@@ -1604,6 +1604,42 @@ h3 {
   font-size: 26px;
   font-weight: 900;
 }
+/* The power ups' banners: they stay longer, and their line wraps inside the board. */
+.callout.callout-long {
+  white-space: normal;
+  width: max-content;
+  max-width: 86%;
+  text-align: center;
+  gap: 4px;
+  animation: callout-long var(--callout-ms, 4s) cubic-bezier(0.2, 0.9, 0.3, 1.3) forwards;
+}
+@keyframes callout-long {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+  6% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  10%,
+  90% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -56%) scale(0.97);
+  }
+}
+.callout.callout-long b {
+  font-size: 22px;
+}
+.callout.callout-long small {
+  font-size: 15px;
+  line-height: 1.3;
+  opacity: 0.9;
+}
 .callout small {
   opacity: 0.75;
   font-size: 14px;

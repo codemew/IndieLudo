@@ -462,6 +462,7 @@ export class GameManager {
       else if (e.type === 'power') ms += POWER_PICKUP_MS;
       else if (e.type === 'shield') ms += SHIELD_BREAK_MS;
       else if (e.type === 'orb') ms += ORB_SPAWN_MS;
+      // 'ghost' is what opponents get instead of a cloaked move: the move's own time covers it.
     }
     return ms * this.animScale;
   }

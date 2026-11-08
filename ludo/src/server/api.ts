@@ -182,6 +182,23 @@ export function apiRouter(ctx: Ctx, opts: ApiOptions = {}): express.Router {
     res.json({ user: { ...publicUser(updated), canCreate: ctx.hosts.isTrusted(user.id) } });
   });
 
+  // The match history: every finished match (or only mine), newest first, a page at a time.
+  api.get('/history', (req, res) => {
+    const { user } = locals(res).auth!;
+    const before = req.query.before === undefined ? undefined : Number(req.query.before);
+    if (before !== undefined && !Number.isSafeInteger(before)) throw new AppError('BAD_PAYLOAD');
+    const mine = req.query.mine === '1';
+    if (mine && !user) return void res.json({ matches: [], more: false });
+    res.json(ctx.history.list({ before, ...(mine && { userId: user!.id }) }));
+  });
+
+  api.get('/history/:id', (req, res) => {
+    const id = String(req.params.id);
+    const match = id.length <= 64 ? ctx.history.get(id) : undefined;
+    if (!match) throw new AppError('NO_GAME', 404);
+    res.json({ match });
+  });
+
   api.post('/logout', (_req, res) => {
     const { session } = locals(res).auth!;
     ctx.sessions.revoke(session.id);

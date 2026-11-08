@@ -332,6 +332,8 @@ export class GameManager {
     game.graceTimers.delete(userId);
     seat.controller = 'bot';
     seat.userId = null;
+    // Still their match, for the history.
+    seat.leftBy = userId;
     seat.connected = true;
     this.touch(game);
   }

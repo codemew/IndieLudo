@@ -274,6 +274,10 @@ The lobby shows each player's lifetime wins (🏆) beside their name.
 
 **Screen:** the board stays square and edge to edge. The queued dice are on the left. The dice is on the right and only shows while someone still has to roll; once the rolls are done, their values stay in the queue chips.
 
+## Match history
+
+The home screen's **📜 History** tab lists every finished match on the server, newest first, 20 at a time (**Show older matches** for more); **Mine** shows only the ones you played, also one you left before the end. Each card shows when it ended and how long it took, the mode and rules (Classic or Team-up, players, ⚡ Power ups, 👑 Golden, 🤖 bot battle), and every player's **place**, with a 👑 for the winners, 🏳️ for a surrender, 🚪 for someone who left (a bot played on) and the **awards** each won. Tap a card to open the match whole: the podium, the awards, the match stats and the **dice luck** of each player, as on the results screen. Games are kept in the database once finished; a game dropped because its lobby closed isn't listed.
+
 ## Voice chat
 
 Everyone in a lobby, up to 10 people (6 seats and 4 spectators), is automatically in that lobby's voice chat. Bots never are. It starts when you enter the lobby and stays connected through matches and results. You leave it by leaving the lobby or being kicked. It also ends when the lobby closes or the host turns it off.

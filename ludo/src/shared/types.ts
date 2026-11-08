@@ -62,6 +62,8 @@ export interface Seat {
   connected: boolean;
   /** Consecutive missed turns; MAX_MISSED_TURNS hands the seat to a takeover bot. */
   timeouts: number;
+  /** The player who had this seat and left the game for good (a bot played on): for their match history. */
+  leftBy?: number;
 }
 
 export type TurnPhase = 'rolling' | 'moving';
@@ -354,6 +356,40 @@ export interface OnlineUser {
   /** Their phones; absent when they chose to hide them (`hidden`). */
   devices?: OnlineDevice[];
   hidden?: boolean;
+}
+
+/** One player of a finished match, as the match history lists it. */
+export interface MatchPlayer {
+  color: Color;
+  username: string;
+  avatar?: string;
+  /** A bot from the start (a seat a bot took over for a player who left still counts as theirs). */
+  bot: boolean;
+  /** The account that played it (also for a player who left), null for a bot. */
+  userId: number | null;
+  /** 1st, 2nd…; in Team-up both winners are 1 and the others 2. */
+  place: number;
+  won: boolean;
+  surrendered?: true;
+  /** Left the game for good before the end; a bot played the rest. */
+  left?: true;
+  /** The awards this player won in the match (the icons), best first. */
+  awards: { key: string; icon: string; title: string }[];
+}
+
+/** A finished match, for the match history list. */
+export interface MatchSummary {
+  id: string;
+  startedAt: number;
+  endedAt: number;
+  board: BoardSize;
+  teams?: true;
+  share?: true;
+  powerUps?: true;
+  golden?: true;
+  botBattle?: true;
+  /** In finishing order. */
+  players: MatchPlayer[];
 }
 
 export interface AdminLobby extends LobbySummary {

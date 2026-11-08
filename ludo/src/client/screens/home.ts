@@ -1,6 +1,7 @@
 import { AVATARS, avatarFace, isAvatarId } from '../../shared/avatars.js';
 import { MAX_SPECTATORS, type LobbySummary, type OnlineUser, type PublicLobby } from '../../shared/types.js';
 import { humanIds } from '../../shared/lobbyPeople.js';
+import { HistoryPanel } from '../history.js';
 import { logout, showError } from '../app.js';
 import { bindFullscreenButton } from '../fullscreen.js';
 import { canInstall, promptInstall } from '../install.js';
@@ -35,6 +36,7 @@ export function homeScreen(root: HTMLElement): () => void {
     <nav class="tabs home-tabs" role="tablist" aria-label="Home">
       <button role="tab" id="tab-lobbies" data-tab="lobbies" aria-controls="panel-lobbies">🏠 Lobbies</button>
       <button role="tab" id="tab-users" data-tab="users" aria-controls="panel-users">👥 Users <span class="tab-count" id="users-count"></span></button>
+      <button role="tab" id="tab-history" data-tab="history" aria-controls="panel-history">📜 History</button>
     </nav>
     <section class="home-body">
       <div id="my-lobby"></div>
@@ -46,6 +48,7 @@ export function homeScreen(root: HTMLElement): () => void {
         <div class="section-title"><h3>Online now</h3><span class="live-dot" title="Live"></span></div>
         <ul class="user-list" id="user-list"></ul>
       </div>
+      <div role="tabpanel" id="panel-history" aria-labelledby="tab-history" hidden></div>
     </section>
     <footer class="bottom-bar">
       <div class="app-update" id="app-update"></div>
@@ -68,8 +71,10 @@ export function homeScreen(root: HTMLElement): () => void {
   // While in a lobby you are in its voice chat even here, so the mute control stays at hand.
   const offMute = bindMuteButton($<HTMLButtonElement>(root, '#mute'));
 
-  // Lobbies or Users: one Tab stop, arrow keys switch; the choice is remembered on this phone.
-  let tab: HomeTab = storage.get(KEYS.homeTab) === 'users' ? 'users' : 'lobbies';
+  // Lobbies, Users or History: one Tab stop, arrow keys switch; the choice is remembered on this phone.
+  const saved = storage.get(KEYS.homeTab);
+  let tab: HomeTab = HOME_TABS.includes(saved as HomeTab) ? (saved as HomeTab) : 'lobbies';
+  const history = new HistoryPanel($(root, '#panel-history'));
   const tabs = [...root.querySelectorAll<HTMLButtonElement>('.home-tabs [role=tab]')];
   const showTab = (next: HomeTab, focus = false) => {
     tab = next;
@@ -83,15 +88,20 @@ export function homeScreen(root: HTMLElement): () => void {
     }
     $(root, '#panel-lobbies').hidden = next !== 'lobbies';
     $(root, '#panel-users').hidden = next !== 'users';
+    $(root, '#panel-history').hidden = next !== 'history';
     $<HTMLButtonElement>(root, '#create').hidden = next !== 'lobbies';
     if (next === 'users') renderUsers($(root, '#user-list'), state.onlineUsers);
+    // The newest matches each time the tab is opened.
+    if (next === 'history') void history.load();
   };
   for (const b of tabs) b.onclick = () => showTab(b.dataset.tab as HomeTab);
   $(root, '.home-tabs').addEventListener('keydown', (e) => {
     const ke = e as KeyboardEvent;
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ke.key)) return;
     ke.preventDefault();
-    showTab(ke.key === 'Home' ? 'lobbies' : ke.key === 'End' ? 'users' : tab === 'lobbies' ? 'users' : 'lobbies', true);
+    const at = HOME_TABS.indexOf(tab);
+    const to = ke.key === 'Home' ? 0 : ke.key === 'End' ? HOME_TABS.length - 1 : (at + (ke.key === 'ArrowRight' ? 1 : -1) + HOME_TABS.length) % HOME_TABS.length;
+    showTab(HOME_TABS[to], true);
   });
 
   const render = () => {
@@ -135,7 +145,8 @@ export function homeScreen(root: HTMLElement): () => void {
   };
 }
 
-type HomeTab = 'lobbies' | 'users';
+type HomeTab = 'lobbies' | 'users' | 'history';
+const HOME_TABS: HomeTab[] = ['lobbies', 'users', 'history'];
 
 const WHERE: Record<string, string> = { lobby: 'In lobby', playing: 'Playing in', watching: 'Watching' };
 

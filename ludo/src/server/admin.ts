@@ -41,6 +41,26 @@ export function adminRouter(ctx: Ctx): express.Router {
     res.json({ ok: true });
   });
 
+  // Resets: a player's wins and games played, everyone's, and the match history.
+  r.post('/users/:id/reset-stats', (req, res) => {
+    ctx.users.resetStats(idParam(req.params.id));
+    res.json({ ok: true });
+  });
+
+  r.post('/stats/reset', (_req, res) => {
+    res.json({ ok: true, users: ctx.users.resetStats() });
+  });
+
+  r.delete('/history/:id', (req, res) => {
+    const id = String(req.params.id);
+    if (id.length > 64 || !ctx.history.delete(id)) throw new AppError('NO_GAME', 404);
+    res.json({ ok: true });
+  });
+
+  r.delete('/history', (_req, res) => {
+    res.json({ ok: true, matches: ctx.history.deleteAll() });
+  });
+
   r.get('/sessions', (_req, res) => {
     res.json(ctx.sessions.list());
   });

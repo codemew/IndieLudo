@@ -53,9 +53,18 @@ export function isMuted(): boolean {
   return muted;
 }
 
+const muteListeners = new Set<(muted: boolean) => void>();
+
 export function setMuted(m: boolean): void {
   muted = m;
   storage.set(KEYS.muted, m ? '1' : '0');
+  for (const fn of muteListeners) fn(m);
+}
+
+/** Called with the new setting whenever sound is muted or unmuted (the lobby music follows it). */
+export function onMuteChange(fn: (muted: boolean) => void): () => void {
+  muteListeners.add(fn);
+  return () => muteListeners.delete(fn);
 }
 
 function tone(freq: number, start: number, dur: number, type: OscillatorType = 'sine', vol = 0.3, endFreq?: number): void {

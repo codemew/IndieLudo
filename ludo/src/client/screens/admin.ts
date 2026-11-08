@@ -1,4 +1,5 @@
-import type { AdminLobby } from '../../shared/types.js';
+import type { AdminLobby, MatchSummary } from '../../shared/types.js';
+import { durationText, whenText } from '../history.js';
 import { enterApp, signOut } from '../app.js';
 import { ApiError, api } from '../api.js';
 import { go } from '../router.js';
@@ -66,7 +67,7 @@ export function adminLoginDialog(): void {
   });
 }
 
-type Tab = 'users' | 'lobbies' | 'passwords' | 'devices' | 'sessions' | 'code';
+type Tab = 'users' | 'lobbies' | 'history' | 'passwords' | 'devices' | 'sessions' | 'code';
 
 interface CreateAccessInfo {
   source: 'config' | 'admin';
@@ -84,6 +85,7 @@ export function adminScreen(root: HTMLElement): void {
     <nav class="tabs">
       <button data-tab="users" class="active">Users</button>
       <button data-tab="lobbies">Lobbies</button>
+      <button data-tab="history">History</button>
       <button data-tab="passwords">Passwords</button>
       <button data-tab="devices">Devices</button>
       <button data-tab="sessions">Sessions</button>
@@ -132,6 +134,7 @@ export function adminScreen(root: HTMLElement): void {
     panel.innerHTML = '<div class="loading"><span class="spinner"></span></div>';
     if (tab === 'users') return renderUsers('');
     if (tab === 'lobbies') return renderLobbies();
+    if (tab === 'history') return renderHistory();
     if (tab === 'passwords') return renderPasswords();
     if (tab === 'devices') return renderDevices();
     if (tab === 'sessions') return renderSessions();
@@ -141,15 +144,17 @@ export function adminScreen(root: HTMLElement): void {
   async function renderUsers(q: string): Promise<void> {
     const users = await guard(() => api<AdminUser[]>('GET', `/admin/users?q=${encodeURIComponent(q)}`));
     if (!users) return;
+    // Another tab was picked while this one loaded: leave the panel to it.
+    if (tab !== 'users') return;
     panel.innerHTML = `
       <input class="input search" placeholder="Search users" value="${esc(q)}" />
-      <p class="muted small">${users.length} user${users.length === 1 ? '' : 's'}</p>
+      <div class="admin-bar"><p class="muted small">${users.length} user${users.length === 1 ? '' : 's'}</p><button class="chip chip-danger" id="reset-all">↺ Reset everyone's stats</button></div>
       <ul class="admin-list">${users
         .map(
           (u) => `
         <li data-id="${u.id}">
           <div class="row-main"><b>${esc(u.username)}</b><span class="muted small">#${u.id} · seen ${timeAgo(u.last_seen)} · ${u.wins}/${u.games_played} wins</span></div>
-          <div class="row-actions"><button class="chip" data-act="rename">Rename</button><button class="chip chip-danger" data-act="delete">Delete</button></div>
+          <div class="row-actions"><button class="chip" data-act="rename">Rename</button><button class="chip" data-act="reset">↺ Reset stats</button><button class="chip chip-danger" data-act="delete">Delete</button></div>
         </li>`,
         )
         .join('')}</ul>`;
@@ -159,10 +164,21 @@ export function adminScreen(root: HTMLElement): void {
       clearTimeout(t);
       t = setTimeout(() => void renderUsers(search.value).then(() => $<HTMLInputElement>(panel, '.search')?.focus()), 300);
     };
+    $(panel, '#reset-all').onclick = async () => {
+      if (!(await confirmDialog("Reset everyone's stats?", "Every player's wins and games played go back to 0. The match history stays. This cannot be undone.", 'Reset all', true))) return;
+      const r = await guard(() => api<{ users: number }>('POST', '/admin/stats/reset'));
+      if (r) toast(`Stats reset for ${r.users} player${r.users === 1 ? '' : 's'}`, 'success');
+      void renderUsers(search.value);
+    };
     panel.querySelectorAll<HTMLButtonElement>('[data-act]').forEach((b) => {
       const id = Number(b.closest('li')!.dataset.id);
       const user = users.find((u) => u.id === id)!;
       b.onclick = async () => {
+        if (b.dataset.act === 'reset') {
+          if (!(await confirmDialog(`Reset ${user.username}'s stats?`, `Their ${user.wins} win${user.wins === 1 ? '' : 's'} and ${user.games_played} game${user.games_played === 1 ? '' : 's'} played go back to 0. The match history stays.`, 'Reset', true))) return;
+          if (await guard(() => api('POST', `/admin/users/${id}/reset-stats`))) toast(`${user.username}'s stats reset`, 'success');
+          return void renderUsers(search.value);
+        }
         if (b.dataset.act === 'delete') {
           if (!(await confirmDialog(`Delete ${user.username}?`, 'Their sessions end and they leave any lobby. This cannot be undone.', 'Delete', true))) return;
           if (await guard(() => api('DELETE', `/admin/users/${id}`))) toast('User deleted', 'success');
@@ -197,6 +213,7 @@ export function adminScreen(root: HTMLElement): void {
   async function renderLobbies(): Promise<void> {
     const lobbies = await guard(() => api<AdminLobby[]>('GET', '/admin/lobbies'));
     if (!lobbies) return;
+    if (tab !== 'lobbies') return;
     panel.innerHTML = `
       <p class="muted small">Open lobbies. Closing one sends everyone in it home; a game in progress is stopped and not counted.</p>
       ${lobbies.length ? '' : '<p class="muted center">No lobbies right now.</p>'}
@@ -265,9 +282,52 @@ export function adminScreen(root: HTMLElement): void {
    * The creation password (the one in config.json until one is set here; a password set here
    * wins) and the accounts that entered it once and create lobbies without it.
    */
+  /** Every finished match, newest first, a page at a time: delete one, or all of them. */
+  async function renderHistory(older: MatchSummary[] = []): Promise<void> {
+    const before = older.at(-1)?.endedAt;
+    const page = await guard(() => api<{ matches: MatchSummary[]; more: boolean }>('GET', `/history${before ? `?before=${before}` : ''}`));
+    if (!page) return;
+    if (tab !== 'history') return;
+    const matches = [...older, ...page.matches];
+    // Plain text (confirmDialog escapes it); `places` is the same, escaped for the list.
+    const placesText = (m: MatchSummary) => m.players.map((p) => `${p.won ? '👑 ' : ''}${p.username}`).join(' · ');
+    const places = (m: MatchSummary) => esc(placesText(m));
+    panel.innerHTML = `
+      <div class="admin-bar"><p class="muted small">${matches.length}${page.more ? '+' : ''} match${matches.length === 1 ? '' : 'es'}</p>${matches.length ? '<button class="chip chip-danger" id="delete-all">🗑 Delete all</button>' : ''}</div>
+      <ul class="admin-list">${
+        matches
+          .map(
+            (m) => `
+        <li data-id="${esc(m.id)}">
+          <div class="row-main"><b>${esc(whenText(m.endedAt))}</b><span class="muted small">${m.teams ? 'Team-up' : 'Classic'} · ${m.players.length} players · ${durationText(m.endedAt - m.startedAt)}</span><span class="small">${places(m)}</span></div>
+          <div class="row-actions"><button class="chip chip-danger" data-act="delete">Delete</button></div>
+        </li>`,
+          )
+          .join('') || '<li><p class="muted">No finished matches.</p></li>'
+      }</ul>
+      ${page.more ? '<button class="btn btn-ghost" id="older">Show older matches</button>' : ''}`;
+    panel.querySelector<HTMLButtonElement>('#older')?.addEventListener('click', () => void renderHistory(matches));
+    panel.querySelector<HTMLButtonElement>('#delete-all')?.addEventListener('click', async () => {
+      if (!(await confirmDialog('Delete the whole match history?', 'Every finished match disappears from the History, for everyone. Games being played now are kept. This cannot be undone.', 'Delete all', true))) return;
+      const r = await guard(() => api<{ matches: number }>('DELETE', '/admin/history'));
+      if (r) toast(`${r.matches} match${r.matches === 1 ? '' : 'es'} deleted`, 'success');
+      void renderHistory();
+    });
+    panel.querySelectorAll<HTMLButtonElement>('[data-act=delete]').forEach((b) => {
+      const id = b.closest('li')!.dataset.id!;
+      const m = matches.find((x) => x.id === id)!;
+      b.onclick = async () => {
+        if (!(await confirmDialog('Delete this match?', `${whenText(m.endedAt)}: ${placesText(m)}. It disappears from the History for everyone.`, 'Delete', true))) return;
+        if (await guard(() => api('DELETE', `/admin/history/${encodeURIComponent(id)}`))) toast('Match deleted', 'success');
+        void renderHistory();
+      };
+    });
+  }
+
   async function renderPasswords(): Promise<void> {
     const info = await guard(() => api<CreateAccessInfo>('GET', '/admin/create-access'));
     if (!info) return;
+    if (tab !== 'passwords') return;
     paintPasswords(info);
   }
 
@@ -334,6 +394,7 @@ export function adminScreen(root: HTMLElement): void {
   async function renderDevices(): Promise<void> {
     const devices = await guard(() => api<AdminDevice[]>('GET', '/admin/devices'));
     if (!devices) return;
+    if (tab !== 'devices') return;
     panel.innerHTML = `
       <p class="muted small">Devices that entered the access code. Revoking one makes it enter the code again.</p>
       <ul class="admin-list">${devices
@@ -358,6 +419,7 @@ export function adminScreen(root: HTMLElement): void {
   async function renderSessions(): Promise<void> {
     const sessions = await guard(() => api<AdminSession[]>('GET', '/admin/sessions'));
     if (!sessions) return;
+    if (tab !== 'sessions') return;
     panel.innerHTML = `
       <p class="muted small">Signed-in phones. Revoking a session signs that phone out (it keeps its device access).</p>
       <ul class="admin-list">${sessions
@@ -381,6 +443,7 @@ export function adminScreen(root: HTMLElement): void {
   async function renderCode(): Promise<void> {
     const r = await guard(() => api<{ code: string }>('GET', '/admin/code'));
     if (!r) return;
+    if (tab !== 'code') return;
     const paint = (code: string) => `${code.slice(0, 3)} ${code.slice(3)}`;
     panel.innerHTML = `
       <div class="code-card">

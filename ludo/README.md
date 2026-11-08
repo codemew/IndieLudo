@@ -129,6 +129,8 @@ npm run typecheck
    - list, search, rename and delete users
    - list open lobbies and **close** any of them, even mid‑game. Everyone in it goes back home with a notice, and a game in progress ends without a result.
    - give any lobby a new join password (**🔑 Password** on its row). Whoever is in it stays; anyone joining from then on needs the new one.
+   - **Users** tab: **↺ Reset stats** for one player, or **↺ Reset everyone's stats**: wins and games played back to 0 (the match history stays).
+   - **History** tab: every finished match; **Delete** one, or **🗑 Delete all** to clear the whole match history for everyone (games being played are kept).
    - **Passwords** tab: set a new lobby creation password (it replaces the one in `config.json` until you choose **Use the password from config.json again**; it is stored hashed), and see the **remembered hosts**, the accounts that create lobbies without it, with **Forget** for each. A new creation password forgets them all.
    - revoke sessions and devices
    - show the access code or make a new one
@@ -273,6 +275,10 @@ The lobby shows each player's lifetime wins (🏆) beside their name.
 - The dice is a light cube with a glow in dark mode, and a dark cube with a shadow in light mode.
 
 **Screen:** the board stays square and edge to edge. The queued dice are on the left. The dice is on the right and only shows while someone still has to roll; once the rolls are done, their values stay in the queue chips.
+
+## Lobby music
+
+Once **every seat in the lobby is taken by a person** (bots don't count: a lobby filled up with bots stays quiet), every phone in it plays the lobby music at 30% volume, on repeat, each repeat fading in over the last 4 seconds of the one before. When the game starts it doesn't repeat any more: the track plays on to its end, over the game. It starts again when the match is over, on the results screen and back in the lobby, as long as every seat is still a person's. Leaving the lobby fades it out. It follows the 🔊/🔇 sound button, and like every sound it starts after the first tap on the screen (browsers don't allow sound before one).
 
 ## Match history
 

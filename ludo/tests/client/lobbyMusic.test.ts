@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CROSSFADE_S, LobbyMusic, MUSIC_VOLUME, musicMode } from '../../src/client/lobbyMusic.js';
+import { CROSSFADE_S, LobbyMusic, MUSIC_VOLUME, MusicRule } from '../../src/client/lobbyMusic.js';
 import type { LobbyMember, PublicLobby } from '../../src/shared/types.js';
 
 vi.mock('../../src/client/music/lobby.mp3?url', () => ({ default: '/lobby.mp3' }));
@@ -12,19 +12,34 @@ const member = (i: number, isBot = false): LobbyMember => ({
   ready: false,
   connected: true,
 });
-const lobby = (members: LobbyMember[], status: PublicLobby['status'] = 'waiting'): Pick<PublicLobby, 'status' | 'members' | 'size'> => ({
+const lobby = (members: LobbyMember[], status: PublicLobby['status'] = 'waiting', id = 'L1'): Pick<PublicLobby, 'id' | 'status' | 'members' | 'size'> => ({
+  id,
   status,
   members,
   size: 4,
 });
 
 describe('when the lobby music plays', () => {
-  it('only with every seat taken by a person, until the game starts; a bot filling a seat does not count', () => {
-    expect(musicMode(null)).toBe('stop');
-    expect(musicMode(lobby([member(0), member(1), member(2)]))).toBe('finish');
-    expect(musicMode(lobby([member(0), member(1), member(2), member(3, true)]))).toBe('finish');
-    expect(musicMode(lobby([member(0), member(1), member(2), member(3)]))).toBe('loop');
-    expect(musicMode(lobby([member(0), member(1), member(2), member(3)], 'playing'))).toBe('finish');
+  it('once every seat is taken, bots counting; it stops repeating when the game starts', () => {
+    const rule = new MusicRule();
+    expect(rule.next(null)).toBe('stop');
+    expect(rule.next(lobby([member(0), member(1)]))).toBe('finish');
+    expect(rule.next(lobby([member(0), member(1), member(2)]))).toBe('finish');
+    // Two people and two bots: full.
+    expect(rule.next(lobby([member(0), member(1), member(2, true), member(3, true)]))).toBe('loop');
+    expect(rule.next(lobby([member(0), member(1), member(2, true), member(3, true)], 'playing'))).toBe('finish');
+  });
+
+  it('after the match it loops again in that lobby, though the bots left their seats; a new lobby starts over', () => {
+    const rule = new MusicRule();
+    rule.next(lobby([member(0), member(1), member(2, true), member(3, true)]));
+    rule.next(lobby([member(0), member(1), member(2, true), member(3, true)], 'playing'));
+    // The match is over: the bots are gone from the lobby, the people are back.
+    expect(rule.next(lobby([member(0), member(1)]))).toBe('loop');
+    expect(rule.next(lobby([member(0)]))).toBe('loop');
+    expect(rule.next(lobby([member(0), member(1)], 'waiting', 'L2'))).toBe('finish');
+    expect(rule.next(null)).toBe('stop');
+    expect(rule.next(lobby([member(0), member(1)]))).toBe('finish');
   });
 });
 
@@ -142,7 +157,7 @@ describe('the lobby music player', () => {
     ]);
   });
 
-  it('after the match it loops again from where it is; a bot battle lobby or a part-filled one never starts it', async () => {
+  it('after the match it loops again from where it is; a part-filled lobby never starts it', async () => {
     const { music, audio, timers } = setup();
     await music.set('finish');
     expect(audio.sources).toHaveLength(0);

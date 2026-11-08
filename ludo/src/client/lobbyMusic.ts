@@ -12,20 +12,42 @@ const STOP_FADE_S = 1;
 
 /**
  * What the lobby music should do now:
- * - 'loop': every seat is taken by a person (bots don't count) and the game hasn't started: play,
- *   and repeat with a crossfade. This is also how it comes back after a match: the lobby is
- *   waiting again while the results show, and on the way back to it.
- * - 'finish': the game started (or a seat isn't a person's any more): no more repeats; what is
- *   playing plays to its end, and nothing new starts.
- * - 'stop': not in a lobby: fade out.
+ * - 'loop': play, and repeat with a crossfade.
+ * - 'finish': no more repeats; what is playing plays to its end, and nothing new starts.
+ * - 'stop': fade out.
  */
 export type MusicMode = 'loop' | 'finish' | 'stop';
 
-export function musicMode(lobby: Pick<PublicLobby, 'status' | 'members' | 'size'> | null): MusicMode {
-  if (!lobby) return 'stop';
-  if (lobby.status === 'playing') return 'finish';
-  const full = lobby.members.length >= lobby.size && lobby.members.every((m) => !m.isBot);
-  return full ? 'loop' : 'finish';
+type MusicLobby = Pick<PublicLobby, 'id' | 'status' | 'members' | 'size'>;
+
+/**
+ * When the music plays, lobby by lobby:
+ * - It starts once every seat is taken, by people or bots (a seat a bot fills counts), and loops
+ *   until the game starts.
+ * - When the game starts it stops repeating ('finish'): the track plays on to its end.
+ * - From then on in that lobby it loops whenever no game is on: on the results screen, back in the
+ *   lobby, even though the bots left their seats at the end of the match, until the next game.
+ * - Leaving the lobby ('stop') fades it out, and a new lobby starts over.
+ */
+export class MusicRule {
+  private lobbyId: string | null = null;
+  /** The lobby has been full: the music is this lobby's now, between games. */
+  private started = false;
+
+  next(lobby: MusicLobby | null): MusicMode {
+    if (!lobby) {
+      this.lobbyId = null;
+      this.started = false;
+      return 'stop';
+    }
+    if (lobby.id !== this.lobbyId) {
+      this.lobbyId = lobby.id;
+      this.started = false;
+    }
+    if (lobby.status === 'playing') return 'finish';
+    if (lobby.members.length >= lobby.size) this.started = true;
+    return this.started ? 'loop' : 'finish';
+  }
 }
 
 interface Voice {
@@ -197,7 +219,8 @@ export function startLobbyMusic(): LobbyMusic {
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
   });
-  const update = () => void music.set(musicMode(state.lobby));
+  const rule = new MusicRule();
+  const update = () => void music.set(rule.next(state.lobby));
   subscribe((changed) => {
     if (changed.includes('lobby')) update();
   });

@@ -4,7 +4,7 @@ import { audioContext, isMuted, onMuteChange } from './sound.js';
 import { state, subscribe } from './store.js';
 
 /** The lobby music plays at this share of full volume. */
-export const MUSIC_VOLUME = 0.3;
+export const MUSIC_VOLUME = 0.1;
 /** Each repeat fades in over the end of the one before, this many seconds. */
 export const CROSSFADE_S = 4;
 /** Leaving the lobby fades the music out over this long. */

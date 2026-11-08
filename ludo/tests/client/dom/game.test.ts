@@ -1153,3 +1153,25 @@ describe('a cloaked token moving (power ups)', () => {
     expect(token('red', 0).classList.contains('unseen')).toBe(true);
   });
 });
+
+describe('stacked tokens with powers (power ups)', () => {
+  it('a powered and an unpowered token on one square: asked which, each showing its power', async () => {
+    const g = createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats: [seat('red', 1, 'alice'), seat('green', 2, 'bob')], firstSeat: 0, now: 0, powerUps: { seed: 5 }, golden: { red: 2 } });
+    g.orbs = [];
+    g.tokens.red = [10, 10, 10, B];
+    g.powers = { red: ['shield', null, null, null] };
+    mount(g);
+    await step((s) => applyRoll(s, 2), 200);
+    token('red', 1).click();
+    await flush();
+    const opts = [...document.querySelectorAll<HTMLElement>('.stack-opt')];
+    expect(opts).toHaveLength(3);
+    expect(opts.map((o) => o.getAttribute('aria-label'))).toEqual(['Shield, Clean-shaven', 'No power, Clean-shaven', 'Golden token, Clean-shaven']);
+    expect(opts[0].querySelector('.mini-token.pw-shield .tok-badge')!.textContent).toBe('🛡️');
+    expect(opts[2].querySelector('.mini-token.golden .tok-crown')).not.toBeNull();
+    // Choosing the shielded one moves that one.
+    opts[0].click();
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0 });
+  });
+});

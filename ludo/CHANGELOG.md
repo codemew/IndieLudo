@@ -3,13 +3,15 @@
 ## Unreleased
 
 ### Changed
+- **Stacked tokens with powers: the choice shows which is which.** When tokens on one square differ by power (or one is the golden token), the choice bubble's tokens wear their power badge and crown, and their labels name the power ("Shield", "No power", "Golden token").
+- **Lobby music at 10% volume** (was 30%).
 - **Power ups: each power once on the board, never two of the same.** On the 4-player board one per star; on the 5- and 6-player boards on four random stars; a returning power-up brings back a power that isn't on the board.
 - **Power ups: a vampire captures shielded tokens** (the shield doesn't save them).
 - **Power ups: a cloaked token moves with one ghostly whoosh** instead of a step sound per square (which told the room how far it went), on its owner's phone too; other phones get a `ghost` event in place of the move and play only the whoosh.
 - **Power ups: the banners stay long enough to read and wrap inside the board.** A power's banner (4 s) says what it does, to its owner and, worded for them, to everyone else; the shield's lasts 2.4 s; the rules note at the start of a game 8 s. Before, they ran off the side of the screen and were gone in 1.3 s.
 
 ### Added
-- **Lobby music.** With every seat taken (people or bots), every phone in the lobby plays the lobby track at 30% volume on repeat, each repeat crossfading over the last 4 seconds. When the game starts it stops repeating and plays on to the end; it starts again when the match ends (results, and back in the lobby, though the bots have left their seats) and loops until the next game. It follows the sound button and fades out on leaving. Web Audio, one decoded buffer (`lobbyMusic.ts`); the track is a hashed, long-cached asset loaded only when it first plays.
+- **Lobby music.** With every seat taken (people or bots), every phone in the lobby plays the lobby track at 10% volume on repeat, each repeat crossfading over the last 4 seconds. When the game starts it stops repeating and plays on to the end; it starts again when the match ends (results, and back in the lobby, though the bots have left their seats) and loops until the next game. It follows the sound button and fades out on leaving. Web Audio, one decoded buffer (`lobbyMusic.ts`); the track is a hashed, long-cached asset loaded only when it first plays.
 - **Admin resets.** In the admin panel's **Users** tab, reset one player's wins and games played or everyone's; a new **History** tab deletes one finished match or the whole match history (games being played are kept). `POST /api/admin/users/:id/reset-stats`, `POST /api/admin/stats/reset`, `DELETE /api/admin/history/:id`, `DELETE /api/admin/history`.
 
 ### Fixed

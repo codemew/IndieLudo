@@ -2,7 +2,7 @@ import { BASE, HIDDEN, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathC
 import type { GameUpdate, RollUpdate } from '../../shared/protocol.js';
 import { applyRollUpdate } from '../../shared/rollUpdate.js';
 import { distinctChoices, movableColors, respawnable, winnersOf } from '../../shared/rules.js';
-import { seesCloaked } from '../../shared/powers.js';
+import { isGolden, powerOf, seesCloaked } from '../../shared/powers.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
@@ -18,6 +18,7 @@ import {
   type GameEvent,
   type GameState,
   type LegalMove,
+  type Power,
   type PublicGameState,
   type Seat,
   tempoOf,
@@ -322,11 +323,15 @@ export function gameScreen(root: HTMLElement): () => void {
         const kills = gs!.kills?.[owner]?.[m.tokenId] ?? 0;
         const last = Boolean(gs!.extraLaps?.[owner]?.[m.tokenId]);
         const whose = owner === me ? '' : `${seatName(owner)}'s `;
+        // Power ups and the golden token: which one has which power, and which is golden.
+        const power = powerOf(gs!, owner, m.tokenId);
+        const golden = isGolden(gs!, owner, m.tokenId);
+        const marks = [golden ? GOLDEN_INFO.name : '', power ? POWER_INFO[power].name : ''].filter(Boolean).join(', ');
         return {
           cls: `stack-opt${last ? ' last-lap' : ''}${owner === me ? '' : ' mate'}`,
           attrs: `data-token="${m.tokenId}" data-color="${owner}"`,
-          html: miniToken(owner, kills),
-          label: `${whose}${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}${owner === me ? '' : ' (your teammate)'}`,
+          html: miniToken(owner, kills, { power, golden }),
+          label: `${whose}${marks ? `${marks}, ` : power === null && gs!.powerUps ? 'No power, ' : ''}${kills ? `${kills} capture${kills === 1 ? '' : 's'}` : 'Clean-shaven'}${last ? ', last lap' : ''}${owner === me ? '' : ' (your teammate)'}`,
           pick: () => void moveToken(owner, m.tokenId, dieIndex),
         };
       }),
@@ -1349,8 +1354,11 @@ export function gameScreen(root: HTMLElement): () => void {
 }
 
 /** A small token with its moustache, for the pickers (stacked tokens, wildcard entry). */
-function miniToken(color: Color, kills: number): string {
-  return `<span class="mini-token t-${color}"><span class="tok-body"></span>${moustacheSvg(moustacheLevel(kills))}</span>`;
+/** A small token for the choice bubble: its colour, moustache, and (power ups, golden token) its power badge and crown. */
+function miniToken(color: Color, kills: number, marks: { power?: Power | null; golden?: boolean } = {}): string {
+  const power = marks.power ? `<span class="tok-badge" aria-hidden="true">${POWER_INFO[marks.power].icon}</span>` : '';
+  const crown = marks.golden ? `<span class="tok-crown" aria-hidden="true">${GOLDEN_INFO.icon}</span>` : '';
+  return `<span class="mini-token t-${color}${marks.power ? ` pw-${marks.power}` : ''}${marks.golden ? ' golden' : ''}"><span class="tok-body"></span>${moustacheSvg(moustacheLevel(kills))}${power}${crown}</span>`;
 }
 
 /** A white flag on a pole, its cloth rippling (SVG path morph; still for reduced motion). */

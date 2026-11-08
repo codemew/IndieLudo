@@ -20,6 +20,7 @@ import { cryptoDice, type DiceFn } from './dice.js';
 import { GameManager } from './gameManager.js';
 import { Gate } from './gate.js';
 import { CreateAccess } from './hosts.js';
+import { MatchHistory } from './history.js';
 import { IspLookup } from './isp.js';
 import { Presence } from './presence.js';
 import { LobbyManager, humanIds } from './lobbies.js';
@@ -249,6 +250,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     devices,
     sessions,
     hosts,
+    history: new MatchHistory(db),
     gate,
     lobbies,
     games,

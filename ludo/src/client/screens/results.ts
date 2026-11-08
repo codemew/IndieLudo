@@ -6,7 +6,7 @@ import { gameAwards, playerStats, type Award } from '../../shared/awards.js';
 import { avatarFace } from '../../shared/avatars.js';
 import { MIN_ROLLS_FOR_LUCK, normalRange, rollCounts, rollOutliers, rollShares } from '../../shared/rolls.js';
 import { winnersOf } from '../../shared/rules.js';
-import type { Color } from '../../shared/types.js';
+import type { Color, GameState } from '../../shared/types.js';
 import { $, esc } from '../ui.js';
 
 const PLACES = ['1st', '2nd', '3rd', '4th', '5th', '6th'];
@@ -17,32 +17,9 @@ export function resultsScreen(root: HTMLElement): void {
     queueMicrotask(() => go('home'));
     return;
   }
-  const myColor = g.seats.find((s) => s.userId === state.user?.id)?.color;
+  const myColor = myColorIn(g, state.user?.id);
   const winners = winnersOf(g);
   const iWon = Boolean(myColor && winners.includes(myColor));
-  const awards = gameAwards(g);
-  const awardsOf = (c: Color) => awards.filter((a) => a.colors.includes(c));
-  const nameOf = (c: Color) => {
-    const seat = g.seats.find((s) => s.color === c)!;
-    return `${esc(seat.username)}${c === myColor ? ' <em>you</em>' : ''}`;
-  };
-  const rows = g.ranks
-    .map((color, i) => {
-      const seat = g.seats.find((s) => s.color === color)!;
-      // Only a seat that was a bot all along gets the 🤖: one a bot took over for a player who left
-      // (the game chips show 🤖 while it plays) is shown as that player here, who finished where.
-      return `
-        <li class="podium-row p-${color}${g.teams ? ' team-row' : ''}" style="animation-delay:${200 + i * 140}ms">
-          <span class="place">${g.teams ? (winners.includes(color) ? '1st' : '2nd') : PLACES[i]}</span>
-          <span class="pchip-dot${seat.avatar && seat.controller !== 'bot' ? ' has-avatar' : ''}">${seat.controller === 'bot' ? '🤖' : esc(avatarFace(seat.avatar, seat.username))}</span>
-          <span class="podium-who">
-            <span class="podium-name"><span class="pn-text">${esc(seat.username)}</span>${color === myColor ? '<em>you</em>' : ''}${g.surrendered?.includes(color) ? '<span title="Surrendered">🏳️</span>' : ''}</span>
-            ${awardsOf(color).length ? `<span class="podium-awards">${awardsOf(color).map((a) => `<span title="${a.title}">${awardIcon(a)}</span>`).join('')}</span>` : ''}
-          </span>
-          ${winners.includes(color) ? '<span class="crown">👑</span>' : ''}
-        </li>`;
-    })
-    .join('');
   const names = winners.map((c) => esc(g.seats.find((s) => s.color === c)?.username ?? 'Someone'));
   const heading = g.teams ? (iWon ? 'Your team won!' : `${names.join(' & ')} win!`) : iWon ? 'You won!' : `${names[0] ?? 'Someone'} wins${g.botBattle ? ' the bot battle' : ''}`;
   root.innerHTML = `
@@ -50,8 +27,7 @@ export function resultsScreen(root: HTMLElement): void {
       ${iWon ? `<div class="confetti">${confettiPieces(44)}</div>` : ''}
       <div class="big-emoji">${iWon ? '🏆' : g.botBattle ? '🤖' : '🎲'}</div>
       <h2>${heading}</h2>
-      <ol class="podium">${rows}</ol>
-      ${matchStats(g.ranks, awards, nameOf, (c) => playerStats(g, c), (c) => rollCounts(g, c))}
+      ${matchSummary(g, myColor)}
       <div class="results-actions">
         ${state.lobby ? '<button class="btn btn-primary btn-xl" id="lobby">Back to lobby</button>' : ''}
         <button class="btn btn-ghost btn-xl" id="home">Home</button>
@@ -66,6 +42,44 @@ export function resultsScreen(root: HTMLElement): void {
   root.querySelector<HTMLButtonElement>('#lobby')?.addEventListener('click', () => leave('lobby'));
   $(root, '#home').onclick = () => leave('home');
   bindStatTabs(root);
+}
+
+/** My seat's colour in a game: the seat I played, also one I left before the end. */
+export function myColorIn(g: GameState, userId: number | undefined): Color | undefined {
+  return userId === undefined ? undefined : g.seats.find((s) => s.userId === userId || s.leftBy === userId)?.color;
+}
+
+/**
+ * A finished game's podium (places, avatars, awards, crowns), its awards, and its numbers (match
+ * stats and dice luck): for the results screen and for a match opened from the match history.
+ */
+export function matchSummary(g: GameState, myColor: Color | undefined): string {
+  const winners = winnersOf(g);
+  const awards = gameAwards(g);
+  const awardsOf = (c: Color) => awards.filter((a) => a.colors.includes(c));
+  const nameOf = (c: Color) => {
+    const seat = g.seats.find((s) => s.color === c)!;
+    return `${esc(seat.username)}${c === myColor ? ' <em>you</em>' : ''}`;
+  };
+  const rows = g.ranks
+    .map((color, i) => {
+      const seat = g.seats.find((s) => s.color === color)!;
+      // Only a seat that was a bot all along gets the 🤖: one a bot took over for a player who left
+      // (the game chips show 🤖 while it plays) is shown as that player here, who finished where.
+      const bot = seat.controller === 'bot' && seat.leftBy === undefined;
+      return `
+        <li class="podium-row p-${color}${g.teams ? ' team-row' : ''}" style="animation-delay:${200 + i * 140}ms">
+          <span class="place">${g.teams ? (winners.includes(color) ? '1st' : '2nd') : PLACES[i]}</span>
+          <span class="pchip-dot${seat.avatar && !bot ? ' has-avatar' : ''}">${bot ? '🤖' : esc(avatarFace(seat.avatar, seat.username))}</span>
+          <span class="podium-who">
+            <span class="podium-name"><span class="pn-text">${esc(seat.username)}</span>${color === myColor ? '<em>you</em>' : ''}${g.surrendered?.includes(color) ? '<span title="Surrendered">🏳️</span>' : ''}${seat.leftBy !== undefined ? '<span title="Left the game; a bot played on">🚪</span>' : ''}</span>
+            ${awardsOf(color).length ? `<span class="podium-awards">${awardsOf(color).map((a) => `<span title="${a.title}">${awardIcon(a)}</span>`).join('')}</span>` : ''}
+          </span>
+          ${winners.includes(color) ? '<span class="crown">👑</span>' : ''}
+        </li>`;
+    })
+    .join('');
+  return `<ol class="podium">${rows}</ol>${matchStats(g.ranks, awards, nameOf, (c) => playerStats(g, c), (c) => rollCounts(g, c))}`;
 }
 
 /** The tabs under the awards: a radio-like group (one Tab stop, arrow keys, Home/End) that shows one panel. */
@@ -94,7 +108,7 @@ export function confettiPieces(count: number): string {
   }).join('');
 }
 
-function bindStatTabs(root: HTMLElement): void {
+export function bindStatTabs(root: HTMLElement): void {
   const tabs = [...root.querySelectorAll<HTMLButtonElement>('.stat-tab')];
   if (!tabs.length) return;
   const show = (tab: HTMLButtonElement, focus = false) => {

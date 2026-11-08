@@ -5117,3 +5117,167 @@ polygon.b-inner {
   pointer-events: auto;
   cursor: pointer;
 }
+
+/* ---------- v3.8: match history ---------- */
+
+.topbar-spacer {
+  width: 44px;
+  flex: none;
+}
+.history-scope {
+  margin: 0 auto 12px;
+}
+.match-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.match-card {
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  animation: card-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+.match-card.i-won {
+  border-color: color-mix(in srgb, #f5b400 60%, var(--border));
+  box-shadow: 0 6px 18px -10px #f5b400;
+}
+.match-open {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.match-open:active {
+  transform: scale(0.98);
+}
+.match-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.match-when {
+  font-weight: 800;
+}
+.match-len {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.match-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.match-tags.center {
+  justify-content: center;
+  margin: -4px 0 12px;
+}
+.match-tags .badge {
+  font-size: 11px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+.match-players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mp {
+  --c: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  border-left: 3px solid var(--c);
+  font-size: 14px;
+}
+.mp.won {
+  background: color-mix(in srgb, var(--c) 22%, transparent);
+}
+.mp.p-red {
+  --c: var(--red);
+}
+.mp.p-green {
+  --c: var(--green);
+}
+.mp.p-yellow {
+  --c: var(--yellow);
+}
+.mp.p-blue {
+  --c: var(--blue);
+}
+.mp.p-purple {
+  --c: var(--purple);
+}
+.mp.p-orange {
+  --c: var(--orange);
+}
+.mp-place {
+  width: 30px;
+  flex: none;
+  font-weight: 900;
+  font-size: 12px;
+}
+.mp .pchip-dot {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  font-size: 13px;
+}
+.mp-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+}
+.mp-name .pn-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-name em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.mp-awards {
+  display: flex;
+  gap: 2px;
+  font-size: 15px;
+}
+.mp-awards .steel-ball {
+  width: 14px;
+  height: 14px;
+}
+.mp .crown {
+  font-size: 15px;
+}
+.match-page {
+  padding-top: 4px;
+}
+#history-more {
+  display: block;
+  margin: 12px auto 0;
+}

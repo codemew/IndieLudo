@@ -58,6 +58,8 @@ const MIGRATIONS: string[] = [
    );`,
   // Whether others see this player's phone, browser and network in the Users tab (1 = shown).
   `ALTER TABLE users ADD COLUMN show_device INTEGER NOT NULL DEFAULT 1;`,
+  // The match history lists finished games newest first.
+  `CREATE INDEX games_history ON games (finished, updated_at);`,
 ];
 
 export function openDb(path: string): DB {

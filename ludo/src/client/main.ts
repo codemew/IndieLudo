@@ -12,6 +12,7 @@ import { homeScreen } from './screens/home.js';
 import { lobbyScreen } from './screens/lobby.js';
 import { offlineScreen } from './screens/offline.js';
 import { resultsScreen } from './screens/results.js';
+import { matchScreen } from './screens/match.js';
 import { signupScreen } from './screens/signup.js';
 import { splashScreen } from './screens/splash.js';
 import { installUnlockListeners } from './sound.js';
@@ -26,6 +27,7 @@ register('home', homeScreen);
 register('lobby', lobbyScreen);
 register('game', gameScreen);
 register('results', resultsScreen);
+register('match', matchScreen);
 register('admin', adminScreen);
 
 installUnlockListeners();

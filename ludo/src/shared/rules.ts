@@ -303,11 +303,12 @@ export function tokenTargets(state: GameState, color: Color, tokenId: number, di
 }
 
 /**
- * Tokens a move to `to` would capture, and shielded ones it would only knock the shield off. On
+ * Tokens a move to `to` would capture, and shielded ones it would only knock the shield off (a
+ * vampire captures those too). On
  * the track, any opponent on that square unless it is safe; in a home column (power ups: a vampire
  * in someone's, or the owner coming up their own), anyone else on that spot.
  */
-function hitsAt(state: GameState, mover: Color, to: number): { captures: LegalMove['captures']; breaks: LegalMove['captures'] } {
+function hitsAt(state: GameState, mover: Color, moverToken: number, to: number): { captures: LegalMove['captures']; breaks: LegalMove['captures'] } {
   const b = boardFor(state);
   const hits: LegalMove['captures'] = [];
   const abs = absoluteSquare(mover, to, b);
@@ -331,7 +332,9 @@ function hitsAt(state: GameState, mover: Color, to: number): { captures: LegalMo
       }
     }
   }
-  const shielded = (h: { color: Color; tokenId: number }) => powerOf(state, h.color, h.tokenId) === 'shield';
+  // A vampire goes straight through a shield: it captures shielded tokens too.
+  const vampire = powerOf(state, mover, moverToken) === 'vampire';
+  const shielded = (h: { color: Color; tokenId: number }) => !vampire && powerOf(state, h.color, h.tokenId) === 'shield';
   return { captures: hits.filter((h) => !shielded(h)), breaks: hits.filter(shielded) };
 }
 
@@ -347,7 +350,7 @@ export function legalMoves(state: GameState): LegalMove[] {
     for (const color of movableColors(state, actor)) {
       state.tokens[color].forEach((from, tokenId) => {
         for (const { to, lap, raid, steps } of tokenTargets(state, color, tokenId, die)) {
-          const { captures, breaks } = hitsAt(state, color, to);
+          const { captures, breaks } = hitsAt(state, color, tokenId, to);
           const orb = orbAt(state, color, to);
           moves.push({
             dieIndex,

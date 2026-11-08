@@ -1114,3 +1114,42 @@ describe('power ups and the golden token', () => {
     expect(token('green', 1).style.transform).toBe('translate(800%, 100%) scale(1)');
   });
 });
+
+describe('a cloaked token moving (power ups)', () => {
+  const powers = () => import('../../../src/shared/powers.js');
+
+  it("on its owner's phone: no sound per square, one ghostly whoosh; elsewhere: only the whoosh", async () => {
+    const { viewFor, eventsFor } = await powers();
+    const g = createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats: [seat('red', 1, 'alice'), seat('green', 2, 'bob')], firstSeat: 0, now: 0, powerUps: { seed: 5 } });
+    g.orbs = [];
+    g.tokens.red = [10, B, B, B];
+    g.powers = { red: ['cloak', null, null, null] };
+    // Alice (red, the owner).
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    sounds.length = 0;
+    await step((s) => applyMove(s, 0, 0), 2500);
+    expect(sounds.filter((x) => x === 'ghost')).toHaveLength(1);
+    expect(sounds).not.toContain('step');
+    expect(token('red', 0).classList.contains('unseen')).toBe(false);
+    // Bob (green) gets a ghost instead of the move.
+    const before = structuredClone(g);
+    applyRoll(before, 3);
+    before.version += 5;
+    const after = structuredClone(before);
+    const events = applyMove(after, 0, 0);
+    after.version++;
+    store.update({ user: { id: 2, username: 'bob' }, game: viewFor(pub(before), 'green') });
+    go('home');
+    document.getElementById('app')!.innerHTML = '';
+    go('game');
+    await flush(10);
+    expect(token('red', 0).classList.contains('unseen')).toBe(true);
+    sounds.length = 0;
+    app.handler!({ state: viewFor(pub(after), 'green'), events: eventsFor(after, events, 'green') });
+    await flush(1500);
+    expect(sounds).toEqual(expect.arrayContaining(['ghost']));
+    expect(sounds).not.toContain('step');
+    expect(token('red', 0).classList.contains('unseen')).toBe(true);
+  });
+});

@@ -55,7 +55,7 @@ describe('the orbs', () => {
     expect(pgame(undefined, { seed: 9 }).orbs).toEqual(pgame(undefined, { seed: 9 }).orbs);
   });
 
-  it('the 5- and 6-player boards have an orb on each of their stars, every power among them', () => {
+  it('the 5- and 6-player boards, with more stars than powers, have each power once on four random stars', () => {
     for (const n of [5, 6] as const) {
       const s = createGameState({
         id: 'g',
@@ -66,9 +66,10 @@ describe('the orbs', () => {
         board: n,
         powerUps: { seed: 7 },
       });
-      expect(s.orbs).toHaveLength(n);
+      expect(s.orbs).toHaveLength(4);
       expect(new Set(s.orbs!.map((o) => o.power)).size).toBe(4);
-      expect(initialOrbs(s).map((o) => o.square)).toEqual([...boardOf(n).stars].sort((a, b) => a - b));
+      for (const o of s.orbs!) expect(boardOf(n).stars.has(o.square)).toBe(true);
+      expect(new Set(initialOrbs(s).map((o) => o.square)).size).toBe(4);
     }
   });
 
@@ -93,8 +94,23 @@ describe('the orbs', () => {
     const orb = back.find((e) => e.type === 'orb');
     expect(orb).toBeDefined();
     expect(orb && orb.type === 'orb' && [8, 34, 47]).toContain(orb && orb.type === 'orb' && orb.square);
+    // Never a second shield: one of the powers not on the board.
+    expect(orb && orb.type === 'orb' && orb.power).not.toBe('shield');
     expect(s.orbs).toHaveLength(2);
     expect(s.orbsDue).toEqual([]);
+  });
+
+  it('whatever comes back, the board never has two of the same power', () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const s = pgame(['red', 'yellow'], { seed });
+      // Three taken; they come back one by one.
+      s.orbs = [s.orbs![seed % 4]];
+      s.orbsDue = [1, 1, 1];
+      s.turn.phase = 'rolling';
+      applyRoll(s, 2);
+      expect(s.orbs).toHaveLength(4);
+      expect(new Set(s.orbs!.map((o) => o.power)).size).toBe(4);
+    }
   });
 
   it('passing over an orb does not take it, nor does a game without power ups have any', () => {
@@ -148,6 +164,22 @@ describe('2x', () => {
     expect(to(2)).toEqual([55]); // 4 overshoots: as rolled
   });
 
+  it('one square from home with a 1: twice would overshoot, so it moves the 1 and gets home', () => {
+    const s = bare();
+    s.tokens.red[0] = 55;
+    give(s, 'red', 0, 'double');
+    withQueue(s, [1]);
+    expect(legalMoves(s).map((m) => [m.tokenId, m.to, m.steps])).toEqual([[0, 56, undefined]]);
+    applyMove(s, 0, 0);
+    expect(s.tokens.red[0]).toBe(56);
+    // Two from home: a 1 doubled is exactly home.
+    const t = bare();
+    t.tokens.red[0] = 54;
+    give(t, 'red', 0, 'double');
+    withQueue(t, [1]);
+    expect(legalMoves(t).map((m) => [m.to, m.steps])).toEqual([[56, 2]]);
+  });
+
   it('a 6 that is only usable doubled still counts as usable', () => {
     const s = bare();
     s.tokens.red = [52, 56, 56, 56];
@@ -180,6 +212,22 @@ describe('shield', () => {
     s.turn.seat = 0;
     withQueue(s, [2]);
     expect(legalMoves(s).find((m) => m.tokenId === 1)!.captures).toEqual([{ color: 'yellow', tokenId: 0 }]);
+  });
+
+  it('a vampire captures a shielded token outright', () => {
+    const s = bare();
+    s.tokens.yellow[0] = 46; // square 20
+    give(s, 'yellow', 0, 'shield');
+    s.tokens.red[0] = 17;
+    give(s, 'red', 0, 'vampire');
+    withQueue(s, [3]);
+    const hit = legalMoves(s).find((m) => m.tokenId === 0 && !m.raid)!;
+    expect(hit.captures).toEqual([{ color: 'yellow', tokenId: 0 }]);
+    expect(hit.breaks).toBeUndefined();
+    const events = applyMove(s, 0, 0);
+    expect(events.some((e) => e.type === 'shield')).toBe(false);
+    expect(s.tokens.yellow[0]).toBe(BASE);
+    expect(s.powers!.yellow![0]).toBeNull();
   });
 });
 
@@ -217,8 +265,10 @@ describe('the invisibility cloak', () => {
     expect(events[0]).toMatchObject({ type: 'move', color: 'yellow', cloaked: true });
     expect(eventsFor(s, events, 'yellow').some((e) => e.type === 'move')).toBe(true);
     expect(eventsFor(s, events, 'red').some((e) => e.type === 'move')).toBe(true); // red is yellow's partner
+    // The others get only a ghost: something unseen moved, not where or how far.
+    expect(eventsFor(s, events, 'green')[0]).toEqual({ type: 'ghost', color: 'yellow' });
     expect(eventsFor(s, events, 'green').some((e) => e.type === 'move')).toBe(false);
-    expect(eventsFor(s, events, null).some((e) => e.type === 'move')).toBe(false);
+    expect(eventsFor(s, events, null)[0]).toEqual({ type: 'ghost', color: 'yellow' });
     expect(viewFor(s, 'red').tokens.yellow[0]).toBe(12);
     expect(viewFor(s, 'blue').tokens.yellow[0]).toBe(HIDDEN);
   });

@@ -6,6 +6,7 @@ import { seesCloaked } from '../../shared/powers.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
+  GHOST_MS,
   ORB_SPAWN_MS,
   POWER_PICKUP_MS,
   SHIELD_BREAK_MS,
@@ -584,10 +585,14 @@ export function gameScreen(root: HTMLElement): () => void {
           renderQueue(work, false);
           renderTargets([]);
           const kills = e.kills ?? 0;
+          // A cloaked token (power ups) moves without a sound per square, which would tell the
+          // room how far it went: one ghostly whoosh instead, on its owner's phone too.
+          if (e.cloaked) play('ghost');
           await hop(el, start, path, {
             kills,
             fromBase: e.from === BASE,
             onStep: (_i, cell) => {
+              if (e.cloaked) return;
               play('step');
               heavyLanding(cell, kills);
             },
@@ -595,7 +600,7 @@ export function gameScreen(root: HTMLElement): () => void {
           work.tokens[e.color][e.tokenId] = e.to;
           tokens.sync(work, new Set(), null);
           const abs = absoluteSquare(e.color, e.to, geo);
-          if (abs !== null && isSafeSquare(abs, geo)) {
+          if (abs !== null && isSafeSquare(abs, geo) && !e.cloaked) {
             play('safe');
             burst(tokenCell(e.color, e.to, e.tokenId, geo), 'gold');
             tokenEmoji(el, 'safe');
@@ -693,12 +698,17 @@ export function gameScreen(root: HTMLElement): () => void {
           play('shieldBreak');
           vibrate([20, 30, 20]);
           burst(cell, 'shield');
-          callout('Shield!', e.victim === me ? 'Your token survived' : `${seatName(e.victim)}'s token survived`);
+          callout('🛡️ Shield!', e.victim === me ? 'Your token survived' : `${seatName(e.victim)}'s token survived`, { ms: 2400 });
           if (work.powers?.[e.victim]) work.powers[e.victim]![e.tokenId] = null;
           tokens.sync(work, new Set(), null);
           await sleep(SHIELD_BREAK_MS);
           break;
         }
+        case 'ghost':
+          // Someone's cloaked token moved where we can't see: just the whoosh.
+          play('ghost');
+          await sleep(GHOST_MS);
+          break;
         case 'orb':
           (work.orbs ??= []).push({ square: e.square, power: e.power });
           renderOrbs(orbs, work);
@@ -736,7 +746,7 @@ export function gameScreen(root: HTMLElement): () => void {
     tokens.sync(work, new Set(), null);
     burst(geo.track[e.square], 'gold');
     const info = POWER_INFO[e.power];
-    callout(`${info.icon} ${info.name}`, e.color === me ? `Your token ${info.what}` : `${seatName(e.color)} got it`);
+    callout(`${info.icon} ${info.name}`, e.color === me ? `Your token ${info.what}` : info.theirs(seatName(e.color)), { ms: 4000 });
     await sleep(POWER_PICKUP_MS - 420);
   }
 
@@ -795,7 +805,7 @@ export function gameScreen(root: HTMLElement): () => void {
     // Only at the start of a game (not when coming back to one halfway through).
     if (gs.version > 3) return;
     const parts = [gs.powerUps ? '⚡ Power ups: land on a power-up on a star to get its power' : '', gs.golden ? `${GOLDEN_INFO.icon} Your crowned token leaves base on any roll` : ''].filter(Boolean);
-    toast(parts.join(' · '), 'info', 5000);
+    toast(parts.join(' · '), 'info', 8000);
   }
 
   /** Team-up: once per game, who plays with whom. */
@@ -1085,10 +1095,17 @@ export function gameScreen(root: HTMLElement): () => void {
     banner.remove();
   }
 
-  function callout(title: string, sub: string): void {
-    const c = el(`<div class="callout"><b>${esc(title)}</b><small>${esc(sub)}</small></div>`);
+  /**
+   * A banner over the board. `ms`: how long it stays (longer for the power ups, whose line says what
+   * the power does; it wraps to fit the board instead of running off the screen).
+   */
+  function callout(title: string, sub: string, opts: { ms?: number } = {}): void {
+    const ms = opts.ms ?? 1300;
+    const long = ms > 1300;
+    const c = el(`<div class="callout${long ? ' callout-long' : ''}" style="--callout-ms:${ms}ms"><b>${esc(title)}</b><small>${esc(sub)}</small></div>`);
+    fx.querySelectorAll('.callout-long').forEach((x) => x.remove());
     fx.appendChild(c);
-    setTimeout(() => c.remove(), 1300);
+    setTimeout(() => c.remove(), ms);
   }
 
   /**

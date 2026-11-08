@@ -5338,3 +5338,26 @@ polygon.b-inner {
 .admin-bar p {
   margin: 0;
 }
+/* The choice bubble's small tokens wear their power badge and golden crown too (sized to the token). */
+.mini-token {
+  container-type: size;
+}
+.mini-token.pw-double .tok-badge {
+  --o: #ff8a00;
+}
+.mini-token.pw-shield .tok-badge {
+  --o: #2f9bff;
+}
+.mini-token.pw-cloak .tok-badge {
+  --o: #8e7cc3;
+}
+.mini-token.pw-vampire .tok-badge {
+  --o: #b0123b;
+}
+.mini-token.pw-cloak .tok-body {
+  opacity: 0.55;
+}
+.mini-token.golden .tok-body {
+  border-color: #ffd54a;
+  box-shadow: 0 0 0 1px rgba(120, 80, 0, 0.6), 0 0 8px 2px rgba(255, 196, 0, 0.75);
+}

@@ -278,7 +278,7 @@ The lobby shows each player's lifetime wins (🏆) beside their name.
 
 ## Lobby music
 
-Once **every seat in the lobby is taken** (by people or bots: a seat a bot fills counts), every phone in it plays the lobby music at 30% volume, on repeat, each repeat fading in over the last 4 seconds of the one before. When the game starts it doesn't repeat any more: the track plays on to its end, over the game. It starts again when the match is over, on the results screen and back in the lobby (though the bots leave their seats at the end of a match), and loops until the next game starts. Leaving the lobby fades it out. It follows the 🔊/🔇 sound button, and like every sound it starts after the first tap on the screen (browsers don't allow sound before one).
+Once **every seat in the lobby is taken** (by people or bots: a seat a bot fills counts), every phone in it plays the lobby music at 10% volume, on repeat, each repeat fading in over the last 4 seconds of the one before. When the game starts it doesn't repeat any more: the track plays on to its end, over the game. It starts again when the match is over, on the results screen and back in the lobby (though the bots leave their seats at the end of a match), and loops until the next game starts. Leaving the lobby fades it out. It follows the 🔊/🔇 sound button, and like every sound it starts after the first tap on the screen (browsers don't allow sound before one).
 
 ## Match history
 

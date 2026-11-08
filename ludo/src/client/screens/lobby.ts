@@ -1,6 +1,7 @@
 import { BOARD_SIZES, type BoardSize } from '../../shared/board.js';
 import { avatarFace } from '../../shared/avatars.js';
-import { MAX_SPECTATORS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
+import { MAX_SPECTATORS, POWERS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
+import { POWER_INFO } from '../powerInfo.js';
 import { showError } from '../app.js';
 import { emit } from '../net.js';
 import { go } from '../router.js';
@@ -50,6 +51,17 @@ export function lobbyScreen(root: HTMLElement): () => void {
         <span class="rule-box" aria-hidden="true"></span>
         <span class="rule-text"><b>Turn sharing</b><small>On your turn, use a roll on your teammate's tokens too</small></span>
       </label>
+      <label class="rule-check" id="powerups-rule">
+        <input type="checkbox" id="powerups" />
+        <span class="rule-box" aria-hidden="true"></span>
+        <span class="rule-text"><b>⚡ Power ups</b><small>Power-ups on the stars: a token that lands on one keeps its power until it's captured or home:
+          <span class="rule-powers">${POWERS.map((p) => `<span>${POWER_INFO[p].icon} ${POWER_INFO[p].name}</span>`).join('')}</span></small></span>
+      </label>
+      <label class="rule-check" id="golden-rule">
+        <input type="checkbox" id="golden" />
+        <span class="rule-box" aria-hidden="true"></span>
+        <span class="rule-text"><b>👑 Golden token</b><small>One token each, picked at random: out of base on any roll, and a capture only sends it back to its start square</small></span>
+      </label>
       <p class="muted small center mode-note" id="mode-note"></p>
       <div class="seat-grid" id="seats"></div>
       <div class="watchers" id="watchers"></div>
@@ -73,6 +85,10 @@ export function lobbyScreen(root: HTMLElement): () => void {
   root.querySelectorAll<HTMLButtonElement>('#mode .mode-opt').forEach((b) => (b.onclick = () => void act('lobby:mode', { teams: b.dataset.teams === '1' })));
   const share = $<HTMLInputElement>(root, '#share');
   share.onchange = () => void act('lobby:share', { share: share.checked });
+  const powerUps = $<HTMLInputElement>(root, '#powerups');
+  powerUps.onchange = () => void act('lobby:rules', { powerUps: powerUps.checked });
+  const golden = $<HTMLInputElement>(root, '#golden');
+  golden.onchange = () => void act('lobby:rules', { golden: golden.checked });
   root.querySelectorAll<HTMLButtonElement>('.size-opt').forEach((b) => (b.onclick = () => void act('lobby:size', { size: Number(b.dataset.size) })));
 
   const render = () => {
@@ -114,6 +130,11 @@ export function lobbyScreen(root: HTMLElement): () => void {
     $(root, '#share-rule').hidden = !lobby.teams;
     share.checked = Boolean(lobby.share);
     share.disabled = !isHost;
+    // The other optional rules work in any mode and on any board.
+    powerUps.checked = Boolean(lobby.powerUps);
+    powerUps.disabled = !isHost;
+    golden.checked = Boolean(lobby.golden);
+    golden.disabled = !isHost;
     $(root, '#mode-note').textContent = lobby.teams
       ? `Team-up: 2 vs 2. Diagonal partners (Red + Yellow vs Green + Blue) win together when both are home. Needs all 4 seats.${lobby.share ? " Turn sharing: a roll can move your teammate's tokens too, and a partner who is home keeps rolling for the other." : ''}`
       : size === 4

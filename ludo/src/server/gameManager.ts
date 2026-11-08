@@ -2,8 +2,24 @@ import crypto from 'node:crypto';
 import { SCHEMAS, matchesSchema, type Ack } from '../shared/protocol.js';
 import { BASE } from '../shared/board.js';
 import { BASE_EXIT_HOPS, moveMs } from '../shared/heft.js';
-import { RuleError, applyMove, applyRespawn, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves } from '../shared/rules.js';
-import { FIRST_BLOOD_MS, MAX_MISSED_TURNS, SURRENDER_MS, WILDCARD_MS, WILDCARD_STAGGER_MS, tempoOf, type Color, type GameEvent, type GameState, type PublicGameState, type Seat } from '../shared/types.js';
+import { RuleError, applyMove, applyRespawn, applyRoll, applySurrender, createGameState, distinctChoices, legalMoves, TOKENS_PER_PLAYER } from '../shared/rules.js';
+import { viewFor } from '../shared/powers.js';
+import {
+  FIRST_BLOOD_MS,
+  MAX_MISSED_TURNS,
+  ORB_SPAWN_MS,
+  POWER_PICKUP_MS,
+  SHIELD_BREAK_MS,
+  SURRENDER_MS,
+  WILDCARD_MS,
+  WILDCARD_STAGGER_MS,
+  tempoOf,
+  type Color,
+  type GameEvent,
+  type GameState,
+  type PublicGameState,
+  type Seat,
+} from '../shared/types.js';
 import { chooseMove } from './bot.js';
 import type { DB } from './db.js';
 import type { DiceFn } from './dice.js';
@@ -24,6 +40,10 @@ export interface GameManagerOptions {
   /** Scales the animation time the server waits out before acting (0 in tests). */
   animScale?: number;
   randomInt?: (min: number, max: number) => number;
+  /**
+   * A change to send out. `state` is the whole truth, cloaked tokens included (power ups): pass it
+   * through viewFor (powers.ts) for each phone, never straight out.
+   */
   onUpdate?: (state: PublicGameState, events?: GameEvent[]) => void;
   onGameOver?: (state: GameState) => void;
   /** Whether this session is (still) an admin's: a forced roll left behind by one who has since logged out is dropped, not used. */
@@ -79,7 +99,18 @@ export class GameManager {
     return row ? (JSON.parse(row.state_json) as GameState) : undefined;
   }
 
-  publicState(state: GameState): PublicGameState {
+  /** The game as `viewerId`'s phone may see it (null: someone watching): with power ups, opponents' cloaked tokens are left out. */
+  publicState(state: GameState, viewerId: number | null): PublicGameState {
+    return viewFor(this.fullState(state), this.colorOf(state, viewerId));
+  }
+
+  /** The seat colour of a player in a game, or null for anyone else (a spectator, someone who left). */
+  colorOf(state: GameState, userId: number | null): Color | null {
+    return (userId !== null && state.seats.find((s) => s.userId === userId)?.color) || null;
+  }
+
+  /** Everything, cloaked tokens included: for the server's own use and for onUpdate, which redacts it per phone. */
+  private fullState(state: GameState): PublicGameState {
     return { ...state, legalMoves: legalMoves(state), serverNow: Date.now() };
   }
 
@@ -100,6 +131,8 @@ export class GameManager {
       teams: Boolean(lobby.teams),
       share: Boolean(lobby.teams && lobby.share),
       board: lobby.size,
+      ...(lobby.powerUps && { powerUps: { seed: this.randomInt(1, 2 ** 31) } }),
+      ...(lobby.golden && { golden: Object.fromEntries(seats.map((s) => [s.color, this.randomInt(0, TOKENS_PER_PLAYER)])) }),
     });
     if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
     const game: LiveGame = { state, graceTimers: new Map(), seen: new Set(), lastEvents: [] };
@@ -165,8 +198,8 @@ export class GameManager {
 
   move(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.move)) return this.badPayload(userId, 'game:move', payload);
-    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; color?: Color; lap?: boolean };
-    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true, p.color));
+    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; color?: Color; lap?: boolean; raid?: Color };
+    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true, p.color, p.raid));
   }
 
   private badPayload(userId: number, event: string, payload: unknown): Ack {
@@ -364,7 +397,7 @@ export class GameManager {
     const left = game.state.turn.deadline - Date.now();
     this.schedule(game, pause && game.state.turn.seat === seatBefore && game.state.turn.deadline > 0 ? Math.max(0, left) : undefined);
     this.persist(game);
-    this.opts.onUpdate?.(this.publicState(game.state), events);
+    this.opts.onUpdate?.(this.fullState(game.state), events);
     if (game.state.finished) {
       this.clearTimers(game);
       this.opts.onGameOver?.(game.state);
@@ -381,7 +414,7 @@ export class GameManager {
   private touch(game: LiveGame, reschedule = true): void {
     if (reschedule) this.schedule(game);
     this.persist(game);
-    this.opts.onUpdate?.(this.publicState(game.state));
+    this.opts.onUpdate?.(this.fullState(game.state));
   }
 
   /** `timeLeftMs`: the current player's time left, kept instead of a fresh full timer. */
@@ -417,13 +450,16 @@ export class GameManager {
     let ms = 0;
     for (const e of events) {
       if (e.type === 'roll') ms += 1200;
-      else if (e.type === 'move') ms += moveMs(e.kills ?? 0, e.from === BASE ? BASE_EXIT_HOPS : e.die);
+      else if (e.type === 'move') ms += moveMs(e.kills ?? 0, e.from === BASE ? BASE_EXIT_HOPS : (e.steps ?? e.die));
       else if (e.type === 'capture') ms += e.firstBlood ? 600 + FIRST_BLOOD_MS : 600;
       else if (e.type === 'penalty') ms += 1000;
       else if (e.type === 'noMoves') ms += 650;
       else if (e.type === 'bonus') ms += 500;
       else if (e.type === 'surrender') ms += SURRENDER_MS;
       else if (e.type === 'respawn') ms += WILDCARD_MS + WILDCARD_STAGGER_MS * (e.tokenIds.length - 1);
+      else if (e.type === 'power') ms += POWER_PICKUP_MS;
+      else if (e.type === 'shield') ms += SHIELD_BREAK_MS;
+      else if (e.type === 'orb') ms += ORB_SPAWN_MS;
     }
     return ms * this.animScale;
   }
@@ -450,7 +486,7 @@ export class GameManager {
     } else {
       const move = chooseMove(state);
       if (!move) return;
-      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true, move.color);
+      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true, move.color, move.raid);
     }
     this.commit(game, events, seatBefore);
   }

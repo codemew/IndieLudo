@@ -4900,3 +4900,220 @@ polygon.b-inner {
   width: 100%;
   max-width: 360px;
 }
+
+/* ---------- v3.7: power ups and the golden token ---------- */
+
+.burst.t-gold {
+  --c: #f5b400;
+}
+.burst.t-shield {
+  --c: #4fc3ff;
+}
+/* The orbs waiting on the star squares, each showing its power. */
+.orb-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* A power-up waiting on a star: a flat diamond tile with the power's icon, not round like a token,
+   floating a little over the square with a dashed ring turning round it. */
+.orb {
+  --o: #f5b400;
+  position: absolute;
+  width: calc(100% / var(--bw, 15) * 0.92);
+  height: calc(100% / var(--bh, 15) * 0.92);
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  animation: orb-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) both, orb-float 2.2s ease-in-out 0.45s infinite;
+}
+.orb::before {
+  content: '';
+  position: absolute;
+  inset: 15%;
+  transform: rotate(45deg);
+  border-radius: 16%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--o) 70%, #fff), var(--o));
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3), 0 3px 6px rgba(0, 0, 0, 0.35);
+}
+.orb::after {
+  content: '';
+  position: absolute;
+  inset: 4%;
+  transform: rotate(45deg);
+  border-radius: 20%;
+  border: 1.5px dashed color-mix(in srgb, var(--o) 80%, #fff);
+  animation: orb-spin 6s linear infinite;
+}
+.orb span {
+  position: relative;
+  font-size: 38cqw;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+.orb,
+.target.raid {
+  container-type: size;
+}
+.orb.o-double {
+  --o: #ff8a00;
+}
+.orb.o-shield {
+  --o: #2f9bff;
+}
+.orb.o-cloak {
+  --o: #8e7cc3;
+}
+.orb.o-vampire {
+  --o: #d81b60;
+}
+@keyframes orb-in {
+  from {
+    transform: translate(-50%, -50%) scale(0);
+  }
+}
+@keyframes orb-float {
+  50% {
+    transform: translate(-50%, -62%);
+  }
+}
+@keyframes orb-spin {
+  to {
+    transform: rotate(405deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb,
+  .orb::after {
+    animation: none;
+  }
+}
+
+/* A token's power: a badge on its top right, there for as long as it has it. */
+.tok-badge,
+.tok-crown {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  pointer-events: none;
+}
+.tok-badge {
+  --o: #f5b400;
+  right: -14%;
+  top: -14%;
+  width: 52%;
+  height: 52%;
+  border-radius: 50%;
+  background: var(--o);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 30cqw;
+  font-weight: 900;
+}
+.token.pw-double .tok-badge {
+  --o: #ff8a00;
+}
+.token.pw-shield .tok-badge {
+  --o: #2f9bff;
+}
+.token.pw-cloak .tok-badge {
+  --o: #8e7cc3;
+}
+.token.pw-vampire .tok-badge {
+  --o: #d81b60;
+}
+/* A shield is a ring of light round the token. */
+.token.pw-shield .tok-body {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 0 3px #7fd0ff, 0 0 10px 3px #2f9bff;
+}
+/* My own cloaked token: see-through and shimmering (opponents don't see it at all). */
+.token.pw-cloak .tok-body {
+  opacity: 0.45;
+  animation: cloak-shimmer 2.4s ease-in-out infinite;
+}
+@keyframes cloak-shimmer {
+  50% {
+    opacity: 0.25;
+  }
+}
+/* 2x: speed lines behind the token. */
+.token.pw-double .tok-body {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), -4px 0 0 -1px rgba(255, 138, 0, 0.75), -8px 0 0 -3px rgba(255, 138, 0, 0.45);
+}
+/* The vampire: a dark mask band across the token. */
+/* The vampire: a dark cape-red rim and a blood-red glow. */
+.token.pw-vampire .tok-body {
+  border-color: #3b0a14;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 0 0 3px #b0123b, 0 0 10px 3px rgba(176, 18, 59, 0.7);
+}
+.token.unseen {
+  visibility: hidden;
+  pointer-events: none;
+}
+/* The golden token: a gold rim, a glow, and a little crown on its top left. */
+.token.golden .tok-body {
+  border-color: #ffd54a;
+  box-shadow: 0 0 0 1px rgba(120, 80, 0, 0.6), 0 0 8px 2px rgba(255, 196, 0, 0.75), 0 2px 4px rgba(0, 0, 0, 0.45);
+}
+.tok-crown {
+  left: -10%;
+  top: -24%;
+  font-size: 40cqw;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.5));
+  transform: rotate(-18deg);
+}
+
+/* A vampire's raid: crimson trail and marker, and its way in the choice bubble. */
+.trail.raid,
+.target.raid,
+.lap-opt.raid {
+  --tc: #d81b60;
+}
+.target.raid {
+  --c: var(--tc);
+}
+.target.raid span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 60cqw;
+}
+.target.raid[data-token] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Lobby: the optional rules' list of powers. */
+.rule-powers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 2px;
+}
+.rule-powers span {
+  white-space: nowrap;
+}
+.badge-rule {
+  background: color-mix(in srgb, #f5b400 24%, transparent);
+  color: var(--text);
+}
+/* Staying on the track (beside a vampire's raid): a plain marker. */
+.trail.track,
+.target.track,
+.lap-opt.track {
+  --tc: #6b7a90;
+}
+.target.track {
+  --c: var(--tc);
+}
+.target.track[data-token] {
+  pointer-events: auto;
+  cursor: pointer;
+}

@@ -72,7 +72,8 @@ function resync(s: GameState): void {
   current = s;
   app.handler!({ state: pub(s) });
 }
-const token = (color: Color, id: number) => document.querySelector<HTMLButtonElement>(`.token.t-${color}[aria-label="${color} token ${id + 1}"]`)!;
+// The label can go on with the token's power or golden crown: "red token 1 (Shield)".
+const token = (color: Color, id: number) => document.querySelector<HTMLButtonElement>(`.token.t-${color}[aria-label^="${color} token ${id + 1}"]`)!;
 const hint = () => document.querySelector('#hint')!.textContent;
 
 beforeEach(() => {
@@ -988,5 +989,128 @@ describe('Team-up with turn sharing on the board', () => {
     click('.lap-opt.round');
     await flush(10);
     expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0, color: 'yellow', lap: true });
+  });
+});
+
+describe('power ups and the golden token', () => {
+  /** alice (red) against bob (green) with power ups and golden tokens (red's 1, green's 2), orbs as given. */
+  function powerGame(orbs: GameState['orbs'] = []): GameState {
+    const g = createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats: [seat('red', 1, 'alice'), seat('green', 2, 'bob')], firstSeat: 0, now: 0, powerUps: { seed: 5 }, golden: { red: 1, green: 2 } });
+    g.orbs = orbs;
+    return g;
+  }
+  /** What a phone gets: the rules' view for that player (opponents' cloaked tokens hidden). */
+  const viewOf = async (s: GameState, color: Color | null) => (await import('../../../src/shared/powers.js')).viewFor(pub(s), color);
+
+  it('the orbs on the stars, the crowned golden tokens, and the rules told once at the start', async () => {
+    const g = powerGame([{ square: 8, power: 'double' }, { square: 21, power: 'shield' }, { square: 34, power: 'cloak' }, { square: 47, power: 'vampire' }]);
+    mount(g);
+    await flush(10);
+    const orbs = [...document.querySelectorAll<HTMLElement>('#orbs .orb')];
+    expect(orbs.map((o) => o.className)).toEqual(['orb o-double', 'orb o-shield', 'orb o-cloak', 'orb o-vampire']);
+    expect(orbs[3].getAttribute('aria-label')).toContain('Vampire power-up');
+    expect([...document.querySelectorAll('.token.golden')].map((t) => t.getAttribute('aria-label'))).toEqual(['red token 2 (Golden token)', 'green token 3 (Golden token)']);
+    expect(document.querySelectorAll('.token.golden .tok-crown')).toHaveLength(2);
+    expect(toasts().join(' ')).toContain('Power ups: land on a power-up');
+    expect(toasts().join(' ')).toContain('Your crowned token leaves base on any roll');
+  });
+
+  it('a token takes an orb: the orb goes, the badge comes, and everyone is told what it got', async () => {
+    const g = powerGame([{ square: 8, power: 'double' }]);
+    g.tokens.red = [5, B, B, B];
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    await step((s) => applyMove(s, 0, 0), 2500);
+    expect(document.querySelectorAll('#orbs .orb')).toHaveLength(0);
+    expect(token('red', 0).classList.contains('pw-double')).toBe(true);
+    expect(token('red', 0).querySelector('.tok-badge')!.textContent).toBe('2×');
+    expect(token('red', 0).getAttribute('aria-label')).toBe('red token 1 (Double move)');
+    expect(sounds).toContain('powerUp');
+  });
+
+  it("my cloaked token is see-through for me; for my opponent it isn't on the board, and its capture shows it", async () => {
+    const g = powerGame();
+    g.tokens.green = [20, B, B, B];
+    g.powers = { green: ['cloak', null, null, null] };
+    g.tokens.red = [17, 30, B, B];
+    current = g;
+    // Bob (green) sees his own token.
+    store.update({ user: { id: 2, username: 'bob' }, game: await viewOf(g, 'green'), lobby: { id: 'L', name: 'Fam', hostId: 1, status: 'playing', members: [], spectators: [], gameId: g.id, teams: false, size: 4 } });
+    go('home');
+    document.getElementById('app')!.innerHTML = '';
+    go('game');
+    await flush(10);
+    expect(token('green', 0).classList.contains('unseen')).toBe(false);
+    expect(token('green', 0).classList.contains('pw-cloak')).toBe(true);
+    // Alice (red) doesn't.
+    store.update({ user: { id: 1, username: 'alice' }, game: await viewOf(g, 'red') });
+    go('home');
+    document.getElementById('app')!.innerHTML = '';
+    go('game');
+    await flush(10);
+    expect(token('green', 0).classList.contains('unseen')).toBe(true);
+    // Green's token stands on square 33 (its progress 20); red's token on 30 lands on it with a 3.
+    const next = structuredClone(g);
+    applyRoll(next, 3);
+    next.version++;
+    app.handler!({ state: await viewOf(next, 'red'), events: [{ type: 'roll', color: 'red', value: 3, queue: [3] }] });
+    await flush(300);
+    const after = structuredClone(next);
+    const events = applyMove(after, 0, 1);
+    expect(events.some((e) => e.type === 'capture' && e.victim === 'green')).toBe(true);
+    after.version++;
+    app.handler!({ state: await viewOf(after, 'red'), events });
+    await flush(2500);
+    expect(token('green', 0).classList.contains('unseen')).toBe(false);
+    expect(token('green', 0).classList.contains('pw-cloak')).toBe(false);
+  });
+
+  it("a vampire's raid is a way of its own: in the bubble and as a crimson marker, and it is what's sent", async () => {
+    const g = powerGame();
+    g.tokens.red = [35, B, B, B];
+    g.powers = { red: ['vampire', null, null, null] };
+    g.golden = {};
+    mount(g);
+    await step((s) => applyRoll(s, 4), 200);
+    // Blue isn't seated, so nothing to raid past red's progress 35; two short of green's turn (red's 11) there is.
+    expect(document.querySelectorAll('#targets .target.raid')).toHaveLength(0);
+    resync(Object.assign(structuredClone(current), { tokens: { ...current.tokens, red: [9, B, B, B] } }));
+    await flush(50);
+    const marker = document.querySelector<HTMLElement>('#targets .target.raid[data-token]')!;
+    expect(marker.dataset.raid).toBe('green');
+    expect(marker.getAttribute('aria-label')).toBe("Raid bob's home column");
+    expect(document.querySelector('#targets .target.track[data-token]')).not.toBeNull();
+    token('red', 0).click();
+    await flush();
+    const labels = [...document.querySelectorAll('.lap-opt')].map((o) => o.getAttribute('aria-label'));
+    expect(labels).toEqual(['Stay on the track', "Raid bob's home column"]);
+    click('.lap-opt.raid');
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0, raid: 'green', lap: false });
+  });
+
+  it('a shield takes the hit: told, and the badge goes; a golden token caught goes to its start square', async () => {
+    const g = powerGame();
+    g.tokens.red = [17, B, B, B];
+    g.tokens.green = [7, 20, B, B]; // squares 20 and 33
+    g.powers = { green: ['shield', null, null, null] };
+    g.golden = { green: 1 };
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    await step((s) => applyMove(s, 0, 0), 2500);
+    expect(sounds).toContain('shieldBreak');
+    expect(token('green', 0).classList.contains('pw-shield')).toBe(false);
+    expect(current.tokens.green[0]).toBe(7);
+    // Red again, onto the golden token on square 33.
+    current.turn.seat = 0;
+    current.tokens.red[1] = 30;
+    resync(current);
+    await flush(50);
+    const events = await step((s) => applyRoll(s, 3), 200);
+    expect(events[0].type).toBe('roll');
+    await step((s) => applyMove(s, 0, 1), 2500);
+    expect(current.tokens.green[1]).toBe(0);
+    // On green's start square (8, 1), not in its base.
+    expect(token('green', 1).style.transform).toBe('translate(800%, 100%) scale(1)');
   });
 });

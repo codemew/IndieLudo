@@ -8,7 +8,9 @@ import helmet from 'helmet';
 import { Server } from 'socket.io';
 import { NET_PING_INTERVAL_MS, NET_PING_TIMEOUT_MS } from '../shared/net.js';
 import { rollUpdateOf } from '../shared/rollUpdate.js';
+import { eventsFor, viewFor } from '../shared/powers.js';
 import { winnersOf } from '../shared/rules.js';
+import type { Color } from '../shared/types.js';
 import { apiRouter } from './api.js';
 import { compressedAssets } from './assets.js';
 import { DEFAULT_SFU, type Config } from './config.js';
@@ -113,16 +115,27 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     autoMoveDelayMs: opts.autoMoveDelayMs,
     animScale: opts.animScale,
     log,
-    onUpdate: (state, events) => {
+    onUpdate: (full, events) => {
       if (!io) return;
+      const room = rooms.game(full.id);
+      // Power ups: each player gets the game as they may see it (opponents' cloaked tokens left
+      // out), everyone else (spectators) the view with every cloaked token hidden.
+      const players = full.powerUps ? full.seats.flatMap((s) => (s.userId !== null && s.controller !== 'bot' ? [{ userId: s.userId, color: s.color }] : [])) : [];
+      const update = (color: Color | null) => ({ state: viewFor(full, color), ...(events && { events: eventsFor(full, events, color) }) });
       // A roll that only grew the queue: the whole state to the roller's phone, a slim update to
       // everyone else (they only watch the dice land; the move brings the full state).
-      const slim = rollUpdateOf(state, events);
-      if (!slim) return void io.to(rooms.game(state.id)).emit('game:state', { state, events });
-      const roller = state.seats[state.turn.seat];
+      const slim = rollUpdateOf(full, events);
+      if (!slim) {
+        for (const p of players) io.to(rooms.user(p.userId)).emit('game:state', update(p.color));
+        return void io
+          .to(room)
+          .except(players.map((p) => rooms.user(p.userId)))
+          .emit('game:state', update(null));
+      }
+      const roller = full.seats[full.turn.seat];
       const rollerRoom = roller.userId !== null && roller.controller !== 'bot' ? rooms.user(roller.userId) : null;
-      if (rollerRoom) io.to(rollerRoom).emit('game:state', { state, events });
-      (rollerRoom ? io.to(rooms.game(state.id)).except(rollerRoom) : io.to(rooms.game(state.id))).emit('game:roll', slim);
+      if (rollerRoom) io.to(rollerRoom).emit('game:state', update(roller.color));
+      (rollerRoom ? io.to(room).except(rollerRoom) : io.to(room)).emit('game:roll', slim);
     },
     isAdminSession: (sessionId) => sessions.get(sessionId)?.is_admin === 1,
     // An admin's forced roll is private: only that admin's own session hears it was used.

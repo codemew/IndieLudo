@@ -190,6 +190,19 @@ A token that has reached home can be sent back to base to play it again: **hold 
 - **Surrender:** concedes for the team: the match ends and the other team wins.
 - **Results:** "Your team won!" for both winners; both get a lifetime win.
 
+### Power ups (optional)
+
+The host ticks **⚡ Power ups** in the lobby (any mode, any board). Each star square (the one eight squares on from every start) then holds a **power-up**: a diamond tile showing its power's icon, so it can't be mistaken for a token; which power sits on which star is shuffled for every game. A token that **lands exactly** on a power-up takes its power (passing over doesn't), the tile disappears, and a round later (one turn for each player) a new one appears on a random star without one, with a random power. A token keeps its power **until it is captured or gets home**; landing on another power-up swaps it for the new one. Every power has its own badge on the token for as long as it lasts.
+
+- **2× Double move:** the token moves twice the die (a 1 moves 2). When twice would overshoot its home, it moves as rolled, so it can always finish.
+- **🛡️ Shield:** the first time an opponent lands on it, nobody is captured: the shield breaks instead (no bonus roll for the attacker). After that it is an ordinary token.
+- **👻 Invisibility cloak:** the token disappears from opponents' boards (and spectators'); only its owner, and in Team-up the owner's teammate, can see it, see-through. It can still be captured by an opponent who happens to land on it, and then everyone sees it again. The server never sends an opponent where it is or how it moved, and bots play as if they couldn't see it either.
+- **🧛 Vampire:** where the token passes the square where an opponent's tokens turn into their home column, it may turn in too (not into a teammate's). The app asks which way, with a crimson marker for the raid. Up there it captures the owner's tokens it lands on, and the owner's tokens coming up their own column can capture it. To get out it must reach that player's home with an exact roll; it then comes out on that player's start square and carries on round the board.
+
+### Golden token (optional)
+
+The host ticks **👑 Golden token** in the lobby. When the game starts, one token of each player is made golden at random; it wears a crown. It **leaves base on any roll**, not only a 6, and when it is captured it goes back to **its start square** instead of to base. A surrender or a wildcard entry still sends it to base. It works with Power ups too.
+
 **Timers and bots:**
 - Rolling has `turnTimeoutSec` (30 s); choosing a token after the roll has the shorter `moveTimeoutSec` (5 s). When either runs out, the server plays **the rest of that turn** for the player (rolls and moves), at bot speed. The player can tap to take over again at any point.
 - A missed turn shows as "missed n/5" on the player's chip. After **5 missed turns in a row**, or after `disconnectGraceSec` offline, a bot takes over the seat. The player gets the seat back by reconnecting, by making a move, or by tapping *take back*.
@@ -409,7 +422,7 @@ The home screen has two tabs, **🏠 Lobbies** and **👥 Users** (with the numb
 
 ## Server authority and anti‑cheat
 
-- **What phones send:** only the intents `game:roll {gameId, version, actionId}` and `game:move {…, dieIndex, tokenId}`. The server checks them against a strict schema and rejects any unknown field, such as `value`, `to` or `userId`.
+- **What phones send:** only the intents `game:roll {gameId, version, actionId}` and `game:move {…, dieIndex, tokenId}` (plus `lap` or, with Power ups, `raid` where the move offers that choice). The server checks them against a strict schema and rejects any unknown field, such as `value`, `to` or `userId`.
 - **Checks:** for each intent, the server checks:
   1. that it is this player's seat, taken from the session and never from the payload
   2. that the game is in the right phase
@@ -417,7 +430,8 @@ The home screen has two tabs, **🏠 Lobbies** and **👥 Users** (with the numb
   4. that the move is in the server's own list of legal moves
 
   Only then does it roll the die.
-- **Dice:** `crypto.randomInt(1, 7)` is uniform and comes from the operating system's cryptographic random generator. The server never sends random state or upcoming rolls.
+- **Dice:** `crypto.randomInt(1, 7)` is uniform and comes from the operating system's cryptographic random generator. The server never sends random state or upcoming rolls (with Power ups, the seed for the power-up shuffles stays on the server too).
+- **Cloaked tokens (Power ups):** each phone gets the game as its player may see it: an opponent's cloaked token is left out, with its moves and any legal move that would capture it, for players and spectators alike.
 - **Rate limits:**
   - Socket events use a token bucket, about 10 per second with bursts allowed, and a flooding socket is disconnected.
   - Sign‑up, admin login and access‑code attempts are rate‑limited per IP. After 5 wrong codes an IP is locked out for 1, then 5, 15 and 60 minutes. More than 50 failures across all IPs in 10 minutes makes a new code automatically.

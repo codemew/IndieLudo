@@ -1,4 +1,4 @@
-import type { Color } from './types.js';
+import { ALL_COLORS, type Color } from './types.js';
 
 /**
  * Token progress is relative to its own colour. On the 4-player board:
@@ -13,6 +13,27 @@ import type { Color } from './types.js';
  * the start moves up by 13 or 26 (see Board: last, home, lap2First, lap2Last).
  */
 export const BASE = -1;
+/** Power ups: an opponent's cloaked token, as a phone that may not see it gets it (never in the server's own state). */
+export const HIDDEN = -2;
+
+/**
+ * Power ups: a vampire in another player's home column ("raiding" it). Progress below -10 says
+ * whose column (`lane`), how far up it is (`step`, 1 to 5) and whether the vampire came in on its
+ * second lap (it comes out on the same lap). See raidOf.
+ */
+export function raidProgress(lane: Color, step: number, secondLap = false): number {
+  return -(10 * (ALL_COLORS.indexOf(lane) + 1) + step + (secondLap ? 100 : 0));
+}
+
+export function raidOf(progress: number): { lane: Color; step: number; secondLap: boolean } | null {
+  if (progress > -10) return null;
+  const n = -progress;
+  const secondLap = n >= 100;
+  const m = secondLap ? n - 100 : n;
+  const lane = ALL_COLORS[Math.floor(m / 10) - 1];
+  const step = m % 10;
+  return lane && step >= 1 && step <= 5 ? { lane, step, secondLap } : null;
+}
 
 export type BoardSize = 4 | 5 | 6;
 export const BOARD_SIZES: readonly BoardSize[] = [4, 5, 6];
@@ -238,9 +259,29 @@ export function isSafeSquare(abs: number, b: Board = BOARD4): boolean {
   return b.safe.has(abs);
 }
 
+/** The square where a colour's tokens turn into its home column: a vampire turns in there too. */
+export function laneEntry(color: Color, b: Board = BOARD4): number {
+  return ((b.start[color] ?? 0) + b.last) % b.trackLength;
+}
+
+/** A spot in a home column, a colour's own token or a vampire: whose column, and how far up (1 to 5). */
+export function laneSpot(color: Color, progress: number, b: Board = BOARD4): { lane: Color; step: number } | null {
+  if (progress > b.last && progress < b.home) return { lane: color, step: progress - b.last };
+  const r = raidOf(progress);
+  return r && { lane: r.lane, step: r.step };
+}
+
+/** Where a vampire comes out of a raided column (that colour's start square), as its own progress on the same lap. */
+export function raidExitProgress(color: Color, lane: Color, secondLap: boolean, b: Board = BOARD4): number {
+  const rel = ((b.start[lane] ?? 0) - (b.start[color] ?? 0) + b.trackLength) % b.trackLength;
+  return secondLap ? rel + (b.lap2First - b.last - 1) + b.trackLength : rel;
+}
+
 /** Top-left grid position (in square units) of a token at the given progress. */
 export function tokenCell(color: Color, progress: number, tokenId: number, b: Board = BOARD4): Cell {
-  if (progress === BASE) return b.baseSlots[color]![tokenId];
+  if (progress === BASE || progress === HIDDEN) return b.baseSlots[color]![tokenId];
+  const raid = raidOf(progress);
+  if (raid) return b.homeColumn[raid.lane]![raid.step - 1];
   if (onTrack(progress, b)) return b.track[absoluteSquare(color, progress, b)!];
   if (progress >= b.home) return b.homeSpot[color]!;
   return b.homeColumn[color]![progress - b.last - 1];
@@ -259,12 +300,36 @@ export function stepFrom(progress: number, lapping: boolean, b: Board = BOARD4):
   return progress + 1;
 }
 
-/** Every cell a token passes through moving from `from` to `to`, excluding the start. */
-export function pathCells(color: Color, from: number, to: number, tokenId: number, b: Board = BOARD4): Cell[] {
+/** Longest move there is: a doubled 6 (power ups). */
+const MAX_STEPS = 12;
+
+/**
+ * Every cell a token passes through moving from `from` to `to`, excluding the start. `via`: the
+ * home column a vampire goes up (power ups): along the track to that colour's turn, up its column,
+ * and, if the move takes it all the way in, out at that colour's start square.
+ */
+export function pathCells(color: Color, from: number, to: number, tokenId: number, b: Board = BOARD4, via?: Color): Cell[] {
   if (from === BASE) return [tokenCell(color, 0, tokenId, b)];
-  const lapping = isSecondLap(to, b) && !isSecondLap(from, b);
   const cells: Cell[] = [];
-  for (let p = from, i = 0; p !== to && i < 6; i++) {
+  const raid = raidOf(from);
+  if (raid || via) {
+    const lane = raid?.lane ?? via!;
+    let step = raid?.step ?? 0;
+    if (!raid) {
+      // Along the track up to the turn into that colour's column.
+      const entry = laneEntry(lane, b);
+      for (let p = from, i = 0; absoluteSquare(color, p, b) !== entry && i < MAX_STEPS; i++) {
+        p = stepFrom(p, false, b);
+        cells.push(tokenCell(color, p, tokenId, b));
+      }
+    }
+    const target = raidOf(to)?.step ?? 6;
+    for (step++; step <= Math.min(target, 5); step++) cells.push(b.homeColumn[lane]![step - 1]);
+    if (target === 6) cells.push(b.homeSpot[lane]!, b.track[b.start[lane]!]);
+    return cells;
+  }
+  const lapping = isSecondLap(to, b) && !isSecondLap(from, b);
+  for (let p = from, i = 0; p !== to && i < MAX_STEPS; i++) {
     p = stepFrom(p, lapping, b);
     cells.push(tokenCell(color, p, tokenId, b));
   }

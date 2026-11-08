@@ -472,7 +472,7 @@ describe.skipIf(!CHROME || !BUILT)('5 and 6 players, and whose dice shows where'
     expect(frames.filter((f) => f.event === 'game:state' && f.version > v)).toEqual([]);
     // Compared with the whole state, which is what every phone got for each roll before.
     const slim = Math.max(...rolls.map((f) => f.bytes));
-    const whole = JSON.stringify({ state: t.server.ctx.games.publicState(game) }).length;
+    const whole = JSON.stringify({ state: t.server.ctx.games.publicState(game, null) }).length;
     console.log(`per roll, to bob: ${slim} B (the whole state: ${whole} B)`);
     expect(slim).toBeLessThan(500);
     expect(slim / whole).toBeLessThan(0.25);

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 4.1.0
 
 ### Fixed
 - **Moving to another lobby from the home screen kept you listening to the old one.** Creating or joining a lobby while still in another left your phone in the old lobby's update channel, so a change in the old lobby (a bot added, someone ready) replaced the new lobby on your screen. The server now takes your phones out of the old lobby's (and its game's) channel, and the app ignores any lobby update that doesn't include you.

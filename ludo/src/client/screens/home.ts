@@ -212,7 +212,7 @@ function renderList(list: HTMLElement, lobbies: LobbySummary[], mine: PublicLobb
       <button class="lobby-card" style="animation-delay:${i * 40}ms">
         <div class="lobby-main">
           <div class="lobby-name">🔒 ${esc(l.name)}</div>
-          <div class="lobby-sub">Host ${esc(l.hostName)}${l.watching ? ` · 👀 ${l.watching} watching` : ''}${l.teams ? ` · <span class="badge badge-team">🤝 Team-up${l.share ? ' · sharing' : ''}</span>` : ''}${size > 4 ? ` · <span class="badge badge-size">👥 ${size} players</span>` : ''}</div>
+          <div class="lobby-sub">Host ${esc(l.hostName)}${l.watching ? ` · 👀 ${l.watching} watching` : ''}${l.teams ? ` · <span class="badge badge-team">🤝 Team-up${l.share ? ' · sharing' : ''}</span>` : ''}${size > 4 ? ` · <span class="badge badge-size">👥 ${size} players</span>` : ''}${l.powerUps ? ' · <span class="badge badge-rule">⚡ Power ups</span>' : ''}${l.golden ? ' · <span class="badge badge-rule">👑 Golden</span>' : ''}</div>
         </div>
         <div class="lobby-meta">
           <span class="seats">${'<i class="on"></i>'.repeat(l.players)}${'<i></i>'.repeat(Math.max(0, size - l.players))}</span>

@@ -12,6 +12,10 @@ export const TEAMMATE: Readonly<Partial<Record<Color, Color>>> = { red: 'yellow'
 
 /** How long every phone shows the "first blood" banner; the server waits this out before bots and timers carry on. */
 export const FIRST_BLOOD_MS = 1800;
+/** Power ups: how long the phones show a token picking up an orb, a shield breaking, and a new orb appearing. */
+export const POWER_PICKUP_MS = 900;
+export const SHIELD_BREAK_MS = 700;
+export const ORB_SPAWN_MS = 500;
 /** How long the phones show a surrender (tokens sliding home, the white flag going up). */
 export const SURRENDER_MS = 1400;
 /** How long the phones show a wildcard entry (the banner, the token flying from home back to base). */
@@ -35,6 +39,18 @@ export const MAX_SEATS = 6;
 export const MAX_VOICE_PEERS = MAX_SEATS + MAX_SPECTATORS;
 
 export type Controller = 'human' | 'bot' | 'takeover';
+
+/**
+ * Power ups (an optional rule): orbs on the star squares give the token that lands on one a power,
+ * kept until it is captured or gets home (a new orb replaces it).
+ * - double: every move goes twice as far (when that doesn't overshoot; otherwise as rolled).
+ * - shield: the first capture of it fails; the shield breaks instead.
+ * - cloak: only its owner (and teammate) can see it; it can still be captured by landing on it.
+ * - thief: may turn into another player's home column, capturing their tokens there; reaching
+ *   their home exactly brings it out at their start square.
+ */
+export type Power = 'double' | 'shield' | 'cloak' | 'thief';
+export const POWERS: readonly Power[] = ['double', 'shield', 'cloak', 'thief'];
 
 export interface Seat {
   color: Color;
@@ -102,6 +118,18 @@ export interface GameState {
   share?: boolean;
   /** The 5- or 6-player board; absent means the 4-player one (and every game saved before the others existed). */
   board?: 5 | 6;
+  /** Power ups are on (see Power). */
+  powerUps?: true;
+  /** Orbs waiting on star squares (absolute track index) and the power each gives. */
+  orbs?: { square: number; power: Power }[];
+  /** Orbs taken and not back yet: turns left until each reappears on a free star. */
+  orbsDue?: number[];
+  /** Where the next orb shuffles come from. The server's alone: never sent to the phones. */
+  orbSeed?: number;
+  /** Each token's power, null for none. */
+  powers?: Partial<Record<Color, (Power | null)[]>>;
+  /** Golden token (an optional rule): each player's golden token id. It leaves base on any roll, and a capture sends it to its start square instead of base. */
+  golden?: Partial<Record<Color, number>>;
 }
 
 /** How fast a game's animations and pauses run: 1 normally, faster in a bot battle. */
@@ -149,15 +177,33 @@ export interface LegalMove {
   captures: { color: Color; tokenId: number }[];
   /** Goes round the board a second time instead of turning into the home column. */
   lap?: true;
+  /** Power ups: a thief turns into (or is in) this colour's home column. */
+  raid?: Color;
+  /** Squares it moves when that isn't the die (a doubled move). */
+  steps?: number;
+  /** Shielded tokens it lands on: their shield breaks, they stay. */
+  breaks?: { color: Color; tokenId: number }[];
+  /** The power of the orb it picks up. */
+  orb?: Power;
 }
 
 export type GameEvent =
   | { type: 'roll'; color: Color; value: number; queue: number[] }
   | { type: 'penalty'; color: Color; queue: number[] }
-  /** `kills`: the moving token's captures so far, which set how heavily it hops. */
-  | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number; kills?: number }
-  /** `friendly`: the victim is the capturer's teammate (Team-up): the capturer's moustache shrinks a level instead of growing. */
-  | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true; friendly?: true }
+  /**
+   * `kills`: the moving token's captures so far, which set how heavily it hops. `steps`: squares
+   * moved when not the die (doubled). `via`: the home column a thief went up. `cloaked`: the token
+   * moved unseen (only its owner and teammate get this event).
+   */
+  | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number; kills?: number; steps?: number; via?: Color; cloaked?: true }
+  /** `friendly`: the victim is the capturer's teammate (Team-up): the capturer's moustache shrinks a level instead of growing. `to`: where the victim went when not base (a golden token: its start square). */
+  | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true; friendly?: true; to?: number }
+  /** Power ups: a token picked up the orb on `square`. */
+  | { type: 'power'; color: Color; tokenId: number; power: Power; square: number }
+  /** Power ups: `color`'s token landed on a shielded token: the shield broke, nobody was captured. */
+  | { type: 'shield'; color: Color; victim: Color; tokenId: number }
+  /** Power ups: a new orb appeared. */
+  | { type: 'orb'; square: number; power: Power }
   | { type: 'home'; color: Color; tokenId: number }
   | { type: 'rank'; color: Color; rank: number }
   | { type: 'noMoves'; color: Color; discarded: number[] }
@@ -256,6 +302,10 @@ export interface PublicLobby {
   share?: boolean;
   /** Seats, and so the board the next game is played on. */
   size: BoardSize;
+  /** Power ups in the next game. */
+  powerUps?: boolean;
+  /** Golden token in the next game. */
+  golden?: boolean;
 }
 
 export interface LobbySummary {
@@ -273,6 +323,8 @@ export interface LobbySummary {
   share?: boolean;
   /** Seats (the board): 4, 5 or 6. */
   size: BoardSize;
+  powerUps?: boolean;
+  golden?: boolean;
 }
 
 /** What the admin panel shows per lobby. */

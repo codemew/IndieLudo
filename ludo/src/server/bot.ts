@@ -1,6 +1,10 @@
-import { BASE, absoluteSquare, boardFor, isSafeSquare, isSecondLap, onTrack } from '../shared/board.js';
+import { BASE, absoluteSquare, boardFor, isSafeSquare, isSecondLap, onTrack, raidOf } from '../shared/board.js';
+import { powerOf, viewFor } from '../shared/powers.js';
 import { currentColor, isTeammate, legalMoves } from '../shared/rules.js';
-import type { Color, GameState, LegalMove } from '../shared/types.js';
+import type { Color, GameState, LegalMove, Power } from '../shared/types.js';
+
+/** How much a bot wants each power (power ups). */
+const POWER_WANT: Record<Power, number> = { double: 30, shield: 25, cloak: 25, thief: 20 };
 
 /** True if an opponent token sits 1..6 squares behind the given absolute square (a teammate is no threat). */
 function threatened(state: GameState, me: Color, abs: number): boolean {
@@ -29,34 +33,46 @@ function score(state: GameState, actor: Color, m: LegalMove): number {
   if (onTrack(m.from, b) && m.to > b.last && m.to < b.home) s += 40;
   // Going round again only to capture someone; otherwise head home.
   if (m.lap) s -= 50;
+  // Power ups: a thief raids a home column for the captures there (counted above), not for the detour.
+  if (m.raid) s -= 30;
+  if (m.orb) s += POWER_WANT[m.orb];
+  s += (m.breaks?.length ?? 0) * 15;
+  // A shielded token can afford to stand in harm's way.
+  const shielded = powerOf(state, me, m.tokenId) === 'shield';
   const fromAbs = absoluteSquare(me, m.from, b);
   const toAbs = absoluteSquare(me, m.to, b);
   if (toAbs !== null) {
     if (isSafeSquare(toAbs, b)) s += 30;
-    else if (threatened(state, me, toAbs)) s -= 25;
+    else if (threatened(state, me, toAbs)) s -= shielded ? 8 : 25;
   }
-  if (fromAbs !== null && threatened(state, me, fromAbs) && (toAbs === null || !threatened(state, me, toAbs))) s += 20;
-  // Prefer moving tokens further along (a second-lap token counts as one lap further).
-  const along = m.to === b.home ? b.home : isSecondLap(m.to, b) ? m.to - 6 : m.to;
+  if (fromAbs !== null && threatened(state, me, fromAbs) && (toAbs === null || !threatened(state, me, toAbs))) s += shielded ? 6 : 20;
+  // Prefer moving tokens further along (a second-lap token counts as one lap further; a raiding thief stays where it was).
+  const along = m.to === b.home ? b.home : raidOf(m.to) ? Math.max(m.from, 0) : isSecondLap(m.to, b) ? m.to - 6 : m.to;
   // Between tokens on the same square, move the one with the smaller moustache: the macho one
   // stays put, and a clean-shaven one that captures grows a moustache of its own.
   const kills = state.kills?.[me]?.[m.tokenId] ?? 0;
   return s + along / 10 - kills / 1000;
 }
 
-/** Simple heuristic: capture > finish > leave base > reach safety > advance; never a teammate unless forced. */
+/**
+ * Simple heuristic: capture > finish > leave base > reach safety > advance; never a teammate unless
+ * forced. It plays fair with power ups: it judges the board as its player sees it, so opponents'
+ * cloaked tokens neither scare it nor tempt it (landing on one still captures it).
+ */
 export function chooseMove(state: GameState): LegalMove | null {
   const moves = legalMoves(state);
   if (moves.length === 0) return null;
   const me = currentColor(state);
-  let best = moves[0];
+  // Its own and its partner's moves are all in the view, in the same order.
+  const seen = viewFor({ ...state, legalMoves: moves }, me);
+  let best = 0;
   let bestScore = -Infinity;
-  for (const m of moves) {
-    const s = score(state, me, m);
+  seen.legalMoves.forEach((m, i) => {
+    const s = score(seen, me, m);
     if (s > bestScore) {
-      best = m;
+      best = i;
       bestScore = s;
     }
-  }
-  return best;
+  });
+  return moves[best];
 }

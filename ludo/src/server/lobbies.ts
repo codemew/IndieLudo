@@ -25,6 +25,10 @@ export interface Lobby {
   share?: boolean;
   /** Seats, and the board the next game is played on. Lobbies saved before 5 and 6 seats lack it (4). */
   size?: BoardSize;
+  /** Power ups in the next game (an optional rule). */
+  powerUps?: boolean;
+  /** Golden token in the next game (an optional rule). */
+  golden?: boolean;
 }
 
 /** `{ avatar }` for a member or spectator, or nothing when there is none (keeps saved lobbies small). */
@@ -155,6 +159,8 @@ export class LobbyManager {
         teams: Boolean(l.teams),
         share: Boolean(l.teams && l.share),
         size: sizeOf(l),
+        ...(l.powerUps && { powerUps: true }),
+        ...(l.golden && { golden: true }),
       }));
   }
 
@@ -185,6 +191,8 @@ export class LobbyManager {
       teams: Boolean(l.teams),
       share: Boolean(l.share),
       size: sizeOf(l),
+      powerUps: Boolean(l.powerUps),
+      golden: Boolean(l.golden),
     };
   }
 
@@ -407,6 +415,21 @@ export class LobbyManager {
     const lobby = this.hostLobby(userId);
     if (Boolean(lobby.share) === share) return lobby;
     lobby.share = share;
+    for (const m of lobby.members) m.ready = m.isBot;
+    this.changed(lobby);
+    return lobby;
+  }
+
+  /**
+   * Host: the optional rules for the next game, power ups and golden token (either or both, in any
+   * mode and on any board). Everyone else's "ready" is cleared, as for the mode.
+   */
+  setRules(userId: number, rules: { powerUps?: boolean; golden?: boolean }): Lobby {
+    const lobby = this.hostLobby(userId);
+    const next = { powerUps: rules.powerUps ?? Boolean(lobby.powerUps), golden: rules.golden ?? Boolean(lobby.golden) };
+    if (next.powerUps === Boolean(lobby.powerUps) && next.golden === Boolean(lobby.golden)) return lobby;
+    lobby.powerUps = next.powerUps;
+    lobby.golden = next.golden;
     for (const m of lobby.members) m.ready = m.isBot;
     this.changed(lobby);
     return lobby;

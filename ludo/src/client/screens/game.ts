@@ -1,10 +1,14 @@
-import { BASE, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
+import { BASE, HIDDEN, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
 import type { GameUpdate, RollUpdate } from '../../shared/protocol.js';
 import { applyRollUpdate } from '../../shared/rollUpdate.js';
 import { distinctChoices, movableColors, respawnable, winnersOf } from '../../shared/rules.js';
+import { seesCloaked } from '../../shared/powers.js';
 import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
+  ORB_SPAWN_MS,
+  POWER_PICKUP_MS,
+  SHIELD_BREAK_MS,
   SURRENDER_MS,
   TEAMMATE,
   WILDCARD_MS,
@@ -22,7 +26,8 @@ import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide } from '../boa
 import { avatarFace } from '../../shared/avatars.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { installMoustacheDefs, moustacheSvg } from '../moustache.js';
-import { TokenLayer, boardSvg, placements, yardSize } from '../board/render.js';
+import { TokenLayer, boardSvg, placements, renderOrbs, yardSize } from '../board/render.js';
+import { GOLDEN_INFO, POWER_INFO } from '../powerInfo.js';
 import { Dice, dieChip } from '../dice.js';
 import { bindFullscreenButton, canFullscreen, enterFullscreen, isFullscreen } from '../fullscreen.js';
 import { vibrate } from '../haptics.js';
@@ -89,6 +94,7 @@ export function gameScreen(root: HTMLElement): () => void {
       <div class="board board-${geo.n}" id="board" style="--bw:${geo.w};--bh:${geo.h};--yard:${yardSize(geo)}">
         ${boardSvg(geo)}
         <div class="hold-layer" id="holds"></div>
+        <div class="orb-layer" id="orbs"></div>
         <div class="target-layer" id="targets"></div>
         <div class="token-layer" id="tokens"></div>
         <div class="dice-layer" id="dice-layer"></div>
@@ -141,6 +147,7 @@ export function gameScreen(root: HTMLElement): () => void {
     baseDice.el.dataset.color = color;
   }
   const targets = $(root, '#targets');
+  const orbs = $(root, '#orbs');
   const tokens = new TokenLayer($(root, '#tokens'), (color, id) => onTokenTap(color, id));
 
   // Size the board from its container's content box (never from vh, which jumps with the
@@ -183,7 +190,13 @@ export function gameScreen(root: HTMLElement): () => void {
   /** The colours I may move on my turn (mine, and my partner's with turn sharing). */
   const myMovable = (): Color[] => (mySeat() && gs ? movableColors(gs, mySeat()!.color) : []);
   /** The `game:move` payload for a move, naming the token's colour when it is my partner's. */
-  const moveIntent = (m: Pick<LegalMove, 'dieIndex' | 'tokenId' | 'color'>, lap = false) => ({ dieIndex: m.dieIndex, tokenId: m.tokenId, ...(m.color && { color: m.color }), ...(lap && { lap }) });
+  const moveIntent = (m: Pick<LegalMove, 'dieIndex' | 'tokenId' | 'color' | 'lap' | 'raid'>) => ({
+    dieIndex: m.dieIndex,
+    tokenId: m.tokenId,
+    ...(m.color && { color: m.color }),
+    ...(m.lap && { lap: true }),
+    ...(m.raid && { raid: m.raid }),
+  });
   const isMyTurn = () => Boolean(gs && !gs.finished && current().userId === myId && current().controller !== 'bot');
   const canRoll = () => isMyTurn() && gs!.turn.phase === 'rolling' && !awaitingAck && !animating;
   const canMove = () => isMyTurn() && gs!.turn.phase === 'moving' && !awaitingAck && !animating;
@@ -229,7 +242,7 @@ export function gameScreen(root: HTMLElement): () => void {
         gs!.legalMoves.filter((m) => {
           const owner = ownerOf(m);
           const at = gs!.tokens[owner][m.tokenId];
-          if (m.dieIndex !== pick.dieIndex || m.lap || at === BASE) return false;
+          if (m.dieIndex !== pick.dieIndex || m.lap || m.raid || at === BASE) return false;
           const cell = tokenCell(owner, at, m.tokenId, geo);
           return cell[0] === here[0] && cell[1] === here[1];
         }),
@@ -240,16 +253,16 @@ export function gameScreen(root: HTMLElement): () => void {
     void moveToken(color, tokenId, pick.dieIndex);
   }
 
-  /** Moves the chosen token with the chosen die: asks which way at its home turn, and before friendly fire. */
+  /** Moves the chosen token with the chosen die: asks which way when there's more than one (its home turn, a thief's raid). */
   async function moveToken(color: Color, tokenId: number, dieIndex: number): Promise<void> {
     const options = gs!.legalMoves.filter((m) => m.tokenId === tokenId && m.dieIndex === dieIndex && ownerOf(m) === color);
-    // At its home turn on the first lap the token may go round again: ask which way.
-    const lap = options.find((m) => m.lap);
-    const home = options.find((m) => !m.lap);
-    if (!home) return;
-    if (lap) return chooseLap(home, lap);
+    // At its home turn on the first lap the token may go round again, and a thief may raid a home column: ask which way.
+    const plain = options.find((m) => !m.lap && !m.raid);
+    if (options.length > 1) return chooseWay(options);
+    const only = plain ?? options[0];
+    if (!only) return;
     play('tap');
-    void send('game:move', moveIntent(home));
+    void send('game:move', moveIntent(only));
   }
 
   /** The open choice bubble (stacked tokens, or head home / go round again), closed if the game moves on. */
@@ -320,36 +333,51 @@ export function gameScreen(root: HTMLElement): () => void {
   }
 
   /**
-   * The choice for a token at its home turn: a bubble on its square with two round pictures,
-   * coloured like the trails and markers on the board (gold 🏠 head home, blue ↻ round again).
-   * The board's markers can be tapped instead.
+   * The choice for a token with more than one way to go: a bubble on its square with a round picture
+   * per way, coloured like the trails and markers on the board: at its home turn gold 🏠 head home and
+   * blue ↻ round again; for a thief (power ups) the raided colour's 🦹 up their home column, beside
+   * staying on the track. The board's markers can be tapped instead.
    */
-  function chooseLap(home: LegalMove, lap: LegalMove): void {
-    const color = ownerOf(home);
-    const answer = (goRound: boolean) => {
+  function chooseWay(options: LegalMove[]): void {
+    const first = options[0];
+    const color = ownerOf(first);
+    // A choice of ways always says whether it goes round again.
+    const answer = (m: LegalMove) => {
       play('tap');
-      void send('game:move', { ...moveIntent(home), lap: goRound });
+      void send('game:move', { ...moveIntent(m), lap: Boolean(m.lap) });
     };
-    const victims = lap.captures.map((c) => seatName(c.color)).join(', ');
-    const toGo = geo.home - home.to;
+    const victimsOf = (m: LegalMove) => m.captures.map((c) => seatName(c.color)).join(', ');
     // The bubble has no words, so what each way means is in the labels (screen readers, long press).
-    const homeLabel = `Head home, ${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'finishes now'}`;
-    const roundLabel = `Go round again${victims ? `, captures ${esc(victims)}` : ''}, uses this token's extra lap so it can't make a wildcard entry later`;
-    openBubble(tokenCell(color, home.from, home.tokenId, geo), { color, id: home.tokenId }, [
-      { cls: 'lap-opt home', attrs: 'data-go="home"', html: '<span class="bubble-ico">🏠</span>', label: homeLabel, pick: () => void answer(false) },
-      { cls: 'lap-opt round', attrs: 'data-go="round"', html: '<span class="bubble-ico">↻</span>', label: roundLabel, pick: () => void answer(true) },
-    ]);
+    const wayOf = (m: LegalMove): BubbleOption => {
+      const victims = victimsOf(m);
+      const caps = victims ? `, captures ${esc(victims)}` : '';
+      if (m.raid) {
+        return { cls: `lap-opt raid r-${m.raid}`, attrs: `data-go="raid" data-raid="${m.raid}"`, html: '<span class="bubble-ico">🦹</span>', label: `Raid ${esc(seatName(m.raid))}'s home column${caps}`, pick: () => void answer(m) };
+      }
+      if (m.lap) {
+        return { cls: 'lap-opt round', attrs: 'data-go="round"', html: '<span class="bubble-ico">↻</span>', label: `Go round again${caps}, uses this token's extra lap so it can't make a wildcard entry later`, pick: () => void answer(m) };
+      }
+      const toGo = geo.home - m.to;
+      const homeward = m.to > geo.last && m.to <= geo.home;
+      const label = homeward ? `Head home, ${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'finishes now'}` : `Stay on the track${caps}`;
+      return { cls: `lap-opt ${homeward ? 'home' : 'track'}`, attrs: `data-go="${homeward ? 'home' : 'track'}"`, html: `<span class="bubble-ico">${homeward ? '🏠' : '➜'}</span>`, label, pick: () => void answer(m) };
+    };
+    // The plain way first, then round again, then raids.
+    const order = (m: LegalMove) => (m.raid ? 2 : m.lap ? 1 : 0);
+    openBubble(tokenCell(color, first.from, first.tokenId, geo), { color, id: first.tokenId }, [...options].sort((a, b) => order(a) - order(b)).map(wayOf));
   }
 
-  // Tapping a gold or blue marker on the board chooses that way directly.
+  // Tapping a marker of a branching move on the board (home, round again, a raid) chooses that way directly.
   targets.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
     if (!t || !canMove()) return;
     chooser?.close();
-    const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1' };
-    const m = gs!.legalMoves.find((x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap && ownerOf(x) === (t.dataset.color ?? mySeat()?.color));
+    const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1', raid: (t.dataset.raid || undefined) as Color | undefined };
+    const m = gs!.legalMoves.find(
+      (x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap && x.raid === move.raid && ownerOf(x) === (t.dataset.color ?? mySeat()?.color),
+    );
     play('tap');
-    void send('game:move', m ? { ...moveIntent(m), lap: move.lap } : move);
+    void send('game:move', m ? { ...moveIntent(m), lap: move.lap } : { dieIndex: move.dieIndex, tokenId: move.tokenId, lap: move.lap, ...(move.raid && { raid: move.raid }) });
   });
 
   // ---------- wildcard entry: hold your home tokens to send some back to base ----------
@@ -549,7 +577,8 @@ export function gameScreen(root: HTMLElement): () => void {
           lastMover = el;
           lastMove = { color: e.color, tokenId: e.tokenId };
           const start = tokenCell(e.color, e.from, e.tokenId, geo);
-          const path = pathCells(e.color, e.from, e.to, e.tokenId, geo);
+          // A thief's raid goes up another colour's home column (power ups).
+          const path = pathCells(e.color, e.from, e.to, e.tokenId, geo, e.via);
           const idx = work.turn.queue.indexOf(e.die);
           if (idx >= 0) work.turn.queue.splice(idx, 1);
           renderQueue(work, false);
@@ -589,8 +618,12 @@ export function gameScreen(root: HTMLElement): () => void {
             setTimeout(() => play('slurp'), 260);
           }
           tokenEmoji(el, 'ouch');
-          await slide(el, from, tokenCell(e.victim, BASE, e.tokenId, geo), 560);
-          work.tokens[e.victim][e.tokenId] = BASE;
+          // A cloaked token (power ups) shows itself as it is caught; a golden one goes to its start square.
+          el.classList.remove('unseen');
+          const to = e.to ?? BASE;
+          await slide(el, from, tokenCell(e.victim, to, e.tokenId, geo), 560);
+          work.tokens[e.victim][e.tokenId] = to;
+          if (work.powers?.[e.victim]) work.powers[e.victim]![e.tokenId] = null;
           // The capturer's moustache grows a level (shrinks one for friendly fire); the captured
           // token goes home clean-shaven.
           work.kills ??= {};
@@ -651,6 +684,27 @@ export function gameScreen(root: HTMLElement): () => void {
         case 'respawn':
           await wildcardEntry(work, e.color, e.tokenIds, e.unranked);
           break;
+        case 'power':
+          await powerPickup(work, e);
+          break;
+        case 'shield': {
+          // The shield takes the hit: a blue flash and the badge goes.
+          const cell = tokenCell(e.victim, work.tokens[e.victim][e.tokenId], e.tokenId, geo);
+          play('shieldBreak');
+          vibrate([20, 30, 20]);
+          burst(cell, 'shield');
+          callout('Shield!', e.victim === me ? 'Your token survived' : `${seatName(e.victim)}'s token survived`);
+          if (work.powers?.[e.victim]) work.powers[e.victim]![e.tokenId] = null;
+          tokens.sync(work, new Set(), null);
+          await sleep(SHIELD_BREAK_MS);
+          break;
+        }
+        case 'orb':
+          (work.orbs ??= []).push({ square: e.square, power: e.power });
+          renderOrbs(orbs, work);
+          play('orb');
+          await sleep(ORB_SPAWN_MS);
+          break;
         case 'turn':
           if (e.color === me) {
             play('turn');
@@ -662,6 +716,28 @@ export function gameScreen(root: HTMLElement): () => void {
           break;
       }
     }
+  }
+
+  /**
+   * Power ups: a token takes the orb it landed on. The orb swells and flies into it, the badge
+   * appears, and everyone is told what it got (a cloak only shows the owner and teammate where).
+   */
+  async function powerPickup(work: GameState, e: Extract<GameEvent, { type: 'power' }>): Promise<void> {
+    const me = mySeat()?.color;
+    const orb = orbs.querySelector<HTMLElement>(`.orb[data-square="${e.square}"]`);
+    play('powerUp');
+    if (e.color === me) vibrate([20, 40, 60]);
+    if (orb && !reducedMotion()) await orb.animate([{ transform: 'translate(-50%, -50%) scale(1)' }, { transform: 'translate(-50%, -50%) scale(1.8)', opacity: 0 }], { duration: 420, easing: 'ease-in' }).finished.catch(() => {});
+    work.orbs = (work.orbs ?? []).filter((o) => o.square !== e.square);
+    renderOrbs(orbs, work);
+    ((work.powers ??= {})[e.color] ??= [null, null, null, null])[e.tokenId] = e.power;
+    // An opponent's token that put on the cloak vanishes from our board.
+    if (e.power === 'cloak' && !seesCloaked(work, me ?? null, e.color)) work.tokens[e.color][e.tokenId] = HIDDEN;
+    tokens.sync(work, new Set(), null);
+    burst(geo.track[e.square], 'gold');
+    const info = POWER_INFO[e.power];
+    callout(`${info.icon} ${info.name}`, e.color === me ? `Your token ${info.what}` : `${seatName(e.color)} got it`);
+    await sleep(POWER_PICKUP_MS - 420);
   }
 
   // ---------- rendering ----------
@@ -698,6 +774,7 @@ export function gameScreen(root: HTMLElement): () => void {
   function renderAll(): void {
     if (!gs) return;
     renderFlags(gs);
+    renderOrbs(orbs, gs);
     renderChips();
     renderControls(true);
     renderHolds();
@@ -707,6 +784,18 @@ export function gameScreen(root: HTMLElement): () => void {
       baseDice.idle();
     }
     announceTeams();
+    announceRules();
+  }
+
+  /** Power ups and the golden token: once per game, at the start, what is different. */
+  const rulesTold = new Set<string>();
+  function announceRules(): void {
+    if (!gs || gs.finished || rulesTold.has(gs.id) || (!gs.powerUps && !gs.golden)) return;
+    rulesTold.add(gs.id);
+    // Only at the start of a game (not when coming back to one halfway through).
+    if (gs.version > 3) return;
+    const parts = [gs.powerUps ? '⚡ Power ups: land on an orb on a star to get its power' : '', gs.golden ? `${GOLDEN_INFO.icon} Your crowned token leaves base on any roll` : ''].filter(Boolean);
+    toast(parts.join(' · '), 'info', 5000);
   }
 
   /** Team-up: once per game, who plays with whom. */
@@ -952,6 +1041,7 @@ export function gameScreen(root: HTMLElement): () => void {
     }
     if (!animating || force) {
       tokens.sync(gs, tappable, seat.color, mates);
+      renderOrbs(orbs, gs);
       renderQueue(gs, true);
       setFlame(gs.turn.phase === 'rolling' ? gs.turn.sixes : 0);
     }
@@ -1054,18 +1144,22 @@ export function gameScreen(root: HTMLElement): () => void {
     const at = (c: readonly [number, number]) => `left:${((c[0] + 0.5) / geo.w) * 100}%;top:${((c[1] + 0.5) / geo.h) * 100}%`;
     for (const m of mySeat() ? moves : []) {
       const color = ownerOf(m);
-      const branches = moves.some((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && o.lap && ownerOf(o) === color);
+      // More than one way with this die: home or round again, or (power ups) a thief's raid or the track.
+      const branches = moves.filter((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && ownerOf(o) === color).length > 1;
+      const way = m.raid ? 'raid' : m.lap ? 'round' : m.to > geo.last && m.to <= geo.home ? 'home' : 'track';
       if (branches) {
-        const trail = pathCells(color, m.from, m.to, m.tokenId, geo).slice(0, -1);
-        html += trail.map((c) => `<div class="trail ${m.lap ? 'round' : 'home'}" style="${at(c)}"></div>`).join('');
+        const trail = pathCells(color, m.from, m.to, m.tokenId, geo, m.raid).slice(0, -1);
+        html += trail.map((c) => `<div class="trail ${way}" style="${at(c)}"></div>`).join('');
       }
       const [x, y] = tokenCell(color, m.to, m.tokenId, geo);
       // Home markers are one per colour: the partner's sits in the partner's own home, not on top of yours.
       const key = m.to === geo.home ? `home:${color}` : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}" role="button" aria-label="${m.lap ? 'Go round again' : 'Head home'}"` : '';
-      html += `<div class="target t-${color}${color !== mySeat()!.color ? ' mate' : ''}${branches ? (m.lap ? ' round' : ' home') : ''}" style="${at([x, y])}"${pick}>${branches && m.lap ? '<span>↻</span>' : ''}</div>`;
+      const label = m.raid ? `Raid ${seatName(m.raid)}'s home column` : m.lap ? 'Go round again' : m.to > geo.last && m.to <= geo.home ? 'Head home' : 'Stay on the track';
+      const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}"${m.raid ? ` data-raid="${m.raid}"` : ''} role="button" aria-label="${esc(label)}"` : '';
+      const mark = branches && m.raid ? '<span>🦹</span>' : branches && m.lap ? '<span>↻</span>' : '';
+      html += `<div class="target t-${color}${color !== mySeat()!.color ? ' mate' : ''}${branches ? ` ${way}` : ''}" style="${at([x, y])}"${pick}>${mark}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.
     setHtml(targets, html);
@@ -1098,7 +1192,7 @@ export function gameScreen(root: HTMLElement): () => void {
     }
   }
 
-  function burst(cell: readonly [number, number], color: Color | 'gold'): void {
+  function burst(cell: readonly [number, number], color: Color | 'gold' | 'shield'): void {
     const b = el(`<div class="burst t-${color}" style="left:${((cell[0] + 0.5) / geo.w) * 100}%;top:${((cell[1] + 0.5) / geo.h) * 100}%">${'<i></i>'.repeat(8)}</div>`);
     fx.appendChild(b);
     setTimeout(() => b.remove(), 900);

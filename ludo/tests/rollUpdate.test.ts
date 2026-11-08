@@ -105,7 +105,7 @@ describe('over the socket', () => {
       expect(fullTo.get(c)).toEqual([]);
       expect(c.rolls.map((u: RollUpdate) => u.version)).toEqual([2, 3]);
       // What they hold now is the server's state, less the legal moves.
-      const server = t.server.ctx.games.publicState(t.server.ctx.games.get(gameId)!);
+      const server = t.server.ctx.games.publicState(t.server.ctx.games.get(gameId)!, null);
       expect({ ...c.states.at(-1)!.state, serverNow: 0 }).toEqual({ ...server, legalMoves: [], serverNow: 0 });
     }
 

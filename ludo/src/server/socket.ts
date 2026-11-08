@@ -114,7 +114,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       appVersion: ctx.appVersion,
       user: { id: userId, username: socket.data.username, avatar: socket.data.avatar, canCreate: ctx.hosts.isTrusted(userId) },
       lobby: lobby ? ctx.lobbies.toPublic(lobby) : null,
-      game: game ? ctx.games.publicState(game) : null,
+      game: game ? ctx.games.publicState(game, userId) : null,
     };
     socket.emit('hello', hello);
     // Who is online now; changes follow as they happen (to everyone).
@@ -221,7 +221,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       if (game) {
         // Watching a game already under way: straight to the board.
         io.in(rooms.user(userId)).socketsJoin(rooms.game(game.id));
-        io.to(rooms.user(userId)).emit('game:state', { state: ctx.games.publicState(game) });
+        io.to(rooms.user(userId)).emit('game:state', { state: ctx.games.publicState(game, userId) });
       }
       return { ok: true, data: ctx.lobbies.toPublic(l) };
     });
@@ -252,6 +252,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('lobby:fillBots', SCHEMAS.empty, () => void ctx.lobbies.fillBots(userId));
     on('lobby:mode', SCHEMAS.lobbyMode, (p) => void ctx.lobbies.setTeams(userId, p.teams));
     on('lobby:share', SCHEMAS.lobbyShare, (p) => void ctx.lobbies.setShare(userId, p.share));
+    on('lobby:rules', SCHEMAS.lobbyRules, (p) => void ctx.lobbies.setRules(userId, p));
     on('lobby:size', SCHEMAS.lobbySize, (p) => void ctx.lobbies.setSize(userId, p.size as BoardSize));
     on('lobby:spectate', SCHEMAS.empty, () => void ctx.lobbies.spectate(userId));
     on('lobby:sit', SCHEMAS.lobbyColor, (p) => void ctx.lobbies.sit(userId, p.color as Color));
@@ -267,13 +268,14 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       const state = ctx.games.create(l);
       io.in(rooms.lobby(l.id)).socketsJoin(rooms.game(state.id));
       ctx.lobbies.markPlaying(l.id, state.id);
-      io.to(rooms.game(state.id)).emit('game:state', { state: ctx.games.publicState(state) });
+      // A new game: nothing is cloaked yet, so one view (without the server's secrets) fits everyone.
+      io.to(rooms.game(state.id)).emit('game:state', { state: ctx.games.publicState(state, null) });
     });
 
     const resync = (gameId: string, r: Ack): Ack => {
       if (!r.ok && (r.error === 'STALE_VERSION' || r.error === 'WRONG_PHASE' || r.error === 'NOT_YOUR_TURN')) {
         const state = ctx.games.get(gameId);
-        if (state) socket.emit('game:state', { state: ctx.games.publicState(state) });
+        if (state) socket.emit('game:state', { state: ctx.games.publicState(state, userId) });
       }
       return r;
     };
@@ -296,7 +298,7 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
       const watching = state && ctx.lobbies.get(state.lobbyId)?.spectators.some((s) => s.userId === userId);
       if (!state || !(watching || state.seats.some((s) => s.userId === userId))) return { ok: false, error: 'NO_GAME' };
       if (!state.finished) socket.join(rooms.game(state.id));
-      return { ok: true, data: ctx.games.publicState(state) };
+      return { ok: true, data: ctx.games.publicState(state, userId) };
     });
 
     on('game:takeback', SCHEMAS.gameRef, (p) => ctx.games.takeback(userId, p.gameId));

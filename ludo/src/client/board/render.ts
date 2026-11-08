@@ -1,7 +1,9 @@
-import { BASE, BASE_ORIGIN, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, boardFor, boardOf, isSecondLap, tokenCell, type Board, type BoardShapes, type Cell } from '../../shared/board.js';
+import { BASE, BASE_ORIGIN, HIDDEN, HOME_COLUMN, START_INDEX, STAR_SQUARES, TRACK, boardFor, boardOf, isSecondLap, raidOf, tokenCell, type Board, type BoardShapes, type Cell } from '../../shared/board.js';
 import { moustacheLevel } from '../../shared/heft.js';
+import { isGolden, powerOf } from '../../shared/powers.js';
 import { COLORS, type Color, type GameState } from '../../shared/types.js';
 import { moustacheSvg } from '../moustache.js';
+import { GOLDEN_INFO, POWER_INFO } from '../powerInfo.js';
 import { reducedMotion } from './animate.js';
 
 /** After a capture, how long the token must sit still before its moustache grows, so the growth is seen. */
@@ -127,7 +129,8 @@ export function placements(state: GameState): Map<string, Placement> {
     state.tokens[seat.color].forEach((p, id) => {
       const cell = tokenCell(seat.color, p, id, boardFor(state));
       const key = `${seat.color}:${id}`;
-      const g = p === BASE ? key : `${cell[0]},${cell[1]}`;
+      // In base each token has its own slot; an opponent's cloaked token (power ups) isn't on the board for us.
+      const g = p === BASE || p === HIDDEN ? key : `${cell[0]},${cell[1]}`;
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g)!.push({ key, cell });
     });
@@ -246,6 +249,30 @@ export class TokenLayer {
     );
   }
 
+  /**
+   * Power ups and the golden token: a badge for the token's power and a crown for the golden one,
+   * there for as long as it has them. An opponent's cloaked token isn't shown at all; your own is
+   * see-through. A thief up someone's home column wears that colour's ring.
+   */
+  private setMarks(b: HTMLButtonElement, state: GameState, color: Color, id: number, p: number): void {
+    const power = powerOf(state, color, id);
+    const golden = isGolden(state, color, id);
+    const key = `${power ?? ''}:${golden ? 'g' : ''}`;
+    b.classList.toggle('unseen', p === HIDDEN);
+    b.classList.toggle('golden', golden);
+    const raid = raidOf(p);
+    b.dataset.raid = raid?.lane ?? '';
+    if (b.dataset.marks === key) return;
+    b.dataset.marks = key;
+    for (const k of Object.keys(POWER_INFO)) b.classList.toggle(`pw-${k}`, power === k);
+    const squash = b.querySelector('.tok-squash')!;
+    squash.querySelectorAll('.tok-badge, .tok-crown').forEach((n) => n.remove());
+    if (power) squash.insertAdjacentHTML('beforeend', `<span class="tok-badge" aria-hidden="true">${POWER_INFO[power].icon}</span>`);
+    if (golden) squash.insertAdjacentHTML('beforeend', `<span class="tok-crown" aria-hidden="true">${GOLDEN_INFO.icon}</span>`);
+    const extras = [golden ? GOLDEN_INFO.name : '', power ? POWER_INFO[power].name : ''].filter(Boolean).join(', ');
+    b.setAttribute('aria-label', `${color} token ${id + 1}${extras ? ` (${extras})` : ''}`);
+  }
+
   get(color: Color, id: number): HTMLButtonElement | undefined {
     return this.els.get(`${color}:${id}`);
   }
@@ -272,6 +299,7 @@ export class TokenLayer {
         b.classList.toggle('at-home', p === board.home);
         this.setMoustache(b, moustacheLevel(state.kills?.[seat.color]?.[id] ?? 0));
         b.classList.toggle('active', seat.color === activeColor);
+        this.setMarks(b, state, seat.color, id, p);
         b.disabled = !tappable.has(key);
       });
     }
@@ -281,5 +309,32 @@ export class TokenLayer {
         this.els.delete(key);
       }
     }
+  }
+}
+
+/**
+ * Power ups: the orbs waiting on the star squares, each showing its power. Kept in place between
+ * redraws (a new orb pops in, a taken one is removed) so they don't restart their glow.
+ */
+export function renderOrbs(layer: HTMLElement, state: Pick<GameState, 'orbs' | 'board'>): void {
+  const b = boardFor(state);
+  const want = new Map((state.orbs ?? []).map((o) => [`${o.square}:${o.power}`, o]));
+  for (const node of [...layer.children] as HTMLElement[]) {
+    if (!want.has(node.dataset.key!)) node.remove();
+    else want.delete(node.dataset.key!);
+  }
+  for (const [key, o] of want) {
+    const [x, y] = b.track[o.square];
+    const info = POWER_INFO[o.power];
+    const node = document.createElement('div');
+    node.className = `orb o-${o.power}`;
+    node.dataset.key = key;
+    node.dataset.square = String(o.square);
+    node.style.left = `${((x + 0.5) / b.w) * 100}%`;
+    node.style.top = `${((y + 0.5) / b.h) * 100}%`;
+    node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', `${info.name} orb: ${info.what}`);
+    node.innerHTML = `<span>${info.icon}</span>`;
+    layer.appendChild(node);
   }
 }

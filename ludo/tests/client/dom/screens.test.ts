@@ -686,3 +686,24 @@ describe('the turn sharing checkbox in the lobby', () => {
     expect([box().checked, box().disabled]).toEqual([true, true]);
   });
 });
+
+describe('the power ups and golden token switches in the lobby', () => {
+  const box = (id: string) => document.querySelector<HTMLInputElement>(`#${id}`)!;
+
+  it('shown in every mode; the host switches each on its own, and the others see them but can\'t change them', () => {
+    resetNet();
+    store.update({ user: { id: 1, username: 'alice' }, lobby: lobby() });
+    show('lobby');
+    expect(document.querySelector<HTMLElement>('#powerups-rule')!.hidden).toBe(false);
+    expect(document.querySelector('#powerups-rule')!.textContent).toMatch(/Power ups[\s\S]*Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Thief/);
+    expect(document.querySelector('#golden-rule')!.textContent).toContain('Golden token');
+    expect([box('powerups').checked, box('powerups').disabled, box('golden').checked, box('golden').disabled]).toEqual([false, false, false, false]);
+    box('powerups').checked = true;
+    box('powerups').dispatchEvent(new Event('change', { bubbles: true }));
+    box('golden').checked = true;
+    box('golden').dispatchEvent(new Event('change', { bubbles: true }));
+    expect(sentOf('lobby:rules')).toEqual([{ powerUps: true }, { golden: true }]);
+    store.update({ user: { id: 2, username: 'bob' }, lobby: lobby({ powerUps: true, golden: true }) });
+    expect([box('powerups').checked, box('powerups').disabled, box('golden').checked, box('golden').disabled]).toEqual([true, true, true, true]);
+  });
+});

@@ -9,7 +9,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let muted = storage.get(KEYS.muted) === '1';
 
-export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire';
+export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire' | 'powerUp' | 'shieldBreak' | 'orb';
 
 export function unlock(): void {
   try {
@@ -232,6 +232,23 @@ export function play(name: Sfx): void {
       break;
     case 'win':
       [523, 659, 784, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, i === 5 ? 0.6 : 0.16, 'triangle', 0.25));
+      break;
+    case 'powerUp':
+      // Power ups: a token takes an orb: a shimmering rise into a bright chord.
+      noise(0, 0.3, 0.08, 4000);
+      tone(440, 0, 0.35, 'sine', 0.14, 1320);
+      [880, 1109, 1319].forEach((f, i) => tone(f, 0.25 + i * 0.04, 0.4, 'triangle', 0.1));
+      break;
+    case 'shieldBreak':
+      // A shield takes the hit: a glassy clang and a falling shatter.
+      [1500, 2210, 3050].forEach((f, i) => tone(f, 0, 0.5 - i * 0.1, 'sine', 0.1 - i * 0.02));
+      noise(0.02, 0.25, 0.14, 5000);
+      tone(700, 0.05, 0.3, 'triangle', 0.08, 300);
+      break;
+    case 'orb':
+      // A new orb appears on a star: a soft bubbling pop.
+      tone(520, 0, 0.16, 'sine', 0.12, 1040);
+      tone(1040, 0.1, 0.12, 'sine', 0.08);
       break;
     case 'tap':
       tone(1200, 0, 0.03, 'sine', 0.08);

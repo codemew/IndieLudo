@@ -1,5 +1,6 @@
-import { BASE, boardFor, boardOf, absoluteSquare, isSafeSquare, isSecondLap, type Board, type BoardSize } from './board.js';
+import { BASE, boardFor, boardOf, absoluteSquare, isSafeSquare, isSecondLap, laneEntry, laneSpot, onTrack, raidExitProgress, raidOf, raidProgress, type Board, type BoardSize } from './board.js';
 import { moustacheLevel } from './heft.js';
+import { initialOrbs, isGolden, orbAt, orbRespawnTurns, powerOf, powersOf, tickOrbs } from './powers.js';
 import { countRoll } from './rolls.js';
 import { TEAMMATE, type Color, type GameEvent, type GameState, type LegalMove, type PlayerStats, type Seat } from './types.js';
 
@@ -31,6 +32,10 @@ export function createGameState(opts: {
   share?: boolean;
   /** The 4- (default), 5- or 6-player board. */
   board?: BoardSize;
+  /** Power ups, with the seed for the orb shuffles (the server's random number). */
+  powerUps?: { seed: number };
+  /** Golden token: each player's golden token id (the server picks them at random). */
+  golden?: Partial<Record<Color, number>>;
 }): GameState {
   const { colors } = boardOf(opts.board);
   const seats = [...opts.seats]
@@ -42,7 +47,8 @@ export function createGameState(opts: {
   if (opts.teams && (seats.length !== 4 || colors.length !== 4)) throw new RuleError('TEAMS_NEED_FOUR');
   const tokens = { red: [], green: [], yellow: [], blue: [], purple: [], orange: [] } as Record<Color, number[]>;
   for (const s of seats) tokens[s.color] = Array(TOKENS_PER_PLAYER).fill(BASE);
-  return {
+  const golden = opts.golden && Object.fromEntries(seats.flatMap((s) => (Number.isInteger(opts.golden![s.color]) ? [[s.color, opts.golden![s.color]! % TOKENS_PER_PLAYER]] : [])));
+  const state: GameState = {
     id: opts.id,
     lobbyId: opts.lobbyId,
     version: 1,
@@ -56,7 +62,11 @@ export function createGameState(opts: {
     ...(opts.teams && { teams: true }),
     ...(opts.teams && opts.share && { share: true }),
     ...(opts.board && opts.board !== 4 && { board: opts.board }),
+    ...(opts.powerUps && { powerUps: true as const, orbSeed: opts.powerUps.seed >>> 0 || 1, orbsDue: [], powers: {} }),
+    ...(golden && { golden }),
   };
+  if (state.powerUps) state.orbs = initialOrbs(state);
+  return state;
 }
 
 /** Each token's captures since it last left base, created on first use (older saved games have none). */
@@ -166,6 +176,7 @@ export function applySurrender(state: GameState, color: Color): GameEvent[] {
     kills[i] = 0;
     return BASE;
   });
+  if (state.powers?.[color]) state.powers[color] = [null, null, null, null];
   if (state.teams) {
     endGame(state, events, state.seats.find((s) => s.color !== color && s.color !== TEAMMATE[color])!.color);
     return events;
@@ -242,18 +253,86 @@ export function targetProgress(progress: number, die: number, b: Board = boardOf
   return targetsFor(progress, die, true, b)[0]?.to ?? null;
 }
 
-function capturesAt(state: GameState, mover: Color, to: number): LegalMove['captures'] {
+/** Where a token could go with this many squares (power ups: a thief may also turn into another player's home column). */
+interface Target {
+  to: number;
+  lap?: true;
+  raid?: Color;
+  steps?: number;
+}
+
+function stepTargets(state: GameState, color: Color, tokenId: number, from: number, d: number): Target[] {
   const b = boardFor(state);
-  const abs = absoluteSquare(mover, to, b);
-  if (abs === null || isSafeSquare(abs, b)) return [];
-  const captures: LegalMove['captures'] = [];
-  for (const seat of state.seats) {
-    if (seat.color === mover) continue;
-    state.tokens[seat.color].forEach((p, tokenId) => {
-      if (absoluteSquare(seat.color, p, b) === abs) captures.push({ color: seat.color, tokenId });
-    });
+  const raid = raidOf(from);
+  if (raid) {
+    // A thief up someone's home column: on up it, or exactly into their home and out at their start.
+    const s = raid.step + d;
+    if (s <= 5) return [{ to: raidProgress(raid.lane, s, raid.secondLap) }];
+    return s === 6 ? [{ to: raidExitProgress(color, raid.lane, raid.secondLap, b) }] : [];
   }
-  return captures;
+  const out: Target[] = targetsFor(from, d, hasExtraLap(state, color, tokenId), b);
+  if (powerOf(state, color, tokenId) !== 'thief' || !onTrack(from, b)) return out;
+  const second = isSecondLap(from, b);
+  const lastOnTrack = second ? b.lap2Last : b.last;
+  for (const seat of state.seats) {
+    const lane = seat.color;
+    if (lane === color || isTeammate(state, color, lane)) continue;
+    const entry = laneEntry(lane, b);
+    for (let j = 0; j < d && from + j <= lastOnTrack; j++) {
+      if (absoluteSquare(color, from + j, b) !== entry) continue;
+      const r = d - j;
+      if (r <= 5) out.push({ to: raidProgress(lane, r, second), raid: lane });
+      else if (r === 6) out.push({ to: raidExitProgress(color, lane, second, b), raid: lane });
+    }
+  }
+  return out;
+}
+
+/**
+ * Where this token could go with this die. Out of base takes a 6 (any roll for a golden token).
+ * A token with the double power goes twice as far when it can, and as rolled when that overshoots.
+ */
+export function tokenTargets(state: GameState, color: Color, tokenId: number, die: number): Target[] {
+  const from = state.tokens[color][tokenId];
+  if (from === BASE) return die === SIX || isGolden(state, color, tokenId) ? [{ to: 0 }] : [];
+  if (powerOf(state, color, tokenId) === 'double') {
+    const doubled = stepTargets(state, color, tokenId, from, die * 2);
+    if (doubled.length) return doubled.map((t) => ({ ...t, steps: die * 2 }));
+  }
+  return stepTargets(state, color, tokenId, from, die);
+}
+
+/**
+ * Tokens a move to `to` would capture, and shielded ones it would only knock the shield off. On
+ * the track, any opponent on that square unless it is safe; in a home column (power ups: a thief
+ * in someone's, or the owner coming up their own), anyone else on that spot.
+ */
+function hitsAt(state: GameState, mover: Color, to: number): { captures: LegalMove['captures']; breaks: LegalMove['captures'] } {
+  const b = boardFor(state);
+  const hits: LegalMove['captures'] = [];
+  const abs = absoluteSquare(mover, to, b);
+  if (abs !== null) {
+    if (isSafeSquare(abs, b)) return { captures: [], breaks: [] };
+    for (const seat of state.seats) {
+      if (seat.color === mover) continue;
+      state.tokens[seat.color].forEach((p, tokenId) => {
+        if (absoluteSquare(seat.color, p, b) === abs) hits.push({ color: seat.color, tokenId });
+      });
+    }
+  } else if (state.powerUps) {
+    const spot = laneSpot(mover, to, b);
+    if (spot) {
+      for (const seat of state.seats) {
+        if (seat.color === mover) continue;
+        state.tokens[seat.color].forEach((p, tokenId) => {
+          const there = laneSpot(seat.color, p, b);
+          if (there && there.lane === spot.lane && there.step === spot.step) hits.push({ color: seat.color, tokenId });
+        });
+      }
+    }
+  }
+  const shielded = (h: { color: Color; tokenId: number }) => powerOf(state, h.color, h.tokenId) === 'shield';
+  return { captures: hits.filter((h) => !shielded(h)), breaks: hits.filter(shielded) };
 }
 
 /**
@@ -267,8 +346,23 @@ export function legalMoves(state: GameState): LegalMove[] {
   state.turn.queue.forEach((die, dieIndex) => {
     for (const color of movableColors(state, actor)) {
       state.tokens[color].forEach((from, tokenId) => {
-        for (const { to, lap } of targetsFor(from, die, hasExtraLap(state, color, tokenId), boardFor(state))) {
-          moves.push({ dieIndex, die, tokenId, from, to, ...(color !== actor && { color }), captures: capturesAt(state, color, to), ...(lap && { lap }) });
+        for (const { to, lap, raid, steps } of tokenTargets(state, color, tokenId, die)) {
+          const { captures, breaks } = hitsAt(state, color, to);
+          const orb = orbAt(state, color, to);
+          moves.push({
+            dieIndex,
+            die,
+            tokenId,
+            from,
+            to,
+            ...(color !== actor && { color }),
+            captures,
+            ...(lap && { lap }),
+            ...(raid && { raid }),
+            ...(steps && { steps }),
+            ...(breaks.length && { breaks }),
+            ...(orb && { orb }),
+          });
         }
       });
     }
@@ -290,7 +384,10 @@ export function distinctChoices(moves: LegalMove[], state?: GameState): LegalMov
     const owner = m.color ?? actor;
     const kills = owner ? state?.kills?.[owner] : undefined;
     const laps = owner ? state?.extraLaps?.[owner] : undefined;
-    const key = `${m.color ?? ''}:${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}`;
+    // Power ups and the golden token: tokens with different powers, or the golden one, are different choices too.
+    const power = owner && state ? (powerOf(state, owner, m.tokenId) ?? '') : '';
+    const golden = owner && state && isGolden(state, owner, m.tokenId) ? 'g' : '';
+    const key = `${m.color ?? ''}:${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${m.raid ?? ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}:${power}:${golden}`;
     if (!seen.has(key)) seen.set(key, m);
   }
   return [...seen.values()];
@@ -311,7 +408,7 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
   if (value === SIX) {
     // A six nobody can use (every token left is already in the home lane, where even the
     // first square + 6 overshoots) earns no extra roll: the turn is simply over.
-    if (!movableColors(state, color).some((c) => state.tokens[c].some((p) => targetProgress(p, SIX, boardFor(state)) !== null))) {
+    if (!movableColors(state, color).some((c) => state.tokens[c].some((_p, id) => tokenTargets(state, c, id, SIX).length > 0))) {
       events.push({ type: 'noMoves', color, discarded: [...turn.queue] });
       turn.queue = [];
       endTurn(state, events);
@@ -335,25 +432,42 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
 /**
  * `lap`: take the token round the board again instead of into its home column (when it may).
  * `owner`: whose token, for a partner's under turn sharing; absent means the current player's own.
+ * `raid`: power ups: a thief turns into this colour's home column (when it may).
  * The move's effects on the board belong to the token (its moustache, its extra lap, the colour in
  * the events); the player's stats belong to whoever moved it.
  */
-export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false, owner?: Color): GameEvent[] {
+export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false, owner?: Color, raid?: Color): GameEvent[] {
   if (state.finished) throw new RuleError('GAME_OVER');
   if (state.turn.phase !== 'moving') throw new RuleError('WRONG_PHASE');
   const actor = currentColor(state);
-  const move = legalMoves(state).find((m) => m.dieIndex === dieIndex && m.tokenId === tokenId && Boolean(m.lap) === lap && (m.color ?? actor) === (owner ?? actor));
+  const move = legalMoves(state).find(
+    (m) => m.dieIndex === dieIndex && m.tokenId === tokenId && Boolean(m.lap) === lap && (m.color ?? actor) === (owner ?? actor) && (m.raid ?? null) === (raid ?? null),
+  );
   if (!move) throw new RuleError('ILLEGAL_MOVE');
   const turn = state.turn;
   const color = move.color ?? actor;
   const events: GameEvent[] = [];
+  const b = boardFor(state);
 
+  // A cloaked token's move is seen only by its owner (and teammate): see powers.ts eventsFor.
+  const cloaked = powerOf(state, color, tokenId) === 'cloak';
   state.tokens[color][tokenId] = move.to;
   turn.queue.splice(dieIndex, 1);
   const kills = killsOf(state, color);
-  events.push({ type: 'move', color, tokenId, from: move.from, to: move.to, die: move.die, kills: kills[tokenId] });
+  events.push({
+    type: 'move',
+    color,
+    tokenId,
+    from: move.from,
+    to: move.to,
+    die: move.die,
+    kills: kills[tokenId],
+    ...(move.steps && { steps: move.steps }),
+    ...(move.raid && { via: move.raid }),
+    ...(cloaked && { cloaked: true as const }),
+  });
   const mine = statsOf(state, actor);
-  const squares = move.from === BASE ? 1 : move.die; // leaving base counts as 1
+  const squares = move.from === BASE ? 1 : (move.steps ?? move.die); // leaving base counts as 1
   // A square moved for the partner (turn sharing) is help given, for "Guardian", not the mover's own travel.
   if (color === actor) mine.cells += squares;
   else mine.helped = (mine.helped ?? 0) + squares;
@@ -363,17 +477,26 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
     mine.risks = (mine.risks ?? 0) + 1;
   }
 
+  // Power ups: a shield takes the hit instead of its token, and is gone.
+  for (const c of move.breaks ?? []) {
+    powersOf(state, c.color)[c.tokenId] = null;
+    events.push({ type: 'shield', color, victim: c.color, tokenId: c.tokenId });
+  }
+
   for (const c of move.captures) {
     const from = state.tokens[c.color][c.tokenId];
     // Caught on its second lap: it starts over from base like any captured token, extra lap back.
-    if (isSecondLap(from, boardFor(state))) extraLapsOf(state, c.color)[c.tokenId] = 0;
+    if (isSecondLap(from, b) || raidOf(from)?.secondLap) extraLapsOf(state, c.color)[c.tokenId] = 0;
     killsOf(state, c.color)[c.tokenId] = 0;
+    if (state.powers?.[c.color]) state.powers[c.color]![c.tokenId] = null;
+    // A golden token goes back to its start square, not to base.
+    const golden = isGolden(state, c.color, c.tokenId);
     if (isTeammate(state, color, c.color)) {
       // Friendly fire (Team-up): no bonus roll, and the capturer's moustache shrinks a level,
       // and it counts for "Backstabber" rather than as a capture (or first blood, or a revenge).
       kills[tokenId] = Math.max(0, moustacheLevel(kills[tokenId]) - 1);
       mine.friendlyFire = (mine.friendlyFire ?? 0) + 1;
-      events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, friendly: true });
+      events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, friendly: true, ...(golden && { to: 0 }) });
     } else {
       const firstBlood = !state.firstBlood;
       state.firstBlood = true;
@@ -390,13 +513,24 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
         mine.revenges++;
       }
       theirs.owed[actor] = (theirs.owed[actor] ?? 0) + 1;
-      events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, ...(firstBlood && { firstBlood: true as const }) });
+      events.push({ type: 'capture', color, victim: c.color, tokenId: c.tokenId, from, ...(firstBlood && { firstBlood: true as const }), ...(golden && { to: 0 }) });
       turn.bonus++;
     }
-    state.tokens[c.color][c.tokenId] = BASE;
+    state.tokens[c.color][c.tokenId] = golden ? 0 : BASE;
   }
 
-  if (move.to === boardFor(state).home) {
+  // Power ups: landing on an orb takes its power (in place of any the token had); it comes back later.
+  if (move.orb) {
+    const square = absoluteSquare(color, move.to, b)!;
+    state.orbs = (state.orbs ?? []).filter((o) => o.square !== square);
+    state.orbsDue = [...(state.orbsDue ?? []), orbRespawnTurns(state)];
+    powersOf(state, color)[tokenId] = move.orb;
+    events.push({ type: 'power', color, tokenId, power: move.orb, square });
+  }
+
+  if (move.to === b.home) {
+    // Home: the power is spent.
+    if (state.powers?.[color]) state.powers[color]![tokenId] = null;
     events.push({ type: 'home', color, tokenId });
     // Every arrival counts, so a token back from a wildcard entry that makes it home again counts twice.
     mine.homeRuns = (mine.homeRuns ?? 0) + 1;
@@ -465,6 +599,7 @@ function endTurn(state: GameState, events: GameEvent[]): void {
     if (takesTurns(state, state.seats[next].color)) {
       turn.seat = next;
       events.push({ type: 'turn', color: state.seats[next].color });
+      tickOrbs(state, events);
       return;
     }
   }

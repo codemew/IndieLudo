@@ -14,6 +14,8 @@ export interface MoveIntent extends RollIntent {
   color?: Color;
   /** Go round the board again instead of into the home column; absent means head home. */
   lap?: boolean;
+  /** Power ups: a thief turns into this colour's home column; absent means it stays on the track. */
+  raid?: Color;
 }
 
 export interface ClientToServer {
@@ -53,6 +55,8 @@ export interface ClientToServer {
   'lobby:share': (p: { share: boolean }, ack: (r: Ack) => void) => void;
   /** Host: 4, 5 or 6 seats (the board for the next game). */
   'lobby:size': (p: { size: number }, ack: (r: Ack) => void) => void;
+  /** Host: the optional rules power ups and golden token on or off for the next game (either or both). */
+  'lobby:rules': (p: { powerUps?: boolean; golden?: boolean }, ack: (r: Ack) => void) => void;
   'game:roll': (p: RollIntent, ack: (r: Ack) => void) => void;
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   /** Admins only (a test aid): the next roll of my seat comes up `value` (1 to 6; 0 = back to chance). */
@@ -282,6 +286,7 @@ export const SCHEMAS = {
     tokenId: { type: 'int', max: 3 },
     color: { type: 'color', optional: true },
     lap: { type: 'bool', optional: true },
+    raid: { type: 'color', optional: true },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
   gameForce: { gameId: { type: 'string', max: 64 }, value: { type: 'int', min: 0, max: 6 } },
@@ -289,6 +294,7 @@ export const SCHEMAS = {
   respawn: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 }, tokens: { type: 'int', min: 1, max: 15 } },
   lobbyMode: { teams: { type: 'bool' } },
   lobbyShare: { share: { type: 'bool' } },
+  lobbyRules: { powerUps: { type: 'bool', optional: true }, golden: { type: 'bool', optional: true } },
   lobbySize: { size: { type: 'int', min: 4, max: 6 } },
   sfuJoin: { lobbyId: { type: 'string', max: 64 }, local: { type: 'bool', optional: true } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },

@@ -105,6 +105,17 @@ export function tf(x: number, y: number, scale = 1): string {
   return `translate(${x * 100}%, ${y * 100}%) scale(${scale})`;
 }
 
+/** How long a token takes to shuffle to its new spot on a square it shares. */
+const GLIDE_MS = 220;
+/** Further than this (in squares) is not a shuffle: the token is simply shown where it is now. */
+const GLIDE_MAX = 1.3;
+
+/** The grid position in a transform made by tf(), or null for anything else. */
+export function placeOf(transform: string): { x: number; y: number } | null {
+  const m = /^translate\((-?[\d.]+)%, (-?[\d.]+)%\)/.exec(transform);
+  return m ? { x: Number(m[1]) / 100, y: Number(m[2]) / 100 } : null;
+}
+
 const STACK_OFFSETS: Record<number, Cell[]> = {
   2: [[-0.19, -0.19], [0.19, 0.19]],
   3: [[-0.21, -0.19], [0.21, -0.19], [0, 0.21]],
@@ -152,6 +163,8 @@ export function placements(state: GameState): Map<string, Placement> {
 
 export class TokenLayer {
   readonly els = new Map<string, HTMLButtonElement>();
+  /** Tokens shuffling to a new spot on their square, and where to: a redraw for the same spot lets them finish. */
+  private glides = new WeakMap<HTMLElement, { anim: Animation; to: string }>();
 
   constructor(
     private layer: HTMLElement,
@@ -288,8 +301,19 @@ export class TokenLayer {
         live.add(key);
         const b = this.ensure(seat.color, id);
         const pl = place.get(key)!;
-        b.getAnimations().forEach((a) => a.cancel());
-        b.style.transform = tf(pl.x, pl.y, pl.scale);
+        const before = b.style.transform;
+        const now = tf(pl.x, pl.y, pl.scale);
+        const glide = this.glides.get(b);
+        const gliding = glide && glide.to === now && glide.anim.playState === 'running' ? glide.anim : null;
+        b.getAnimations().forEach((a) => a !== gliding && a.cancel());
+        b.style.transform = now;
+        // Tokens that share a square are drawn smaller and fanned out. When that changes (one
+        // arrives, one leaves, the one that just hopped in takes its corner), they shuffle into
+        // place instead of jumping. Anything further is a resync: shown at once.
+        const was = before && before !== now && !reducedMotion() ? placeOf(before) : null;
+        if (was && Math.hypot(was.x - pl.x, was.y - pl.y) <= GLIDE_MAX) {
+          this.glides.set(b, { anim: b.animate([{ transform: before }, { transform: now }], { duration: GLIDE_MS, easing: 'cubic-bezier(.3,1.35,.5,1)' }), to: now });
+        }
         b.classList.toggle('legal', tappable.has(key));
         b.classList.toggle('mate', tappable.has(key) && mates.has(key));
         const p = state.tokens[seat.color][id];

@@ -2,6 +2,7 @@ import type { GameUpdate, Hello, RollUpdate } from '../shared/protocol.js';
 import { applyRollUpdate } from '../shared/rollUpdate.js';
 import type { PublicGameState, PublicLobby } from '../shared/types.js';
 import { ApiError, api } from './api.js';
+import { noteServerTime } from './clock.js';
 import { connect, disconnect, emit, isConnected } from './net.js';
 import { currentScreen, go } from './router.js';
 import { state, subscribe, update } from './store.js';
@@ -168,6 +169,8 @@ function onLobbyState(l: PublicLobby | null): void {
 }
 
 function onGameUpdate(u: GameUpdate): void {
+  // Every caller passes a state that has just arrived, so its timestamp is the server's clock now.
+  noteServerTime(u.state.serverNow);
   storage.set(KEYS.lastGame, u.state.id);
   if (gameHandler && state.game?.id === u.state.id) {
     gameHandler(u);
@@ -188,6 +191,7 @@ function onGameUpdate(u: GameUpdate): void {
 /** Someone else rolled. Off the game screen there's nothing to animate: just keep the state current. */
 function onRollUpdate(u: RollUpdate): void {
   if (state.game?.id !== u.id) return;
+  noteServerTime(u.serverNow);
   if (rollHandler) return rollHandler(u);
   const next = applyRollUpdate(state.game, u);
   if (next) onGameUpdate({ state: next, events: u.events });

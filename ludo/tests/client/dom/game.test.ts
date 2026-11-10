@@ -1175,3 +1175,61 @@ describe('stacked tokens with powers (power ups)', () => {
     expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0 });
   });
 });
+
+describe('the turn timer, and an animation that fails', () => {
+  it('the timer runs on the server clock as last heard, not from when the state it shows was stamped', async () => {
+    const { noteServerTime } = await import('../../../src/client/clock.js');
+    const g = newGame();
+    const now = Date.now();
+    g.turn.deadline = now + 10_000;
+    current = g;
+    // This turn's state arrived 20 s ago and sat in the store while another screen was showing.
+    store.update({ user: { id: 1, username: 'alice' }, game: { ...pub(g), serverNow: now - 20_000 }, lobby: null });
+    noteServerTime(now);
+    go('home');
+    document.getElementById('app')!.innerHTML = '';
+    go('game');
+    const animate = Element.prototype.animate as unknown as ReturnType<typeof vi.fn>;
+    const bar = document.querySelector('.pchip[data-color=red] .pchip-timer i');
+    const at = animate.mock.contexts.lastIndexOf(bar);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const { duration } = animate.mock.calls[at]![1] as { duration: number };
+    // 10 s are left, not the 30 s it would be counting from the old stamp.
+    expect(duration).toBeGreaterThan(9_000);
+    expect(duration).toBeLessThanOrEqual(10_000);
+  });
+
+  it('an update whose animation fails still lands, and the dice can be rolled afterwards', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mount(newGame());
+    const next = structuredClone(current);
+    next.version++;
+    current = next;
+    // A power this build has never heard of: drawing it throws half-way through the events.
+    app.handler!({ state: pub(next), events: [{ type: 'power', color: 'red', tokenId: 0, power: 'nope', square: 0 } as unknown as GameEvent] });
+    await flush(100);
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
+    expect(store.state.game!.version).toBe(next.version);
+    expect(document.querySelector('#dice-slot .dice')!.classList.contains('can-roll')).toBe(true);
+    click('#dice-slot .dice');
+    await flush();
+    expect(sentOf('game:roll')).toEqual([{ gameId: next.id, version: next.version, actionId: expect.any(String) }]);
+  });
+
+  it('the dice in the queue stay put when another one is picked: only the highlight moves', async () => {
+    const g = newGame();
+    g.tokens.red = [5, 20, B, B];
+    g.turn.phase = 'moving';
+    g.turn.queue = [3, 4];
+    mount(g);
+    const chips = () => [...document.querySelectorAll<HTMLButtonElement>('#queue .qchip')];
+    const before = chips();
+    expect(before.map((c) => c.classList.contains('selected'))).toEqual([true, false]);
+    before[1]!.click();
+    await flush();
+    expect(chips()).toEqual(before);
+    expect(chips().map((c) => c.classList.contains('selected'))).toEqual([false, true]);
+    expect(chips().map((c) => c.querySelector('.qtag')?.textContent ?? '')).toEqual(['', 'USE']);
+  });
+});

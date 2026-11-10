@@ -112,15 +112,32 @@ export function errorText(code: string): string {
   return ERRORS[code] ?? `Something went wrong (${code}).`;
 }
 
+/** Toasts on screen, by kind and text, and when each goes: the same one again restarts it instead of stacking a copy. */
+const showing = new Map<string, { node: HTMLElement; timer: ReturnType<typeof setTimeout> }>();
+
 export function toast(msg: string, kind: 'info' | 'error' | 'success' = 'info', ms = 2200): void {
   const root = document.getElementById('toasts')!;
-  const t = el(`<div class="toast toast-${kind}">${esc(msg)}</div>`);
-  root.appendChild(t);
+  const key = `${kind}:${msg}`;
+  const had = showing.get(key);
   if (kind === 'error') play('error');
-  setTimeout(() => {
+  let t: HTMLElement;
+  if (had?.node.isConnected && !had.node.classList.contains('out')) {
+    // Already up (a button tapped twice, the same refusal again): it nods and stays for its full time.
+    t = had.node;
+    clearTimeout(had.timer);
+    t.classList.remove('again');
+    void t.offsetWidth;
+    t.classList.add('again');
+  } else {
+    t = el(`<div class="toast toast-${kind}">${esc(msg)}</div>`);
+    root.appendChild(t);
+  }
+  const timer = setTimeout(() => {
+    if (showing.get(key)?.node === t) showing.delete(key);
     t.classList.add('out');
     setTimeout(() => t.remove(), 300);
   }, ms);
+  showing.set(key, { node: t, timer });
 }
 
 export interface ModalAction {
@@ -146,10 +163,24 @@ export function modal(opts: { title: string; body: string | HTMLElement; actions
   const body = $(wrap, '.modal-body');
   if (typeof opts.body === 'string') body.innerHTML = opts.body;
   else body.appendChild(opts.body);
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
+    document.removeEventListener('keydown', onKey);
     wrap.classList.add('out');
     setTimeout(() => wrap.remove(), 200);
   };
+  // Escape dismisses the dialog on top, like a tap beside it.
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    const open = root.querySelectorAll('.modal-backdrop:not(.out)');
+    if (open[open.length - 1] !== wrap) return;
+    e.preventDefault();
+    close();
+    opts.onDismiss?.();
+  };
+  document.addEventListener('keydown', onKey);
   const actions = $(wrap, '.modal-actions');
   for (const a of opts.actions) {
     const b = el<HTMLButtonElement>(`<button class="btn btn-${a.kind ?? 'ghost'}">${esc(a.label)}</button>`);

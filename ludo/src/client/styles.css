@@ -5361,3 +5361,55 @@ polygon.b-inner {
   border-color: #ffd54a;
   box-shadow: 0 0 0 1px rgba(120, 80, 0, 0.6), 0 0 8px 2px rgba(255, 196, 0, 0.75);
 }
+
+/* ---------- touch feedback and landings ---------- */
+
+/* Buttons sink at once under the finger and spring back when it lifts. */
+.btn,
+.icon-btn {
+  transition: transform 0.26s cubic-bezier(0.2, 1.6, 0.4, 1), opacity 0.2s, filter 0.2s;
+}
+.btn:active:not(:disabled),
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
+  transition-duration: 0.07s, 0.2s, 0.2s;
+}
+
+/* The ring that spreads from under the die as it lands (dice.ts), in the roller's colour. */
+.dice-impact {
+  position: absolute;
+  inset: -6%;
+  border-radius: 24%;
+  border: 3px solid var(--dc);
+  box-shadow: 0 0 10px var(--dc);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Your own turn: the banner is lit, not just tinted. */
+.turn-banner.tb-mine {
+  background: color-mix(in srgb, var(--c) 40%, transparent);
+  border-color: var(--c);
+  box-shadow: 0 0 14px -2px color-mix(in srgb, var(--c) 70%, transparent);
+}
+
+/* A dialog leaves the way it came: the sheet drops while the backdrop fades. */
+.modal-backdrop.out .modal {
+  animation: sheet-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes sheet-out {
+  to {
+    transform: translateY(35%);
+    opacity: 0;
+  }
+}
+
+/* The same toast asked for again nods instead of stacking a copy. */
+.toast.again {
+  animation: toast-again 0.3s ease;
+}
+@keyframes toast-again {
+  40% {
+    transform: scale(1.07);
+  }
+}

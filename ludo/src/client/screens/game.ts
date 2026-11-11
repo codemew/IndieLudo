@@ -24,7 +24,8 @@ import {
   tempoOf,
 } from '../../shared/types.js';
 import { resyncGame, setGameHandler, setRollHandler, showError } from '../app.js';
-import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide } from '../board/animate.js';
+import { serverTime } from '../clock.js';
+import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide, squashOnce } from '../board/animate.js';
 import { avatarFace } from '../../shared/avatars.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { installMoustacheDefs, moustacheSvg } from '../moustache.js';
@@ -75,7 +76,6 @@ export function gameScreen(root: HTMLElement): () => void {
   const [topRow, bottomRow] = CARD_ROWS[geo.n];
   // A bot battle plays at full speed; everything else at the normal pace.
   setTempo(tempoOf(gs));
-  let clockOffset = gs.serverNow - Date.now();
   let awaitingAck = false;
   let animating = false;
   let destroyed = false;
@@ -180,7 +180,11 @@ export function gameScreen(root: HTMLElement): () => void {
     if (!r.ok) showError(r.error);
   };
   dice.el.onclick = () => {
-    if (canRoll()) void send('game:roll', {});
+    if (!canRoll()) return;
+    // The die answers the finger at once; the value it lands on is the server's, when it arrives.
+    dice.windUp();
+    vibrate(8);
+    void send('game:roll', {});
   };
 
   // ---------- derived state ----------
@@ -217,6 +221,11 @@ export function gameScreen(root: HTMLElement): () => void {
     const r = await emit(event, { gameId: gs.id, version: gs.version, actionId: uuid(), ...extra });
     awaitingAck = false;
     if (!r.ok && !SILENT_ERRORS.has(r.error)) showError(r.error);
+    // A die still tumbling from the tap with no roll coming (refused, or long since shown): back to rest.
+    if (event === 'game:roll') {
+      if (!r.ok) dice.settle();
+      else setTimeout(() => dice.settle(), 1500);
+    }
     renderControls();
   }
 
@@ -264,7 +273,16 @@ export function gameScreen(root: HTMLElement): () => void {
     const only = plain ?? options[0];
     if (!only) return;
     play('tap');
+    pressToken(color, tokenId);
     void send('game:move', moveIntent(only));
+  }
+
+  /** The token I chose dips under the finger at once, before the server has answered. */
+  function pressToken(color: Color, tokenId: number): void {
+    const token = tokens.get(color, tokenId);
+    if (!token) return;
+    vibrate(8);
+    squashOnce(token, 0.2, 200);
   }
 
   /** The open choice bubble (stacked tokens, or head home / go round again), closed if the game moves on. */
@@ -350,6 +368,7 @@ export function gameScreen(root: HTMLElement): () => void {
     // A choice of ways always says whether it goes round again.
     const answer = (m: LegalMove) => {
       play('tap');
+      pressToken(color, m.tokenId);
       void send('game:move', { ...moveIntent(m), lap: Boolean(m.lap) });
     };
     const victimsOf = (m: LegalMove) => m.captures.map((c) => seatName(c.color)).join(', ');
@@ -383,6 +402,7 @@ export function gameScreen(root: HTMLElement): () => void {
       (x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap && x.raid === move.raid && ownerOf(x) === (t.dataset.color ?? mySeat()?.color),
     );
     play('tap');
+    pressToken((t.dataset.color as Color | undefined) ?? mySeat()!.color, move.tokenId);
     void send('game:move', m ? { ...moveIntent(m), lap: move.lap } : { dieIndex: move.dieIndex, tokenId: move.tokenId, lap: move.lap, ...(move.raid && { raid: move.raid }) });
   });
 
@@ -507,23 +527,36 @@ export function gameScreen(root: HTMLElement): () => void {
   async function drain(): Promise<void> {
     animating = true;
     renderControls();
-    while (pending.length && !destroyed) {
-      const u = pending.shift()!;
-      const prev = gs!;
-      clockOffset = u.state.serverNow - Date.now();
-      // Animate only a direct successor; after a gap (reconnect) or a backlog, snap.
-      const animate = Boolean(u.events?.length && u.state.version === prev.version + 1 && pending.length < 3);
-      if (animate) await playEvents(structuredClone(prev), u.events!);
-      gs = u.state;
-      update({ game: gs });
-      renderAll();
-      warnThreatened(animate);
-      if (gs.finished) {
-        await sleep(1400);
-        if (!destroyed) go('results');
-        return;
+    try {
+      while (pending.length && !destroyed) {
+        const u = pending.shift()!;
+        const prev = gs!;
+        // Animate only a direct successor; after a gap (reconnect) or a backlog, snap.
+        const animate = Boolean(u.events?.length && u.state.version === prev.version + 1 && pending.length < 3);
+        if (animate) {
+          try {
+            await playEvents(structuredClone(prev), u.events!);
+          } catch (err) {
+            // An animation that fails must not cost the game: the state below is the truth, show that.
+            console.error('[game] animating an update failed; showing its result', err);
+          }
+        }
+        gs = u.state;
+        update({ game: gs });
+        renderAll();
+        warnThreatened(animate);
+        if (gs.finished) {
+          // Nothing more to tap: the board stays locked until the results take over.
+          await sleep(1400);
+          if (!destroyed) go('results');
+          return;
+        }
       }
+    } catch (err) {
+      console.error('[game] drawing an update failed', err);
     }
+    // Always reached while the game is on, whatever went wrong above: `animating` left set would
+    // leave the dice and the tokens dead until the page was reloaded.
     animating = false;
     renderControls();
   }
@@ -596,6 +629,8 @@ export function gameScreen(root: HTMLElement): () => void {
           await hop(el, start, path, {
             kills,
             fromBase: e.from === BASE,
+            // One of several on its square stands smaller and off-centre: it sets off from there.
+            startAt: placements(work).get(`${e.color}:${e.tokenId}`),
             onStep: (_i, cell) => {
               if (e.cloaked) return;
               play('step');
@@ -619,6 +654,9 @@ export function gameScreen(root: HTMLElement): () => void {
           play(e.friendly ? 'friendlyFire' : 'capture');
           vibrate([30, 50, 30]);
           burst(from, e.color);
+          // The blow: a ring in the capturer's colour and a jolt through the board.
+          shockwave(from, e.color);
+          jolt(3);
           if (e.friendly) {
             // Team-up: eating your own teammate. Allowed, but nobody is proud of it.
             callout('Friendly fire!', 'Stabbed in the back!');
@@ -631,7 +669,7 @@ export function gameScreen(root: HTMLElement): () => void {
           // A cloaked token (power ups) shows itself as it is caught; a golden one goes to its start square.
           el.classList.remove('unseen');
           const to = e.to ?? BASE;
-          await slide(el, from, tokenCell(e.victim, to, e.tokenId, geo), 560);
+          await slide(el, from, tokenCell(e.victim, to, e.tokenId, geo), 560, { knocked: true });
           work.tokens[e.victim][e.tokenId] = to;
           if (work.powers?.[e.victim]) work.powers[e.victim]![e.tokenId] = null;
           // The capturer's moustache grows a level (shrinks one for friendly fire); the captured
@@ -647,15 +685,25 @@ export function gameScreen(root: HTMLElement): () => void {
           if (e.firstBlood) await firstBloodBanner(e.color, e.victim);
           break;
         }
-        case 'home':
+        case 'home': {
+          const at = tokenCell(e.color, geo.home, e.tokenId, geo);
           play('home');
-          burst(tokenCell(e.color, geo.home, e.tokenId, geo), e.color);
+          if (e.color === me) vibrate([15, 30, 45]);
+          burst(at, e.color);
+          burst(at, 'gold');
+          shockwave(at, e.color);
+          // It made it: the token swells with pride for a moment.
+          const arrived = tokens.get(e.color, e.tokenId);
+          if (arrived && !reducedMotion()) {
+            arrived.querySelector<HTMLElement>('.tok-squash')?.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.45)', offset: 0.35 }, { transform: 'scale(0.94)', offset: 0.75 }, { transform: 'scale(1)' }], { duration: atTempo(420), easing: 'ease-out' });
+          }
           // The first time one of mine gets home, say it can go again.
           if (e.color === me && !storage.get(KEYS.wildcardTip)) {
             storage.set(KEYS.wildcardTip, '1');
             toast('Tip: hold your tokens at home to send one back for a wildcard entry 🃏', 'info', 4500);
           }
           break;
+        }
         case 'rank':
           toast(work.teams ? `${seatName(e.color)} has all 4 home 🏠` : `${seatName(e.color)} finished ${MEDALS[e.rank - 1]}`, 'success');
           break;
@@ -853,7 +901,7 @@ export function gameScreen(root: HTMLElement): () => void {
         token.classList.remove('wildcard-glow');
         play('land');
         shockwave(base, color);
-        if (!reducedMotion()) board.animate([{ transform: 'translateY(0)' }, { transform: 'translateY(5px)' }, { transform: 'translateY(-3px)' }, { transform: 'translateY(0)' }], { duration: 320 });
+        jolt(5);
       }),
     );
     for (const id of ids) {
@@ -865,6 +913,12 @@ export function gameScreen(root: HTMLElement): () => void {
     tokens.sync(work, new Set(), null);
     basePulse(color);
     await sleep(450);
+  }
+
+  /** A short jolt through the whole board, `px` deep. */
+  function jolt(px: number): void {
+    if (reducedMotion()) return;
+    board.animate([{ transform: 'translateY(0)' }, { transform: `translateY(${px}px)` }, { transform: `translateY(${-px * 0.6}px)` }, { transform: 'translateY(0)' }], { duration: 260 });
   }
 
   function shockwave(cell: readonly [number, number], color: Color): void {
@@ -944,8 +998,15 @@ export function gameScreen(root: HTMLElement): () => void {
         bar.getAnimations().forEach((a) => a.cancel());
         if (timed) {
           const total = Math.max(1, (gs!.turn.deadline - gs!.serverNow) || 1);
-          const remaining = Math.max(0, gs!.turn.deadline - (Date.now() + clockOffset));
+          // By the server's clock as measured when its messages arrived (clock.ts): this state may
+          // have waited behind an animation, or in the store while another screen was showing.
+          const remaining = Math.max(0, gs!.turn.deadline - serverTime());
           bar.animate([{ transform: `scaleX(${Math.min(1, remaining / total)})` }, { transform: 'scaleX(0)' }], { duration: remaining, fill: 'forwards' });
+          // Running out: the bar blinks for the last stretch (5 s of a long turn, less of a short one).
+          const urgent = Math.min(5000, total * 0.3);
+          if (!reducedMotion() && remaining > 0) {
+            bar.animate([{ opacity: 1 }, { opacity: 0.3 }, { opacity: 1 }], { duration: 500, iterations: Math.max(1, Math.ceil(Math.min(urgent, remaining) / 500)), delay: Math.max(0, remaining - urgent) });
+          }
         }
       }
     }
@@ -1007,7 +1068,6 @@ export function gameScreen(root: HTMLElement): () => void {
   let shownQueue: number[] = [];
   function renderQueue(s: GameState, interactive: boolean): void {
     const q = $(root, '#queue');
-    q.innerHTML = '';
     const mine = interactive && canMove();
     q.dataset.color = s.seats[s.turn.seat].color;
     q.classList.toggle('mine', mine);
@@ -1015,19 +1075,29 @@ export function gameScreen(root: HTMLElement): () => void {
     const sel = mine ? validSelection(legal) : null;
     // Dice already in the queue keep still; only newly rolled ones pop in.
     const fresh = freshDice(shownQueue, s.turn.queue);
+    // The same dice as last time: the chips stay and only what changed about them is touched, so
+    // picking another die slides the highlight across instead of redrawing the row.
+    const same = q.children.length === s.turn.queue.length && shownQueue.length === s.turn.queue.length && fresh.every((f) => !f);
     shownQueue = [...s.turn.queue];
+    if (!same) q.innerHTML = '';
     s.turn.queue.forEach((v, i) => {
       const usable = legal.some((m) => m.dieIndex === i);
-      const chip = el<HTMLButtonElement>(
-        `<button class="qchip${fresh[i] ? '' : ' settled'}${sel === i ? ' selected' : ''}${mine && !usable ? ' dim' : ''}" aria-label="Die ${v}${sel === i ? ', selected' : ''}">${dieChip(v)}${sel === i ? '<span class="qtag">USE</span>' : ''}</button>`,
-      );
+      const chip = same ? (q.children[i] as HTMLButtonElement) : el<HTMLButtonElement>(`<button class="qchip${fresh[i] ? '' : ' settled'}">${dieChip(v)}</button>`);
+      chip.classList.toggle('selected', sel === i);
+      chip.classList.toggle('dim', mine && !usable);
+      chip.setAttribute('aria-label', `Die ${v}${sel === i ? ', selected' : ''}`);
+      const tag = chip.querySelector('.qtag');
+      if (sel === i && !tag) chip.insertAdjacentHTML('beforeend', '<span class="qtag">USE</span>');
+      else if (sel !== i) tag?.remove();
       chip.disabled = !mine || !usable;
       chip.onclick = () => {
+        if (selectedDie === i) return;
         selectedDie = i;
         play('tap');
+        vibrate(6);
         renderControls();
       };
-      q.appendChild(chip);
+      if (!same) q.appendChild(chip);
     });
   }
 
@@ -1062,8 +1132,15 @@ export function gameScreen(root: HTMLElement): () => void {
     }
 
     const banner = $(root, '#banner');
-    banner.className = `turn-banner b-${seat.color}`;
+    banner.className = `turn-banner b-${seat.color}${isMyTurn() ? ' tb-mine' : ''}`;
     setHtml(banner, gs.finished ? 'Game over' : `<span class="dot"></span><span class="tb-text">${isMyTurn() ? 'Your turn' : `${esc(seat.username)}'s turn`}</span>`);
+    // The turn passed on: the banner pops, so a glance at the top of the screen catches it.
+    const turnKey = gs.finished ? 'over' : seat.color;
+    if (banner.dataset.turn !== turnKey) {
+      const first = banner.dataset.turn === undefined;
+      banner.dataset.turn = turnKey;
+      if (!first && !reducedMotion()) banner.animate([{ transform: 'scale(0.9)', opacity: 0.5 }, { transform: 'scale(1.07)', opacity: 1, offset: 0.55 }, { transform: 'scale(1)' }], { duration: 320, easing: 'ease-out' });
+    }
 
     let hint = '';
     if (gs.finished) hint = 'Game over';

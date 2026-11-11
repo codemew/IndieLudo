@@ -3,6 +3,16 @@
 ## Unreleased
 
 ### Changed
+- **The die answers the tap at once.** Tapping the die used to show nothing until the server's roll came back; on a slow connection that is a dead moment. It now dips under the finger and starts to tumble straight away (a light buzz on Android), and when the roll arrives the same tumble carries on round and lands on the server's value, with a ring in the roller's colour spreading from under it. It still only ever shows values the server sent, a roll takes as long as before, and a refused roll puts the die back to rest.
+- **A token dips when you pick it**, before the server has answered (a tap on the token, a choice in the bubble, a marker on the board).
+- **Tokens that share a square shuffle into place.** When one arrives or leaves, the others glide to their new spot and size (220 ms) instead of jumping, and a token that sets off from a shared square starts from where it stood, not from the middle of the square.
+- **A capture lands harder.** A ring in the capturer's colour and a jolt through the board at the blow; the captured token recoils, tumbles head over heels back to base and lands with a squash. Same length as before (560 ms), so the server's pacing is unchanged.
+- **Getting home is a moment.** The token swells, a gold burst and a ring go off with the colour's own burst, and its owner's phone buzzes.
+- **The turn banner pops when the turn passes on, and is lit on your own turn.**
+- **The timer bar blinks as it runs out**: for the last 5 s of a long turn, the last third of a short one.
+- **Picking another die slides the highlight across.** The queue's chips used to be rebuilt on every redraw, so the highlight jumped and the "USE" tag restarted; they now stay and only what changed is touched.
+- **Buttons spring back** when the finger lifts; **a dialog's sheet drops away** as it closes instead of only fading; **Escape closes the dialog on top**.
+- **The same toast asked for again nods** and stays for its full time, instead of stacking a copy under itself.
 - **Stacked tokens with powers: the choice shows which is which.** When tokens on one square differ by power (or one is the golden token), the choice bubble's tokens wear their power badge and crown, and their labels name the power ("Shield", "No power", "Golden token").
 - **Lobby music at 10% volume** (was 30%).
 - **Power ups: each power once on the board, never two of the same.** On the 4-player board one per star; on the 5- and 6-player boards on four random stars; a returning power-up brings back a power that isn't on the board.
@@ -15,6 +25,9 @@
 - **Admin resets.** In the admin panel's **Users** tab, reset one player's wins and games played or everyone's; a new **History** tab deletes one finished match or the whole match history (games being played are kept). `POST /api/admin/users/:id/reset-stats`, `POST /api/admin/stats/reset`, `DELETE /api/admin/history/:id`, `DELETE /api/admin/history`.
 
 ### Fixed
+- **The turn timer could show more time than you had.** The bar worked out the time left from the moment a state was *drawn*, not from when it arrived. Coming back to a game from the home screen in the middle of your turn, the bar started as if the turn had just begun (20 s into a 30 s turn it showed 30 s, and the server played the turn for you with the bar two-thirds full); an update that waited behind an animation was off by that wait. The server's clock is now measured when each message arrives (`clock.ts`) and the bar reads that.
+- **An animation that failed froze the game.** If anything threw while an update was being animated, the board stayed locked ("animating") until the page was reloaded: no rolling, no moving. The update now lands anyway, the error is logged, and the board is unlocked.
+- **A browser test that could never pass.** *Team-up: both partners home* waited for alice's turn while it was bob's to roll (since friendly fire stopped earning a bonus roll in 3.4.0). Bob now rolls.
 - **Admin panel: a tab picked while another was still loading could be replaced by that one.** Each tab now draws only if it is still the one picked.
 
 ## 4.1.0

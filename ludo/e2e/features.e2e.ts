@@ -190,7 +190,17 @@ describe.skipIf(!CHROME || !BUILT)('Team-up', () => {
   });
 
   it('both partners home: their team wins, on everyone’s results', async () => {
-    await until("alice's next turn", async () => game.seats[game.turn.seat].color === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null, 15_000);
+    // The friendly fire earned no bonus roll, so the turn goes round the table first: bob has to
+    // roll his own (a 1 with every token in base moves nothing) before it is alice's again.
+    await until("alice's next turn", async () => {
+      const now = game.seats[game.turn.seat].color;
+      if (now === 'yellow' && game.turn.phase === 'rolling' && (await bob.$('.dice.can-roll'))) {
+        t.dice.push(1);
+        await tap(bob, '.dice.can-roll');
+        await sleep(300);
+      }
+      return now === 'red' && game.turn.phase === 'rolling' && (await alice.$('.dice.can-roll')) !== null;
+    }, 30_000);
     game.tokens.yellow = [H, H, H, H];
     game.ranks = ['yellow'];
     game.tokens.red = [H, H, H, 55];

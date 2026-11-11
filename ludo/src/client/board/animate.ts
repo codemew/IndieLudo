@@ -23,6 +23,12 @@ export interface HopOptions {
   fromBase?: boolean;
   /** Called as it lands on each square. */
   onStep?: (i: number, cell: Cell) => void;
+  /**
+   * Where the token is drawn before it moves, when that isn't the middle of `from` at full size (one
+   * of several on a square is smaller and off-centre): the first hop starts there instead of
+   * jumping to the middle first.
+   */
+  startAt?: { x: number; y: number; scale: number };
 }
 
 /**
@@ -44,7 +50,7 @@ export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopO
       const ms = reducedMotion() ? 30 : atTempo(hopMs(k) * (opts.fromBase && i === 0 ? BASE_EXIT_HOPS : 1));
       const land = setTimeout(() => opts.onStep?.(i, c), ms * 0.8);
       try {
-        await hopOnce(el, squash, shadow, prev, c, ms, k, i);
+        await hopOnce(el, squash, shadow, prev, c, ms, k, i, i === 0 && opts.startAt ? tf(opts.startAt.x, opts.startAt.y, opts.startAt.scale) : tf(prev[0], prev[1], 1));
       } catch {
         clearTimeout(land);
         throw new Error('cancelled');
@@ -64,17 +70,17 @@ export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopO
   }
 }
 
-function hopOnce(el: HTMLElement, squash: HTMLElement | null, shadow: HTMLElement | null, a: Cell, b: Cell, ms: number, k: number, n: number): Promise<unknown> {
+function hopOnce(el: HTMLElement, squash: HTMLElement | null, shadow: HTMLElement | null, a: Cell, b: Cell, ms: number, k: number, n: number, start: string): Promise<unknown> {
   const opts: KeyframeAnimationOptions = { duration: ms, fill: 'forwards' };
   const mid: Cell = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   if (reducedMotion() || !squash) {
-    return el.animate([{ transform: tf(a[0], a[1], 1) }, { transform: tf(b[0], b[1], 1) }], opts).finished;
+    return el.animate([{ transform: start }, { transform: tf(b[0], b[1], 1) }], opts).finished;
   }
   // Across the board: hold during the crouch, travel in the air, arrive on landing.
   el.animate(
     [
-      { transform: tf(a[0], a[1], 1), offset: 0 },
-      { transform: tf(a[0], a[1], 1), offset: 0.2, easing: 'cubic-bezier(.3,.1,.5,1)' },
+      { transform: start, offset: 0 },
+      { transform: start, offset: 0.2, easing: 'cubic-bezier(.3,.1,.5,1)' },
       { transform: tf(mid[0], mid[1], 1.12), offset: 0.5 },
       { transform: tf(b[0], b[1], 1), offset: 0.8 },
       { transform: tf(b[0], b[1], 1), offset: 1 },
@@ -147,16 +153,26 @@ function settle(squash: HTMLElement, k: number): Promise<unknown> {
   ).finished;
 }
 
-/** Straight slide (used to send captured tokens home). */
-export async function slide(el: HTMLElement, from: Cell, to: Cell, ms: number): Promise<void> {
-  const anim = el.animate(
-    [
-      { transform: tf(from[0], from[1], 1) },
-      { transform: tf((from[0] + to[0]) / 2, (from[1] + to[1]) / 2, 1.4), offset: 0.4 },
-      { transform: tf(to[0], to[1], 1) },
-    ],
-    { duration: reducedMotion() ? 40 : atTempo(ms), easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' },
-  );
+/**
+ * Sends a token across the board in one go (a captured token home, a surrendered one to base). It
+ * swells towards the viewer on the way. `knocked`: it was hit: it recoils from the blow first, then
+ * tumbles head over heels all the way, and lands in its slot with a squash.
+ */
+export async function slide(el: HTMLElement, from: Cell, to: Cell, ms: number, opts: { knocked?: boolean } = {}): Promise<void> {
+  const still = reducedMotion();
+  const mid: Cell = [(from[0] + to[0]) / 2, (from[1] + to[1]) / 2];
+  // The blow comes along the line of the move's last hop, which we don't know here: recoil upwards.
+  const frames: Keyframe[] =
+    opts.knocked && !still
+      ? [
+          { transform: `${tf(from[0], from[1], 1)} rotate(0deg)`, offset: 0 },
+          { transform: `${tf(from[0], from[1] - 0.35, 1.25)} rotate(-25deg)`, offset: 0.16, easing: 'cubic-bezier(.4,0,.6,1)' },
+          { transform: `${tf(mid[0], mid[1] - 0.6, 1.5)} rotate(-360deg)`, offset: 0.55, easing: 'cubic-bezier(.3,0,.7,1)' },
+          { transform: `${tf(to[0], to[1], 1.1)} rotate(-700deg)`, offset: 0.92 },
+          { transform: `${tf(to[0], to[1], 1)} rotate(-720deg)`, offset: 1 },
+        ]
+      : [{ transform: tf(from[0], from[1], 1) }, { transform: tf(mid[0], mid[1], 1.4), offset: 0.4 }, { transform: tf(to[0], to[1], 1) }];
+  const anim = el.animate(frames, { duration: still ? 40 : atTempo(ms), easing: opts.knocked && !still ? 'linear' : 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
   el.style.zIndex = '31';
   try {
     await anim.finished;
@@ -167,6 +183,22 @@ export async function slide(el: HTMLElement, from: Cell, to: Cell, ms: number): 
     anim.cancel();
     el.style.zIndex = '';
   }
+  // Not waited for: it plays under whatever comes next, so the move takes no longer than before.
+  if (opts.knocked && !still) squashOnce(el, 0.16, 260);
+}
+
+/** One quick squash and rebound of a token where it stands (it landed, or was pressed). */
+export function squashOnce(el: HTMLElement, by: number, ms: number): void {
+  if (reducedMotion()) return;
+  el.querySelector<HTMLElement>('.tok-squash')?.animate(
+    [
+      { transform: 'scale(1, 1)' },
+      { transform: `scale(${1 + by}, ${1 - by})`, offset: 0.3 },
+      { transform: `scale(${1 - by * 0.45}, ${1 + by * 0.5})`, offset: 0.62 },
+      { transform: 'scale(1, 1)' },
+    ],
+    { duration: atTempo(ms), easing: 'ease-out' },
+  );
 }
 
 /**

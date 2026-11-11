@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Vote to abandon: the bar showed when no vote was running.** An empty bar sat under the top of the game screen all the time, and stayed after a vote ended. It now shows only while a vote is on.
+
 ## 4.2.0
 
 ### Changed

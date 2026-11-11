@@ -5462,6 +5462,9 @@ polygon.b-inner {
 }
 
 /* ---------- v4.2: vote to abandon ---------- */
+.vote-bar[hidden] {
+  display: none;
+}
 .vote-bar {
   position: relative;
   z-index: 40;

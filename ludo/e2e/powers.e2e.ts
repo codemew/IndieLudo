@@ -167,6 +167,24 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
   });
 
   it('the host asks to abandon, bob agrees: back in the lobby, no winner', async () => {
+    const barShown = (p: Page) => p.$eval('#vote-bar', (x) => getComputedStyle(x).display !== 'none' && (x as HTMLElement).offsetHeight > 0);
+    const askToAbandon = async () => {
+      await tap(alice, '#menu');
+      const item = await alice.waitForSelector('xpath/.//button[contains(@class,"menu-item")][contains(., "Vote to abandon")]');
+      await item!.evaluate((x) => (x as HTMLElement).click());
+      const start = await alice.waitForSelector('xpath/.//div[contains(@class,"modal-actions")]/button[contains(., "Start the vote")]');
+      await start!.evaluate((x) => (x as HTMLElement).click());
+    };
+    // No vote: no bar at all.
+    expect(await barShown(alice)).toBe(false);
+    expect(await barShown(bob)).toBe(false);
+    // Bob says no: the bar goes away again on both phones.
+    await askToAbandon();
+    await bob.waitForSelector('#vote-bar:not([hidden]) #vote-no');
+    expect(await barShown(alice)).toBe(true);
+    await tap(bob, '#vote-no');
+    await until('the bar gone', async () => !(await barShown(alice)) && !(await barShown(bob)), 5000);
+    expect(game.finished).toBe(false);
     await tap(alice, '#menu');
     const item = await alice.waitForSelector('xpath/.//button[contains(@class,"menu-item")][contains(., "Vote to abandon")]');
     await item!.evaluate((x) => (x as HTMLElement).click());

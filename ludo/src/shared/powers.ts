@@ -32,8 +32,9 @@ function shuffled<T>(state: GameState, list: readonly T[]): T[] {
 }
 
 /**
- * Each power once, never two of the same on the board: on the 4-player board one on every star in
- * shuffled order; on the 5- and 6-player boards (more stars than powers) on four random stars.
+ * Each power once, never two of the same on the board, on as many random stars as there are
+ * powers: with five powers, four of them on the 4-player board's four stars (a shuffled one sits
+ * out until a power is taken), all five on the 5- and 6-player boards.
  */
 export function initialOrbs(state: GameState): { square: number; power: Power }[] {
   const stars = shuffled(

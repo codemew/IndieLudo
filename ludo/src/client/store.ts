@@ -1,5 +1,5 @@
 import type { NetStats } from '../shared/net.js';
-import type { Color, LobbySummary, OnlineUser, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
+import type { AbandonVote, Color, LobbySummary, OnlineUser, PublicGameState, PublicLobby, VoiceState } from '../shared/types.js';
 
 export interface AppState {
   /**
@@ -10,6 +10,8 @@ export interface AppState {
   isAdmin: boolean;
   /** Admins only: the roll set for my next turn (a test aid); null = chance. Only my own phone ever hears of it. */
   forcedRoll: { gameId: string; value: number } | null;
+  /** A vote to abandon my game, while it runs. */
+  abandonVote: AbandonVote | null;
   lobbies: LobbySummary[];
   /** Everyone online (the home screen's Users tab), live. */
   onlineUsers: OnlineUser[];
@@ -30,6 +32,7 @@ export const state: AppState = {
   user: null,
   isAdmin: false,
   forcedRoll: null,
+  abandonVote: null,
   lobbies: [],
   onlineUsers: [],
   lobby: null,

@@ -39,10 +39,11 @@ function give(s: GameState, color: Color, tokenId: number, power: Power | null):
 }
 
 describe('the orbs', () => {
-  it('one on every star, each power once, shuffled per game', () => {
+  it('one on every star, four different powers of the five, shuffled per game', () => {
     const s = pgame();
     expect(s.orbs!.map((o) => o.square)).toEqual([8, 21, 34, 47]);
-    expect(s.orbs!.map((o) => o.power).sort()).toEqual([...POWERS].sort());
+    expect(new Set(s.orbs!.map((o) => o.power)).size).toBe(4);
+    for (const o of s.orbs!) expect(POWERS).toContain(o.power);
     const layouts = new Set(
       [1, 2, 3, 4, 5, 6, 7, 8].map((seed) =>
         pgame(undefined, { seed })
@@ -55,7 +56,7 @@ describe('the orbs', () => {
     expect(pgame(undefined, { seed: 9 }).orbs).toEqual(pgame(undefined, { seed: 9 }).orbs);
   });
 
-  it('the 5- and 6-player boards, with more stars than powers, have each power once on four random stars', () => {
+  it('the 5- and 6-player boards have each power once, on random stars', () => {
     for (const n of [5, 6] as const) {
       const s = createGameState({
         id: 'g',
@@ -66,10 +67,11 @@ describe('the orbs', () => {
         board: n,
         powerUps: { seed: 7 },
       });
-      expect(s.orbs).toHaveLength(4);
-      expect(new Set(s.orbs!.map((o) => o.power)).size).toBe(4);
+      // Five powers: all five on the 5- and 6-player boards (one star of six stays empty).
+      expect(s.orbs).toHaveLength(5);
+      expect(new Set(s.orbs!.map((o) => o.power)).size).toBe(5);
       for (const o of s.orbs!) expect(boardOf(n).stars.has(o.square)).toBe(true);
-      expect(new Set(initialOrbs(s).map((o) => o.square)).size).toBe(4);
+      expect(new Set(initialOrbs(s).map((o) => o.square)).size).toBe(5);
     }
   });
 
@@ -438,5 +440,90 @@ describe('the golden token', () => {
     applyMove(t, 0, 0);
     expect(t.tokens.red[0]).toBe(56);
     expect(t.powers!.red![0]).toBeNull();
+  });
+});
+
+describe('the astronaut', () => {
+  it('may float backwards once, by the roll, capturing where it lands; that spends the power', () => {
+    const s = bare(['red', 'yellow']);
+    s.tokens.red[0] = 20;
+    give(s, 'red', 0, 'astronaut');
+    s.tokens.yellow[0] = 43; // square 17, three behind red's token
+    withQueue(s, [3]);
+    const options = legalMoves(s).filter((m) => m.tokenId === 0);
+    expect(options.map((m) => ({ to: m.to, back: m.back }))).toEqual([
+      { to: 23, back: undefined },
+      { to: 17, back: true },
+    ]);
+    expect(options[1].captures).toEqual([{ color: 'yellow', tokenId: 0 }]);
+    // Asked for, not assumed: the forward move without the flag.
+    const events = applyMove(s, 0, 0, false, undefined, undefined, true);
+    expect(events[0]).toMatchObject({ type: 'move', from: 20, to: 17, back: true });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'capture', victim: 'yellow', tokenId: 0 }));
+    expect(s.tokens.yellow[0]).toBe(BASE);
+    expect(s.powers!.red![0]).toBeNull();
+    expect(s.stats!.red!.cells).toBe(0); // floating back travels nowhere
+    // Spent: forwards only from now on.
+    s.turn.seat = 0;
+    withQueue(s, [2]);
+    expect(
+      legalMoves(s)
+        .filter((m) => m.tokenId === 0)
+        .every((m) => !m.back),
+    ).toBe(true);
+  });
+
+  it('keeps the power while it moves forwards, until it floats back (or is captured, or gets home)', () => {
+    const s = bare(['red', 'yellow']);
+    s.tokens.red[0] = 20;
+    give(s, 'red', 0, 'astronaut');
+    withQueue(s, [3]);
+    applyMove(s, 0, 0);
+    expect(s.powers!.red![0]).toBe('astronaut');
+  });
+
+  it('never behind its own start square, never back out of its second lap; from its home column back onto the track', () => {
+    const s = bare(['red', 'yellow']);
+    give(s, 'red', 0, 'astronaut');
+    withQueue(s, [3]);
+    const backTo = (p: number) => {
+      s.tokens.red[0] = p;
+      return legalMoves(s).find((m) => m.tokenId === 0 && m.back)?.to;
+    };
+    expect(backTo(2)).toBeUndefined();
+    expect(backTo(3)).toBe(0);
+    expect(backTo(52)).toBe(49); // out of the home column onto square 49
+    expect(backTo(58)).toBeUndefined(); // second lap starts at 57
+    expect(backTo(60)).toBe(57);
+    expect(backTo(56)).toBeUndefined(); // home: done
+    // The server refuses a backward move that isn't on offer.
+    s.tokens.red[0] = 2;
+    expect(() => applyMove(s, 0, 0, false, undefined, undefined, true)).toThrow('ILLEGAL_MOVE');
+  });
+
+  it('landing back on a power-up takes it (in place of the spent astronaut); forwards and back are different choices', () => {
+    const s = bare(['red', 'yellow']);
+    s.orbs = [{ square: 8, power: 'shield' }];
+    s.tokens.red[0] = 11;
+    s.tokens.red[1] = 11;
+    give(s, 'red', 0, 'astronaut');
+    withQueue(s, [3]);
+    expect(distinctChoices(legalMoves(s), s).map((m) => [m.tokenId, m.back ?? false])).toEqual([
+      [0, false],
+      [0, true],
+      [1, false],
+    ]);
+    applyMove(s, 0, 0, false, undefined, undefined, true);
+    expect(s.powers!.red![0]).toBe('shield');
+  });
+
+  it('a bot floats back for a capture, not otherwise', () => {
+    const s = bare(['red', 'yellow']);
+    s.tokens.red[0] = 20;
+    give(s, 'red', 0, 'astronaut');
+    withQueue(s, [3]);
+    expect(chooseMove(s)!.back).toBeUndefined();
+    s.tokens.yellow[0] = 43; // square 17
+    expect(chooseMove(s)!.back).toBe(true);
   });
 });

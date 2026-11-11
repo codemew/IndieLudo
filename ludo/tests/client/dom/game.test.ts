@@ -1176,6 +1176,103 @@ describe('stacked tokens with powers (power ups)', () => {
   });
 });
 
+describe('the astronaut (power ups)', () => {
+  function astroGame(): GameState {
+    const g = createGameState({ id: `g${Math.random()}`, lobbyId: 'L', seats: [seat('red', 1, 'alice'), seat('green', 2, 'bob')], firstSeat: 0, now: 0, powerUps: { seed: 5 } });
+    g.orbs = [];
+    g.tokens.red = [20, B, B, B];
+    g.powers = { red: ['astronaut', null, null, null] };
+    return g;
+  }
+
+  it('floating back is a way of its own: an indigo marker, a choice in the bubble, and back: true is sent', async () => {
+    mount(astroGame());
+    await step((s) => applyRoll(s, 3), 200);
+    const marker = document.querySelector<HTMLElement>('#targets .target.back[data-token]')!;
+    expect(marker.dataset.back).toBe('1');
+    expect(marker.getAttribute('aria-label')).toBe('Float back 3 squares');
+    expect(document.querySelectorAll('#trails .trail.back, .trail.back').length).toBeGreaterThan(0);
+    token('red', 0).click();
+    await flush();
+    const labels = [...document.querySelectorAll('.lap-opt')].map((o) => o.getAttribute('aria-label'));
+    expect(labels[0]).toBe('Move forward');
+    expect(labels[1]).toMatch(/^Float back 3 squares/);
+    click('.lap-opt.back');
+    await flush();
+    expect(sentOf('game:move').at(-1)).toMatchObject({ dieIndex: 0, tokenId: 0, back: true });
+  });
+
+  it('a float back drifts with the astronaut sound and capture; the power is spent', async () => {
+    const g = astroGame();
+    g.tokens.green = [4, B, B, B]; // square 17, red's progress 17
+    mount(g);
+    await step((s) => applyRoll(s, 3), 200);
+    sounds.length = 0;
+    // The banner shows as the float starts (a later banner, the bonus roll here, takes its place).
+    await step((s) => applyMove(s, 0, 0, false, undefined, undefined, true), 0);
+    expect([...document.querySelectorAll('.callout')].map((c) => c.textContent)).toContain('🧑‍🚀 AstronautYour token floats back');
+    await flush(2500);
+    expect(sounds).toContain('astronaut');
+    expect(sounds).not.toContain('step');
+    expect(current.tokens.red[0]).toBe(17);
+    expect(current.tokens.green[0]).toBe(B);
+    expect(token('red', 0).classList.contains('pw-astronaut')).toBe(false);
+  });
+});
+
+describe('a vote to abandon the game', () => {
+  const vote = (gameId: string, bob: boolean | null) => ({
+    gameId,
+    startedBy: 1,
+    startedByName: 'alice',
+    endsAt: Date.now() + 45_000,
+    voters: [
+      { userId: 1, username: 'alice', vote: true },
+      { userId: 2, username: 'bob', vote: bob },
+    ],
+  });
+
+  it('the host starts it from the menu, asked first', async () => {
+    mount(newGame());
+    click('#menu');
+    [...document.querySelectorAll<HTMLButtonElement>('.menu-item')].find((b) => b.textContent!.includes('Vote to abandon'))!.click();
+    await flush(10);
+    expect(topModal().textContent).toContain("isn't kept in the match history");
+    modalButton('🗳️ Start the vote');
+    await flush(10);
+    expect(sentOf('game:abandonVote')).toEqual([{ gameId: current.id }]);
+  });
+
+  it('only the host has it in the menu', async () => {
+    mount(newGame(), 2);
+    click('#menu');
+    expect([...document.querySelectorAll('.menu-item')].some((b) => b.textContent!.includes('Vote to abandon'))).toBe(false);
+    document.body.click();
+  });
+
+  it('a player asked sees the bar with who said what, and answers', async () => {
+    mount(newGame(), 2);
+    await flush(10);
+    expect(document.querySelector<HTMLElement>('#vote-bar')!.hidden).toBe(true);
+    store.update({ abandonVote: vote(current.id, null) });
+    await flush(10);
+    const bar = document.querySelector<HTMLElement>('#vote-bar')!;
+    expect(bar.hidden).toBe(false);
+    expect(bar.textContent).toContain('alice');
+    expect(bar.textContent).toContain('1/2 yes');
+    click('#vote-yes');
+    await flush(10);
+    expect(sentOf('game:abandonAnswer')).toEqual([{ gameId: current.id, yes: true }]);
+    // Once answered, no buttons; once over, no bar.
+    store.update({ abandonVote: vote(current.id, true) });
+    await flush(10);
+    expect(bar.querySelector('#vote-yes')).toBeNull();
+    store.update({ abandonVote: null });
+    await flush(10);
+    expect(bar.hidden).toBe(true);
+  });
+});
+
 describe('the turn timer, and an animation that fails', () => {
   it('the timer runs on the server clock as last heard, not from when the state it shows was stamped', async () => {
     const { noteServerTime } = await import('../../../src/client/clock.js');

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BASE, boardFor, boardOf, isSecondLap, raidOf, type BoardSize } from '../src/shared/board.js';
 import { applyMove, applyRoll, createGameState } from '../src/shared/rules.js';
 import { chooseMove } from '../src/server/bot.js';
-import type { GameState } from '../src/shared/types.js';
+import { POWERS, type GameState } from '../src/shared/types.js';
 import { seat } from './helpers.js';
 
 /** A small seeded random number generator, so a failure can be replayed. */
@@ -27,7 +27,7 @@ function check(s: GameState): void {
   }
   // Every star has an orb or one on its way back.
   // Every power is on the board or on its way back, and never two of the same.
-  if ((s.orbs?.length ?? 0) + (s.orbsDue?.length ?? 0) !== 4) throw new Error('orbs lost');
+  if ((s.orbs?.length ?? 0) + (s.orbsDue?.length ?? 0) !== Math.min(b.stars.size, POWERS.length)) throw new Error('orbs lost');
   if (new Set((s.orbs ?? []).map((o) => o.power)).size !== (s.orbs?.length ?? 0)) throw new Error('two of the same power');
 }
 
@@ -51,7 +51,7 @@ function play(n: BoardSize, players: number, seed: number, teams = false): GameS
     else {
       const m = chooseMove(s)!;
       if (m.raid) raids++;
-      const events = applyMove(s, m.dieIndex, m.tokenId, m.lap === true, m.color, m.raid);
+      const events = applyMove(s, m.dieIndex, m.tokenId, m.lap === true, m.color, m.raid, m.back === true);
       pickups += events.filter((e) => e.type === 'power').length;
     }
     check(s);

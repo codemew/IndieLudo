@@ -4,7 +4,7 @@ import { currentColor, isTeammate, legalMoves } from '../shared/rules.js';
 import type { Color, GameState, LegalMove, Power } from '../shared/types.js';
 
 /** How much a bot wants each power (power ups). */
-const POWER_WANT: Record<Power, number> = { double: 30, shield: 25, cloak: 25, vampire: 20 };
+const POWER_WANT: Record<Power, number> = { double: 30, shield: 25, cloak: 25, vampire: 20, astronaut: 20 };
 
 /** True if an opponent token sits 1..6 squares behind the given absolute square (a teammate is no threat). */
 function threatened(state: GameState, me: Color, abs: number): boolean {
@@ -35,6 +35,8 @@ function score(state: GameState, actor: Color, m: LegalMove): number {
   if (m.lap) s -= 50;
   // Power ups: a vampire raids a home column for the captures there (counted above), not for the detour.
   if (m.raid) s -= 30;
+  // An astronaut floats back for a capture (counted above), not to lose ground.
+  if (m.back) s -= 40;
   if (m.orb) s += POWER_WANT[m.orb];
   s += (m.breaks?.length ?? 0) * 15;
   // A shielded token can afford to stand in harm's way.

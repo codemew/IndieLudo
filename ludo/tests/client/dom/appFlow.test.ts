@@ -268,6 +268,23 @@ describe('the app, end to end', () => {
     sock.s.fire('game:state', { state: pub(g) });
     await waitFor('the board', () => screen() === 'screen-game');
     expect(localStorage.getItem('ludo.lastGameId')).toBe('G1');
+    // A vote to abandon: asked, then refused (told who), then asked again and passed (back to the lobby).
+    const asked = { gameId: 'G1', startedBy: 1, startedByName: 'alice', endsAt: Date.now() + 45_000, voters: [{ userId: 1, username: 'alice', vote: true }, { userId: 2, username: 'bob', vote: null }] };
+    sock.s.fire('game:abandonVote', asked);
+    await waitFor('the vote bar', () => document.querySelector<HTMLElement>('#vote-bar')?.hidden === false);
+    sock.s.fire('game:abandonVoteEnd', { gameId: 'G1', how: 'refused', by: 'bob' });
+    await waitFor('no bar', () => document.querySelector<HTMLElement>('#vote-bar')?.hidden === true);
+    expect(toasts().join(' ')).toContain('bob');
+    sock.s.fire('game:abandonVote', asked);
+    sock.s.fire('lobby:state', lobby());
+    sock.s.fire('game:abandoned', { gameId: 'G1' });
+    await waitFor('back in the lobby', () => screen() === 'screen-lobby');
+    expect(toasts().join(' ')).toContain('Game abandoned');
+    expect(localStorage.getItem('ludo.lastGameId')).toBeNull();
+    // The next game.
+    sock.s.fire('lobby:state', lobby({ status: 'playing', gameId: 'G1' }));
+    sock.s.fire('game:state', { state: pub(g) });
+    await waitFor('the board again', () => screen() === 'screen-game');
     g.finished = true;
     g.ranks = ['red', 'yellow'];
     g.version++;

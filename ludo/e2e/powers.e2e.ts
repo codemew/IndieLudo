@@ -42,7 +42,19 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
     await tap(alice, '#golden');
     await until('bob sees both', async () => (await bob.$$eval('#powerups, #golden', (xs) => xs.map((x) => (x as HTMLInputElement).checked))).every(Boolean));
     expect(await bob.$eval('#powerups', (x) => (x as HTMLInputElement).disabled)).toBe(true);
-    expect(await alice.$eval('#powerups-rule', (x) => x.textContent)).toMatch(/Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Vampire/);
+    expect(await alice.$eval('#powerups-rule', (x) => x.textContent)).toMatch(/Double move[\s\S]*Shield[\s\S]*Invisibility cloak[\s\S]*Vampire[\s\S]*Astronaut/);
+    // The time to move after a roll: a slider, the host's to set.
+    await alice.$eval('#move-time', (x) => {
+      const s = x as HTMLInputElement;
+      s.value = '8';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+      s.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await until('bob sees 8 s', async () => (await bob.$eval('#move-time-out', (x) => x.textContent)) === '8s');
+    expect(await bob.$eval('#move-time', (x) => (x as HTMLInputElement).disabled)).toBe(true);
+    await alice.$eval('#move-time-rule', (x) => x.scrollIntoView({ block: 'center' }));
+    await sleep(300);
+    await shot(alice, 'move-time-slider');
     await alice.$eval('#golden-rule', (x) => x.scrollIntoView({ block: 'center' }));
     await sleep(300);
     await shot(alice, 'powers-lobby');
@@ -121,6 +133,57 @@ describe.skipIf(!CHROME || !BUILT)('power ups and the golden token', () => {
     expect(game.tokens[b][0]).toBe(BASE);
     await sleep(2500);
     await shot(bob, 'powers-vampire-raided');
+    expect(t.errors).toEqual([]);
+  });
+
+  it('an astronaut floats back once, capturing where it lands, and the power is spent', async () => {
+    await sleep(1500);
+    expect(game.moveSeconds).toBe(8);
+    game.orbs = [];
+    game.powers = { [a]: ['astronaut', null, null, null] };
+    // Bob's token 3 squares behind alice's, on a plain square.
+    game.tokens[a] = [20, BASE, BASE, BASE];
+    const behind = (B4.start[a]! + 17) % 52;
+    game.tokens[b] = [(behind - B4.start[b]! + 52) % 52, BASE, BASE, BASE];
+    await aliceRolls(3);
+    await alice.waitForSelector('#targets .target.back');
+    await sleep(400);
+    await shot(alice, 'astronaut-markers');
+    await tap(alice, `.token.t-${a}.legal`);
+    await alice.waitForSelector('.lap-opt.back');
+    expect(await alice.$eval('.lap-opt.back', (x) => x.getAttribute('aria-label'))).toMatch(/^Float back 3 squares, captures bob/);
+    await sleep(300);
+    await shot(alice, 'astronaut-choice');
+    await tap(alice, '.lap-opt.back');
+    await until('floating', async () => (await bob.$$(`.token.t-${a}.floating`)).length === 1, 5000);
+    await sleep(350);
+    await shot(bob, 'astronaut-floating');
+    await until('floated back', () => game.tokens[a][0] === 17, 5000);
+    expect(game.tokens[b][0]).toBe(BASE);
+    expect(game.powers?.[a]?.[0] ?? null).toBeNull();
+    await sleep(2500);
+    expect(await alice.$$(`.token.t-${a}.pw-astronaut`)).toHaveLength(0);
+    expect(t.errors).toEqual([]);
+  });
+
+  it('the host asks to abandon, bob agrees: back in the lobby, no winner', async () => {
+    await tap(alice, '#menu');
+    const item = await alice.waitForSelector('xpath/.//button[contains(@class,"menu-item")][contains(., "Vote to abandon")]');
+    await item!.evaluate((x) => (x as HTMLElement).click());
+    await alice.waitForSelector('.modal');
+    await sleep(300);
+    const start = await alice.waitForSelector('xpath/.//div[contains(@class,"modal-actions")]/button[contains(., "Start the vote")]');
+    await start!.evaluate((x) => (x as HTMLElement).click());
+    await bob.waitForSelector('#vote-bar:not([hidden]) #vote-yes');
+    await sleep(400);
+    await shot(bob, 'abandon-vote');
+    await tap(bob, '#vote-yes');
+    await Promise.all([alice.waitForSelector('.screen-lobby'), bob.waitForSelector('.screen-lobby')]);
+    expect(await toastsOf(alice)).toContain('Game abandoned');
+    expect(t.server.ctx.games.get(game.id)).toBeUndefined();
+    expect(t.server.ctx.history.list().matches).toEqual([]);
+    await sleep(400);
+    await shot(alice, 'abandon-lobby');
     expect(t.errors).toEqual([]);
   });
 });

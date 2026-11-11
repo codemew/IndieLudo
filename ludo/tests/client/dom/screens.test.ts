@@ -707,3 +707,24 @@ describe('the power ups and golden token switches in the lobby', () => {
     expect([box('powerups').checked, box('powerups').disabled, box('golden').checked, box('golden').disabled]).toEqual([true, true, true, true]);
   });
 });
+
+describe('the time to move after a roll, a slider in the lobby', () => {
+  const slider = () => document.querySelector<HTMLInputElement>('#move-time')!;
+
+  it('5 to 10 seconds a second at a time; the host drags it, the number follows, and letting go sends it; others see it', () => {
+    resetNet();
+    store.update({ user: { id: 1, username: 'alice' }, lobby: lobby({ moveSeconds: 7 }) });
+    show('lobby');
+    expect([slider().min, slider().max, slider().step, slider().value, slider().disabled]).toEqual(['5', '10', '1', '7', false]);
+    expect(document.querySelector('#move-time-out')!.textContent).toBe('7s');
+    slider().value = '9';
+    slider().dispatchEvent(new Event('input', { bubbles: true }));
+    expect(document.querySelector('#move-time-out')!.textContent).toBe('9s');
+    expect(sentOf('lobby:rules')).toEqual([]);
+    slider().dispatchEvent(new Event('change', { bubbles: true }));
+    expect(sentOf('lobby:rules')).toEqual([{ moveSeconds: 9 }]);
+    store.update({ user: { id: 2, username: 'bob' }, lobby: lobby({ moveSeconds: 6 }) });
+    expect([slider().value, slider().disabled]).toEqual(['6', true]);
+    expect(document.querySelector('#move-time-out')!.textContent).toBe('6s');
+  });
+});

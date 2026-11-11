@@ -1,6 +1,6 @@
 import { BOARD_SIZES, type BoardSize } from '../../shared/board.js';
 import { avatarFace } from '../../shared/avatars.js';
-import { MAX_SPECTATORS, POWERS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
+import { MAX_SPECTATORS, MOVE_SECONDS_MAX, MOVE_SECONDS_MIN, POWERS, TEAMMATE, type Color, type LobbyMember, type PublicLobby } from '../../shared/types.js';
 import { POWER_INFO } from '../powerInfo.js';
 import { showError } from '../app.js';
 import { emit } from '../net.js';
@@ -62,6 +62,15 @@ export function lobbyScreen(root: HTMLElement): () => void {
         <span class="rule-box" aria-hidden="true"></span>
         <span class="rule-text"><b>👑 Golden token</b><small>One token each, picked at random: out of base on any roll, and a capture only sends it back to its start square</small></span>
       </label>
+      <div class="rule-slider" id="move-time-rule">
+        <label for="move-time"><b>⏱ Time to move</b><small>After a roll, to pick which token moves (rolling keeps its own time)</small></label>
+        <div class="slider-row">
+          <input type="range" id="move-time" min="${MOVE_SECONDS_MIN}" max="${MOVE_SECONDS_MAX}" step="1" list="move-time-marks" aria-valuetext="5 seconds" />
+          <output id="move-time-out" for="move-time">5s</output>
+        </div>
+        <datalist id="move-time-marks">${Array.from({ length: MOVE_SECONDS_MAX - MOVE_SECONDS_MIN + 1 }, (_, i) => `<option value="${MOVE_SECONDS_MIN + i}"></option>`).join('')}</datalist>
+        <div class="slider-ticks" aria-hidden="true">${Array.from({ length: MOVE_SECONDS_MAX - MOVE_SECONDS_MIN + 1 }, (_, i) => `<span>${MOVE_SECONDS_MIN + i}</span>`).join('')}</div>
+      </div>
       <p class="muted small center mode-note" id="mode-note"></p>
       <div class="seat-grid" id="seats"></div>
       <div class="watchers" id="watchers"></div>
@@ -89,6 +98,22 @@ export function lobbyScreen(root: HTMLElement): () => void {
   powerUps.onchange = () => void act('lobby:rules', { powerUps: powerUps.checked });
   const golden = $<HTMLInputElement>(root, '#golden');
   golden.onchange = () => void act('lobby:rules', { golden: golden.checked });
+  // The move time: the number follows the thumb while dragging; it is sent when let go.
+  const moveTime = $<HTMLInputElement>(root, '#move-time');
+  const moveOut = $<HTMLOutputElement>(root, '#move-time-out');
+  const showMoveTime = (s: number) => {
+    moveOut.textContent = `${s}s`;
+    moveTime.setAttribute('aria-valuetext', `${s} seconds`);
+  };
+  let dragging = false;
+  moveTime.oninput = () => {
+    dragging = true;
+    showMoveTime(Number(moveTime.value));
+  };
+  moveTime.onchange = () => {
+    dragging = false;
+    void act('lobby:rules', { moveSeconds: Number(moveTime.value) });
+  };
   root.querySelectorAll<HTMLButtonElement>('.size-opt').forEach((b) => (b.onclick = () => void act('lobby:size', { size: Number(b.dataset.size) })));
 
   const render = () => {
@@ -135,6 +160,12 @@ export function lobbyScreen(root: HTMLElement): () => void {
     powerUps.disabled = !isHost;
     golden.checked = Boolean(lobby.golden);
     golden.disabled = !isHost;
+    moveTime.disabled = !isHost;
+    if (!dragging) {
+      const s = lobby.moveSeconds ?? MOVE_SECONDS_MIN;
+      moveTime.value = String(s);
+      showMoveTime(s);
+    }
     $(root, '#mode-note').textContent = lobby.teams
       ? `Team-up: 2 vs 2. Diagonal partners (Red + Yellow vs Green + Blue) win together when both are home. Needs all 4 seats.${lobby.share ? " Turn sharing: a roll can move your teammate's tokens too, and a partner who is home keeps rolling for the other." : ''}`
       : size === 4

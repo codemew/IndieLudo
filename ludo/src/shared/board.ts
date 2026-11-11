@@ -300,6 +300,13 @@ export function stepFrom(progress: number, lapping: boolean, b: Board = BOARD4):
   return progress + 1;
 }
 
+/** Power ups: the squares an astronaut floats through backwards, from `from` down to `to`, excluding the start. */
+export function backPathCells(color: Color, from: number, to: number, tokenId: number, b: Board = BOARD4): Cell[] {
+  const cells: Cell[] = [];
+  for (let p = from - 1; p >= to && cells.length < MAX_STEPS; p--) cells.push(tokenCell(color, p, tokenId, b));
+  return cells;
+}
+
 /** Longest move there is: a doubled 6 (power ups). */
 const MAX_STEPS = 12;
 

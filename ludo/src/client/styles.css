@@ -5413,3 +5413,148 @@ polygon.b-inner {
     transform: scale(1.07);
   }
 }
+
+/* ---------- v4.2: the astronaut power ---------- */
+.orb.o-astronaut {
+  --o: #3949ab;
+}
+.token.pw-astronaut .tok-badge,
+.mini-token.pw-astronaut .tok-badge {
+  --o: #3949ab;
+}
+.orb.o-astronaut span,
+.token.pw-astronaut .tok-badge,
+.mini-token.pw-astronaut .tok-badge {
+  font-size: 34cqw;
+}
+/* An astronaut token wears a helmet-glass sheen. */
+.token.pw-astronaut .tok-body {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(197, 206, 255, 0.9), 0 0 9px 2px rgba(57, 73, 171, 0.65);
+}
+/* Floating backwards: a starry glow round it while it drifts. */
+.token.floating .tok-body {
+  box-shadow: 0 0 0 2px #c5ceff, 0 0 16px 6px rgba(120, 140, 255, 0.75);
+}
+.token.floating .tok-shadow {
+  opacity: 0.25;
+  transform: scale(0.6);
+}
+/* Floating back: indigo trail, marker and choice. */
+.trail.back,
+.target.back,
+.lap-opt.back {
+  --tc: #3949ab;
+}
+.target.back {
+  --c: var(--tc);
+  container-type: size;
+}
+.target.back span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 56cqw;
+}
+.target.back[data-token] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* ---------- v4.2: vote to abandon ---------- */
+.vote-bar {
+  position: relative;
+  z-index: 40;
+  margin: 6px 10px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 92%, #ff5b5b);
+  border: 1.5px solid color-mix(in srgb, #ff5b5b 55%, var(--border));
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: card-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.vote-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vote-text small {
+  color: var(--muted);
+}
+.vote-who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.vote-chip {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+}
+.vote-chip.yes {
+  background: color-mix(in srgb, #22c55e 28%, transparent);
+}
+.vote-chip.no {
+  background: color-mix(in srgb, #ef4444 30%, transparent);
+}
+.vote-actions {
+  display: flex;
+  gap: 8px;
+}
+.vote-actions .btn {
+  flex: 1;
+}
+
+/* Lobby: the time to move after a roll, a slider from 5 to 10 seconds in steps of one. */
+.rule-slider {
+  width: min(100%, 420px);
+  margin: 8px auto 0;
+  padding: 10px 16px 8px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rule-slider label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rule-slider label small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.slider-row input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 28px;
+}
+.slider-row input[type='range']:disabled {
+  opacity: 0.6;
+}
+.slider-row output {
+  min-width: 36px;
+  text-align: right;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-right: 48px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}

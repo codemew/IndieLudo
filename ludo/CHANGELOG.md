@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 4.2.0
 
 ### Changed
+- **Power ups: five powers.** The 4-player board shows four of them (one per star) and the fifth comes in when one is taken; the 5- and 6-player boards show all five.
 - **The die answers the tap at once.** Tapping the die used to show nothing until the server's roll came back; on a slow connection that is a dead moment. It now dips under the finger and starts to tumble straight away (a light buzz on Android), and when the roll arrives the same tumble carries on round and lands on the server's value, with a ring in the roller's colour spreading from under it. It still only ever shows values the server sent, a roll takes as long as before, and a refused roll puts the die back to rest.
 - **A token dips when you pick it**, before the server has answered (a tap on the token, a choice in the bubble, a marker on the board).
 - **Tokens that share a square shuffle into place.** When one arrives or leaves, the others glide to their new spot and size (220 ms) instead of jumping, and a token that sets off from a shared square starts from where it stood, not from the middle of the square.
@@ -15,12 +16,15 @@
 - **The same toast asked for again nods** and stays for its full time, instead of stacking a copy under itself.
 - **Stacked tokens with powers: the choice shows which is which.** When tokens on one square differ by power (or one is the golden token), the choice bubble's tokens wear their power badge and crown, and their labels name the power ("Shield", "No power", "Golden token").
 - **Lobby music at 10% volume** (was 30%).
-- **Power ups: each power once on the board, never two of the same.** On the 4-player board one per star; on the 5- and 6-player boards on four random stars; a returning power-up brings back a power that isn't on the board.
+- **Power ups: each power once on the board, never two of the same.** A returning power-up brings back a power that isn't on the board.
 - **Power ups: a vampire captures shielded tokens** (the shield doesn't save them).
 - **Power ups: a cloaked token moves with one ghostly whoosh** instead of a step sound per square (which told the room how far it went), on its owner's phone too; other phones get a `ghost` event in place of the move and play only the whoosh.
 - **Power ups: the banners stay long enough to read and wrap inside the board.** A power's banner (4 s) says what it does, to its owner and, worded for them, to everyone else; the shield's lasts 2.4 s; the rules note at the start of a game 8 s. Before, they ran off the side of the screen and were gone in 1.3 s.
 
 ### Added
+- **Power ups: 🧑‍🚀 the Astronaut.** A fifth power: once, the token may float backwards by the roll instead of forwards, capturing where it lands (safe squares and shields as usual). That move spends the power; moving forwards keeps it. It can't go back behind its start square or from its second lap into its first, and it can drift back out of its home column. The choice bubble offers **Move forward** or **Float back**, with an indigo marker and trail on the board; the float drifts square by square, tilting and weightless, with its own sound (a low wobble, radio beeps and a hiss). `game:move` takes `back: true`. Bots float back only to capture.
+- **Vote to abandon.** The host can start a vote from the game menu. Every seated person answers in a bar under the top (who asked, each answer, the yes count, 45 s to answer; the host's answer is yes). If everyone says yes the game is abandoned: no winner or loser, no stats, deleted rather than kept in the match history, and everyone goes back to the lobby. One no, or the time running out, ends the vote and the game goes on. A player who leaves stops counting. `game:abandonVote`, `game:abandonAnswer`; the server sends `game:abandonVote`, `game:abandonVoteEnd` and `game:abandoned`.
+- **Time to move, set in the lobby.** A slider under the rules sets how long a player has to pick a token after a roll: 5 to 10 seconds, a second at a time. The host drags it; everyone sees it. It starts at the server's `moveTimeoutSec`, and changing it keeps everyone ready. `lobby:rules {moveSeconds}`.
 - **Lobby music.** With every seat taken (people or bots), every phone in the lobby plays the lobby track at 10% volume on repeat, each repeat crossfading over the last 4 seconds. When the game starts it stops repeating and plays on to the end; it starts again when the match ends (results, and back in the lobby, though the bots have left their seats) and loops until the next game. It follows the sound button and fades out on leaving. Web Audio, one decoded buffer (`lobbyMusic.ts`); the track is a hashed, long-cached asset loaded only when it first plays.
 - **Admin resets.** In the admin panel's **Users** tab, reset one player's wins and games played or everyone's; a new **History** tab deletes one finished match or the whole match history (games being played are kept). `POST /api/admin/users/:id/reset-stats`, `POST /api/admin/stats/reset`, `DELETE /api/admin/history/:id`, `DELETE /api/admin/history`.
 

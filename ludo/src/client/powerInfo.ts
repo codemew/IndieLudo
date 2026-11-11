@@ -30,6 +30,12 @@ export const POWER_INFO: Record<Power, { icon: string; name: string; what: strin
     what: "can raid other players' home columns and capture there, and captures shielded tokens too",
     theirs: (name) => `${name}'s token can raid home columns and goes through shields`,
   },
+  astronaut: {
+    icon: '🧑‍🚀',
+    name: 'Astronaut',
+    what: 'can float backwards once, by the roll, capturing where it lands; that move uses the power up',
+    theirs: (name) => `${name}'s token can float backwards once and capture there`,
+  },
 };
 
 export const GOLDEN_INFO = { icon: '👑', name: 'Golden token', what: 'leaves base on any roll, and a capture sends it to its start square' };

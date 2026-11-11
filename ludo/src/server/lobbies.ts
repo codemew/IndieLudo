@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { boardOf, BOARD_SIZES, type BoardSize } from '../shared/board.js';
-import { MAX_SEATS, MAX_SPECTATORS, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
+import { MAX_SEATS, MAX_SPECTATORS, MOVE_SECONDS_MAX, MOVE_SECONDS_MIN, SWAP_REQUEST_MS, type AdminLobby, type Color, type LobbyMember, type LobbySpectator, type LobbyStatus, type LobbySummary, type PublicLobby, type SwapEnd, type SwapRequest } from '../shared/types.js';
 import { humanIds } from '../shared/lobbyPeople.js';
 import type { DB } from './db.js';
 import { AppError } from './errors.js';
@@ -29,6 +29,8 @@ export interface Lobby {
   powerUps?: boolean;
   /** Golden token in the next game (an optional rule). */
   golden?: boolean;
+  /** Seconds to pick a token after rolling in the next game; absent: the server's setting. */
+  moveSeconds?: number;
 }
 
 /** `{ avatar }` for a member or spectator, or nothing when there is none (keeps saved lobbies small). */
@@ -54,6 +56,8 @@ export interface LobbyManagerOptions {
   createGate?: CreateGate;
   maxLobbies: number;
   lobbyIdleCloseSec: number;
+  /** The server's time to pick a token after rolling, the lobbies' starting setting (seconds). */
+  moveSeconds?: number;
   now?: () => number;
   /** Called after any change; `lobby` is null when it was closed. */
   onChange?: (lobbyId: string, lobby: Lobby | null) => void;
@@ -192,6 +196,7 @@ export class LobbyManager {
       share: Boolean(l.share),
       size: sizeOf(l),
       powerUps: Boolean(l.powerUps),
+      moveSeconds: this.moveSecondsOf(l),
       golden: Boolean(l.golden),
     };
   }
@@ -424,15 +429,31 @@ export class LobbyManager {
    * Host: the optional rules for the next game, power ups and golden token (either or both, in any
    * mode and on any board). Everyone else's "ready" is cleared, as for the mode.
    */
-  setRules(userId: number, rules: { powerUps?: boolean; golden?: boolean }): Lobby {
+  setRules(userId: number, rules: { powerUps?: boolean; golden?: boolean; moveSeconds?: number }): Lobby {
     const lobby = this.hostLobby(userId);
-    const next = { powerUps: rules.powerUps ?? Boolean(lobby.powerUps), golden: rules.golden ?? Boolean(lobby.golden) };
-    if (next.powerUps === Boolean(lobby.powerUps) && next.golden === Boolean(lobby.golden)) return lobby;
+    if (rules.moveSeconds !== undefined && !(Number.isInteger(rules.moveSeconds) && rules.moveSeconds >= MOVE_SECONDS_MIN && rules.moveSeconds <= MOVE_SECONDS_MAX)) {
+      throw new AppError('BAD_MOVE_TIME');
+    }
+    const next = { powerUps: rules.powerUps ?? Boolean(lobby.powerUps), golden: rules.golden ?? Boolean(lobby.golden), moveSeconds: rules.moveSeconds ?? this.moveSecondsOf(lobby) };
+    if (next.powerUps === Boolean(lobby.powerUps) && next.golden === Boolean(lobby.golden) && next.moveSeconds === this.moveSecondsOf(lobby)) return lobby;
+    // The move time is only a pace: changing it alone doesn't make everyone ready again.
+    const rulesChanged = next.powerUps !== Boolean(lobby.powerUps) || next.golden !== Boolean(lobby.golden);
     lobby.powerUps = next.powerUps;
     lobby.golden = next.golden;
+    lobby.moveSeconds = next.moveSeconds;
+    if (!rulesChanged) {
+      this.changed(lobby);
+      return lobby;
+    }
     for (const m of lobby.members) m.ready = m.isBot;
     this.changed(lobby);
     return lobby;
+  }
+
+  /** The lobby's time to pick a token after rolling: the host's choice, else the server's (kept within the slider's range). */
+  moveSecondsOf(lobby: Lobby): number {
+    const s = lobby.moveSeconds ?? this.opts.moveSeconds ?? MOVE_SECONDS_MIN;
+    return Math.min(MOVE_SECONDS_MAX, Math.max(MOVE_SECONDS_MIN, Math.round(s)));
   }
 
   /**

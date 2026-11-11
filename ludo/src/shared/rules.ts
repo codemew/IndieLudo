@@ -36,6 +36,8 @@ export function createGameState(opts: {
   powerUps?: { seed: number };
   /** Golden token: each player's golden token id (the server picks them at random). */
   golden?: Partial<Record<Color, number>>;
+  /** Seconds to pick a token after rolling (the host's setting). */
+  moveSeconds?: number;
 }): GameState {
   const { colors } = boardOf(opts.board);
   const seats = [...opts.seats]
@@ -64,6 +66,7 @@ export function createGameState(opts: {
     ...(opts.board && opts.board !== 4 && { board: opts.board }),
     ...(opts.powerUps && { powerUps: true as const, orbSeed: opts.powerUps.seed >>> 0 || 1, orbsDue: [], powers: {} }),
     ...(golden && { golden }),
+    ...(opts.moveSeconds !== undefined && { moveSeconds: opts.moveSeconds }),
   };
   if (state.powerUps) state.orbs = initialOrbs(state);
   return state;
@@ -259,6 +262,7 @@ interface Target {
   lap?: true;
   raid?: Color;
   steps?: number;
+  back?: true;
 }
 
 function stepTargets(state: GameState, color: Color, tokenId: number, from: number, d: number): Target[] {
@@ -295,11 +299,27 @@ function stepTargets(state: GameState, color: Color, tokenId: number, from: numb
 export function tokenTargets(state: GameState, color: Color, tokenId: number, die: number): Target[] {
   const from = state.tokens[color][tokenId];
   if (from === BASE) return die === SIX || isGolden(state, color, tokenId) ? [{ to: 0 }] : [];
-  if (powerOf(state, color, tokenId) === 'double') {
+  const power = powerOf(state, color, tokenId);
+  if (power === 'double') {
     const doubled = stepTargets(state, color, tokenId, from, die * 2);
     if (doubled.length) return doubled.map((t) => ({ ...t, steps: die * 2 }));
   }
-  return stepTargets(state, color, tokenId, from, die);
+  const forward = stepTargets(state, color, tokenId, from, die);
+  if (power !== 'astronaut') return forward;
+  const back = backTarget(from, die, boardFor(state));
+  return back === null ? forward : [...forward, { to: back, back: true }];
+}
+
+/**
+ * Power ups: where an astronaut lands floating `die` squares backwards, or null if it can't. Never
+ * back behind its own start square, and on its second lap never back into the first (it doesn't
+ * give its extra lap back); from its home column it may float back out onto the track.
+ */
+export function backTarget(from: number, die: number, b: Board): number | null {
+  if (from < 0 || from === b.home) return null;
+  const to = from - die;
+  const floor = isSecondLap(from, b) ? b.lap2First : 0;
+  return to >= floor ? to : null;
 }
 
 /**
@@ -349,7 +369,7 @@ export function legalMoves(state: GameState): LegalMove[] {
   state.turn.queue.forEach((die, dieIndex) => {
     for (const color of movableColors(state, actor)) {
       state.tokens[color].forEach((from, tokenId) => {
-        for (const { to, lap, raid, steps } of tokenTargets(state, color, tokenId, die)) {
+        for (const { to, lap, raid, steps, back } of tokenTargets(state, color, tokenId, die)) {
           const { captures, breaks } = hitsAt(state, color, tokenId, to);
           const orb = orbAt(state, color, to);
           moves.push({
@@ -363,6 +383,7 @@ export function legalMoves(state: GameState): LegalMove[] {
             ...(lap && { lap }),
             ...(raid && { raid }),
             ...(steps && { steps }),
+            ...(back && { back }),
             ...(breaks.length && { breaks }),
             ...(orb && { orb }),
           });
@@ -390,7 +411,7 @@ export function distinctChoices(moves: LegalMove[], state?: GameState): LegalMov
     // Power ups and the golden token: tokens with different powers, or the golden one, are different choices too.
     const power = owner && state ? (powerOf(state, owner, m.tokenId) ?? '') : '';
     const golden = owner && state && isGolden(state, owner, m.tokenId) ? 'g' : '';
-    const key = `${m.color ?? ''}:${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${m.raid ?? ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}:${power}:${golden}`;
+    const key = `${m.color ?? ''}:${m.die}:${m.from}:${m.lap ? 'lap' : ''}:${m.raid ?? ''}:${m.back ? 'back' : ''}:${kills?.[m.tokenId] ?? 0}:${laps?.[m.tokenId] ?? 0}:${power}:${golden}`;
     if (!seen.has(key)) seen.set(key, m);
   }
   return [...seen.values()];
@@ -436,15 +457,22 @@ export function applyRoll(state: GameState, value: number): GameEvent[] {
  * `lap`: take the token round the board again instead of into its home column (when it may).
  * `owner`: whose token, for a partner's under turn sharing; absent means the current player's own.
  * `raid`: power ups: a vampire turns into this colour's home column (when it may).
+ * `back`: power ups: an astronaut floats backwards (when it may).
  * The move's effects on the board belong to the token (its moustache, its extra lap, the colour in
  * the events); the player's stats belong to whoever moved it.
  */
-export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false, owner?: Color, raid?: Color): GameEvent[] {
+export function applyMove(state: GameState, dieIndex: number, tokenId: number, lap = false, owner?: Color, raid?: Color, back = false): GameEvent[] {
   if (state.finished) throw new RuleError('GAME_OVER');
   if (state.turn.phase !== 'moving') throw new RuleError('WRONG_PHASE');
   const actor = currentColor(state);
   const move = legalMoves(state).find(
-    (m) => m.dieIndex === dieIndex && m.tokenId === tokenId && Boolean(m.lap) === lap && (m.color ?? actor) === (owner ?? actor) && (m.raid ?? null) === (raid ?? null),
+    (m) =>
+      m.dieIndex === dieIndex &&
+      m.tokenId === tokenId &&
+      Boolean(m.lap) === lap &&
+      (m.color ?? actor) === (owner ?? actor) &&
+      (m.raid ?? null) === (raid ?? null) &&
+      Boolean(m.back) === back,
   );
   if (!move) throw new RuleError('ILLEGAL_MOVE');
   const turn = state.turn;
@@ -468,9 +496,13 @@ export function applyMove(state: GameState, dieIndex: number, tokenId: number, l
     ...(move.steps && { steps: move.steps }),
     ...(move.raid && { via: move.raid }),
     ...(cloaked && { cloaked: true as const }),
+    ...(move.back && { back: true as const }),
   });
+  // The astronaut's one backward float spends the power.
+  if (move.back) powersOf(state, color)[tokenId] = null;
   const mine = statsOf(state, actor);
-  const squares = move.from === BASE ? 1 : (move.steps ?? move.die); // leaving base counts as 1
+  // Leaving base counts as 1; floating backwards travels nowhere.
+  const squares = move.back ? 0 : move.from === BASE ? 1 : (move.steps ?? move.die);
   // A square moved for the partner (turn sharing) is help given, for "Guardian", not the mover's own travel.
   if (color === actor) mine.cells += squares;
   else mine.helped = (mine.helped ?? 0) + squares;

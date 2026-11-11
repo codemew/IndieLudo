@@ -9,7 +9,7 @@ let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let muted = storage.get(KEYS.muted) === '1';
 
-export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire' | 'powerUp' | 'shieldBreak' | 'orb' | 'ghost';
+export type Sfx = 'dice' | 'step' | 'capture' | 'home' | 'penalty' | 'turn' | 'win' | 'tap' | 'error' | 'bonus' | 'safe' | 'six' | 'six2' | 'slurp' | 'firstBlood' | 'wildcard' | 'land' | 'friendlyFire' | 'powerUp' | 'shieldBreak' | 'orb' | 'ghost' | 'astronaut';
 
 export function unlock(): void {
   try {
@@ -253,6 +253,15 @@ export function play(name: Sfx): void {
       [1500, 2210, 3050].forEach((f, i) => tone(f, 0, 0.5 - i * 0.1, 'sine', 0.1 - i * 0.02));
       noise(0.02, 0.25, 0.14, 5000);
       tone(700, 0.05, 0.3, 'triangle', 0.08, 300);
+      break;
+    case 'astronaut':
+      // Floating in space: a slow, wobbling low hum drifting down, radio beeps, and a soft hiss.
+      tone(220, 0, 1.4, 'sine', 0.1, 140);
+      tone(223, 0.03, 1.35, 'sine', 0.06, 143);
+      tone(1320, 0.05, 0.07, 'square', 0.035);
+      tone(1760, 0.16, 0.07, 'square', 0.03);
+      tone(990, 0.9, 0.6, 'sine', 0.035, 1480);
+      noise(0, 1.3, 0.035, 900, 'lowpass');
       break;
     case 'ghost':
       // A cloaked token moved: one airy, wavering "whooo" that slides down and fades, with breath.

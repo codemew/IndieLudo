@@ -1,6 +1,6 @@
 import type { LocalRoute } from './ice.js';
 import type { NetStats } from './net.js';
-import type { Color, GameEvent, LobbySummary, OnlineUser, PublicGameState, PublicLobby, SwapEnd, SwapRequest, Turn, VoiceSlot, VoiceState } from './types.js';
+import type { AbandonVote, AbandonVoteEnd, Color, GameEvent, LobbySummary, OnlineUser, PublicGameState, PublicLobby, SwapEnd, SwapRequest, Turn, VoiceSlot, VoiceState } from './types.js';
 import { ALL_COLORS, MAX_VOICE_PEERS } from './types.js';
 
 /** Every socket call is acknowledged with one of these. */
@@ -16,6 +16,8 @@ export interface MoveIntent extends RollIntent {
   lap?: boolean;
   /** Power ups: a vampire turns into this colour's home column; absent means it stays on the track. */
   raid?: Color;
+  /** Power ups: an astronaut floats backwards; absent means forwards. */
+  back?: boolean;
 }
 
 export interface ClientToServer {
@@ -55,8 +57,12 @@ export interface ClientToServer {
   'lobby:share': (p: { share: boolean }, ack: (r: Ack) => void) => void;
   /** Host: 4, 5 or 6 seats (the board for the next game). */
   'lobby:size': (p: { size: number }, ack: (r: Ack) => void) => void;
+  /** Host: ask everyone playing whether to abandon the game (no winner, no match history). */
+  'game:abandonVote': (p: { gameId: string }, ack: (r: Ack) => void) => void;
+  /** A player answers the vote to abandon. */
+  'game:abandonAnswer': (p: { gameId: string; yes: boolean }, ack: (r: Ack) => void) => void;
   /** Host: the optional rules power ups and golden token on or off for the next game (either or both). */
-  'lobby:rules': (p: { powerUps?: boolean; golden?: boolean }, ack: (r: Ack) => void) => void;
+  'lobby:rules': (p: { powerUps?: boolean; golden?: boolean; moveSeconds?: number }, ack: (r: Ack) => void) => void;
   'game:roll': (p: RollIntent, ack: (r: Ack) => void) => void;
   'game:move': (p: MoveIntent, ack: (r: Ack) => void) => void;
   /** Admins only (a test aid): the next roll of my seat comes up `value` (1 to 6; 0 = back to chance). */
@@ -201,6 +207,12 @@ export interface ServerToClient {
   /** Everyone online, sent when it changes (someone comes or goes, moves, renames, switches phones). */
   'users:online': (l: OnlineUser[]) => void;
   'lobby:state': (l: PublicLobby | null) => void;
+  /** A vote to abandon the game started or someone answered. */
+  'game:abandonVote': (v: AbandonVote) => void;
+  /** The vote to abandon is over. */
+  'game:abandonVoteEnd': (p: { gameId: string } & AbandonVoteEnd) => void;
+  /** Everyone agreed: the game is abandoned (no winner, no match history); a lobby state follows. */
+  'game:abandoned': (p: { gameId: string }) => void;
   /** Someone asks you to swap colours. */
   'lobby:swapRequest': (r: SwapRequest) => void;
   /** A swap request you made or received is over. */
@@ -287,6 +299,7 @@ export const SCHEMAS = {
     color: { type: 'color', optional: true },
     lap: { type: 'bool', optional: true },
     raid: { type: 'color', optional: true },
+    back: { type: 'bool', optional: true },
   },
   gameRef: { gameId: { type: 'string', max: 64 } },
   gameForce: { gameId: { type: 'string', max: 64 }, value: { type: 'int', min: 0, max: 6 } },
@@ -294,7 +307,9 @@ export const SCHEMAS = {
   respawn: { gameId: { type: 'string', max: 64 }, actionId: { type: 'string', min: 8, max: 64 }, tokens: { type: 'int', min: 1, max: 15 } },
   lobbyMode: { teams: { type: 'bool' } },
   lobbyShare: { share: { type: 'bool' } },
-  lobbyRules: { powerUps: { type: 'bool', optional: true }, golden: { type: 'bool', optional: true } },
+  lobbyRules: { powerUps: { type: 'bool', optional: true }, golden: { type: 'bool', optional: true }, moveSeconds: { type: 'int', optional: true } },
+  abandonVote: { gameId: { type: 'string', max: 64 } },
+  abandonAnswer: { gameId: { type: 'string', max: 64 }, yes: { type: 'bool' } },
   lobbySize: { size: { type: 'int', min: 4, max: 6 } },
   sfuJoin: { lobbyId: { type: 'string', max: 64 }, local: { type: 'bool', optional: true } },
   voiceRef: { lobbyId: { type: 'string', max: 64 } },

@@ -1,6 +1,6 @@
 import type { GameUpdate, Hello, RollUpdate } from '../shared/protocol.js';
 import { applyRollUpdate } from '../shared/rollUpdate.js';
-import type { PublicGameState, PublicLobby } from '../shared/types.js';
+import type { AbandonVoteEnd, PublicGameState, PublicLobby } from '../shared/types.js';
 import { ApiError, api } from './api.js';
 import { noteServerTime } from './clock.js';
 import { connect, disconnect, emit, isConnected } from './net.js';
@@ -95,6 +95,9 @@ function connectSocket(token: string): void {
       s.on('game:state', (u) => onGameUpdate(u));
       s.on('game:roll', (u) => onRollUpdate(u));
       s.on('game:forced', (u) => update({ forcedRoll: u.value ? { gameId: u.gameId, value: u.value } : null }));
+      s.on('game:abandonVote', (v) => update({ abandonVote: v }));
+      s.on('game:abandonVoteEnd', (e) => onVoteEnd(e));
+      s.on('game:abandoned', (p) => onAbandoned(p.gameId));
       s.on('session:revoked', () => signOut('Your session was ended by an admin.'));
       s.on('voice:state', (v) => {
         if (v.lobbyId === state.lobby?.id) update({ voice: v });
@@ -143,6 +146,22 @@ async function onHello(h: Hello): Promise<void> {
 
 /** Set by `lobby:closed` just before the lobby state goes null: who closed it. */
 let closedBy: 'admin' | 'host' | null = null;
+
+/** A vote to abandon is over: the question goes, and everyone is told how it went (unless it passed: the game ends). */
+function onVoteEnd(e: { gameId: string } & AbandonVoteEnd): void {
+  if (state.abandonVote?.gameId === e.gameId) update({ abandonVote: null });
+  if (e.how === 'refused') toast(`${e.by ?? 'Someone'} said no: the game goes on.`, 'info', 3500);
+  else if (e.how === 'expired') toast('Not everyone answered in time: the game goes on.', 'info', 3500);
+}
+
+/** Everyone agreed: the game is abandoned. Back to the lobby; nobody won and it isn't in the match history. */
+function onAbandoned(gameId: string): void {
+  if (state.game?.id !== gameId && storage.get(KEYS.lastGame) !== gameId) return;
+  storage.remove(KEYS.lastGame);
+  update({ game: null, abandonVote: null });
+  toast('Game abandoned: everyone agreed. No winner, and it is not in the match history.', 'info', 4500);
+  if (currentScreen() === 'game' || currentScreen() === 'results') go(state.lobby ? 'lobby' : 'home');
+}
 
 function onLobbyState(l: PublicLobby | null): void {
   const me = state.user?.id;

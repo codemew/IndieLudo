@@ -6,6 +6,8 @@ import { RuleError, applyMove, applyRespawn, applyRoll, applySurrender, createGa
 import { viewFor } from '../shared/powers.js';
 import {
   FIRST_BLOOD_MS,
+  FLOAT_PUSH_MS,
+  FLOAT_STEP_MS,
   MAX_MISSED_TURNS,
   ORB_SPAWN_MS,
   POWER_PICKUP_MS,
@@ -132,6 +134,7 @@ export class GameManager {
       share: Boolean(lobby.teams && lobby.share),
       board: lobby.size,
       ...(lobby.powerUps && { powerUps: { seed: this.randomInt(1, 2 ** 31) } }),
+      ...(lobby.moveSeconds !== undefined && { moveSeconds: lobby.moveSeconds }),
       ...(lobby.golden && { golden: Object.fromEntries(seats.map((s) => [s.color, this.randomInt(0, TOKENS_PER_PLAYER)])) }),
     });
     if (seats.every((s) => s.controller === 'bot')) state.botBattle = true;
@@ -198,8 +201,8 @@ export class GameManager {
 
   move(userId: number, payload: unknown): Ack {
     if (!matchesSchema(payload, SCHEMAS.move)) return this.badPayload(userId, 'game:move', payload);
-    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; color?: Color; lap?: boolean; raid?: Color };
-    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true, p.color, p.raid));
+    const p = payload as { gameId: string; version: number; actionId: string; dieIndex: number; tokenId: number; color?: Color; lap?: boolean; raid?: Color; back?: boolean };
+    return this.intent(userId, p, 'moving', (state) => applyMove(state, p.dieIndex, p.tokenId, p.lap === true, p.color, p.raid, p.back === true));
   }
 
   private badPayload(userId: number, event: string, payload: unknown): Ack {
@@ -351,6 +354,19 @@ export class GameManager {
     }
   }
 
+  /**
+   * Abandons a game everyone voted to abandon: it stops, nobody wins, nothing is recorded, and it is
+   * gone from the database, so not in the match history. Returns it (for its lobby), or undefined.
+   */
+  abandon(gameId: string): GameState | undefined {
+    const game = this.games.get(gameId);
+    if (!game || game.state.finished) return undefined;
+    this.clearTimers(game);
+    this.games.delete(gameId);
+    this.opts.db.prepare('DELETE FROM games WHERE id = ?').run(gameId);
+    return game.state;
+  }
+
   /** Drops a game whose lobby closed (everyone gone). */
   abort(gameId: string): void {
     const game = this.games.get(gameId);
@@ -437,7 +453,9 @@ export class GameManager {
     }
     // Rolling gets the full time; choosing a token once the dice are rolled gets less (a roll with a single choice is played for them at once, below).
     const fullMs = this.opts.turnTimeoutSec * 1000;
-    const allowedMs = state.turn.phase === 'moving' ? Math.min(fullMs, (this.opts.moveTimeoutSec ?? this.opts.turnTimeoutSec) * 1000) : fullMs;
+    // The host's move time for this game when set (the lobby's slider), else the server's.
+    const pickMs = (state.moveSeconds ?? this.opts.moveTimeoutSec ?? this.opts.turnTimeoutSec) * 1000;
+    const allowedMs = state.turn.phase === 'moving' ? Math.min(fullMs, pickMs) : fullMs;
     const timeoutMs = Math.min(timeLeftMs ?? allowedMs, allowedMs) + pace;
     state.turn.deadline = Date.now() + timeoutMs;
     if (state.turn.phase === 'moving' && distinctChoices(legalMoves(state), state).length === 1) {
@@ -452,6 +470,7 @@ export class GameManager {
     let ms = 0;
     for (const e of events) {
       if (e.type === 'roll') ms += 1200;
+      else if (e.type === 'move' && e.back) ms += FLOAT_PUSH_MS + FLOAT_STEP_MS * Math.abs(e.from - e.to);
       else if (e.type === 'move') ms += moveMs(e.kills ?? 0, e.from === BASE ? BASE_EXIT_HOPS : (e.steps ?? e.die));
       else if (e.type === 'capture') ms += e.firstBlood ? 600 + FIRST_BLOOD_MS : 600;
       else if (e.type === 'penalty') ms += 1000;
@@ -489,7 +508,7 @@ export class GameManager {
     } else {
       const move = chooseMove(state);
       if (!move) return;
-      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true, move.color, move.raid);
+      events = applyMove(state, move.dieIndex, move.tokenId, move.lap === true, move.color, move.raid, move.back === true);
     }
     this.commit(game, events, seatBefore);
   }

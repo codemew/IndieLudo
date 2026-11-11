@@ -156,6 +156,9 @@ npm run typecheck
   - **Two laps at most:** each token gets one extra lap. Going round again uses it, and so does a [wildcard entry](#wildcard-entry). A token captured during its second lap starts over fresh, with its extra lap back.
   - **Bots and the timer:** they head home, unless going round would capture someone.
 - **Safe squares** are each player's start square and star (8 on the 4-player board, 10 or 12 on the others). No token can be captured there.
+- **Vote to abandon:** the host can ask everyone to drop the game, from the game menu (**🗳️ Vote to abandon the game**, with a confirm). A bar opens under the top on every phone in the game: who asked, each player's answer, the yes count and the seconds left, with **Yes, abandon** and **No, play on** for those who haven't answered. Every seated person votes (bots don't); the host's own answer is yes.
+  - **All yes:** the game is abandoned. Nobody wins or loses, nobody's wins or games played change, it is deleted and never shows in the match history, and everyone goes back to the lobby (ready to start another).
+  - **One no, or 45 seconds without everyone answering:** the vote ends and the game goes on; everyone is told who said no. A player who leaves the game stops counting; a host playing alone with bots abandons at once.
 - **Surrender:** a player can give up at any time, not just on their turn, from the game menu (**🏳️ Surrender**, with a confirm).
   - **Their tokens:** any not yet home go back to base, clean-shaven and greyed out, and a white flag waves over that base on every phone. Nobody can capture them any more.
   - **The game:** the player takes no more turns and can watch the rest. If only one player is left, the match ends there.
@@ -194,19 +197,20 @@ A token that has reached home can be sent back to base to play it again: **hold 
 
 ### Power ups (optional)
 
-The host ticks **⚡ Power ups** in the lobby (any mode, any board). The four powers are each on the board once, never two of the same: on the 4-player board one on every star square (the one eight squares on from every start), on the 5- and 6-player boards on four of the stars. Each is a **power-up**: a diamond tile showing its power's icon, so it can't be mistaken for a token; which power sits on which star is shuffled for every game. A token that **lands exactly** on a power-up takes its power (passing over doesn't), the tile disappears, and a round later (one turn for each player) a new one appears on a random star without one, with a power that isn't on the board. A token keeps its power **until it is captured or gets home**; landing on another power-up swaps it for the new one. Every power has its own badge on the token for as long as it lasts.
+The host ticks **⚡ Power ups** in the lobby (any mode, any board). The five powers are each on the board at most once, never two of the same: on the 4-player board four of them, one on every star square (the one eight squares on from every start), and the fifth comes in when one is taken; on the 5- and 6-player boards all five, on five of the stars. Each is a **power-up**: a diamond tile showing its power's icon, so it can't be mistaken for a token; which power sits on which star is shuffled for every game. A token that **lands exactly** on a power-up takes its power (passing over doesn't), the tile disappears, and a round later (one turn for each player) a new one appears on a random star without one, with a power that isn't on the board. A token keeps its power **until it is captured or gets home**; landing on another power-up swaps it for the new one. Every power has its own badge on the token for as long as it lasts.
 
 - **2× Double move:** the token moves twice the die (a 1 moves 2). When twice would overshoot its home, it moves as rolled, so it can always finish.
 - **🛡️ Shield:** the first time an opponent lands on it, nobody is captured: the shield breaks instead (no bonus roll for the attacker). After that it is an ordinary token. A vampire goes straight through a shield and captures it.
 - **👻 Invisibility cloak:** the token disappears from opponents' boards (and spectators'); only its owner, and in Team-up the owner's teammate, can see it, see-through. Its moves make no sound per square, only one ghostly whoosh, and on other phones that whoosh is all there is. It can still be captured by an opponent who happens to land on it, and then everyone sees it again. The server never sends an opponent where it is or how it moved, and bots play as if they couldn't see it either.
 - **🧛 Vampire:** where the token passes the square where an opponent's tokens turn into their home column, it may turn in too (not into a teammate's). The app asks which way, with a crimson marker for the raid. Up there it captures the owner's tokens it lands on, and the owner's tokens coming up their own column can capture it. To get out it must reach that player's home with an exact roll; it then comes out on that player's start square and carries on round the board.
+- **🧑‍🚀 Astronaut:** once, the token may float **backwards** by the roll instead of forwards, and it captures where it lands, like any move (not on a safe square, and a shield still saves its token). That move uses the power up; moving forwards keeps it. It can't go back behind its own start square, nor from its second lap into its first, but it can drift back out of its home column onto the track. The app asks which way, with an indigo marker and trail for the float; the token drifts back square by square, tilting and weightless, with a radio-crackle sound. Bots float back only to capture.
 
 ### Golden token (optional)
 
 The host ticks **👑 Golden token** in the lobby. When the game starts, one token of each player is made golden at random; it wears a crown. It **leaves base on any roll**, not only a 6, and when it is captured it goes back to **its start square** instead of to base. A surrender or a wildcard entry still sends it to base. It works with Power ups too.
 
 **Timers and bots:**
-- Rolling has `turnTimeoutSec` (30 s); choosing a token after the roll has the shorter `moveTimeoutSec` (5 s). When either runs out, the server plays **the rest of that turn** for the player (rolls and moves), at bot speed. The player can tap to take over again at any point.
+- Rolling has `turnTimeoutSec` (30 s); choosing a token after the roll has the shorter **time to move**: the host sets it in the lobby with a slider, 5 to 10 seconds a second at a time (it starts at the server's `moveTimeoutSec`, 5 s); changing it doesn't undo anyone's ready. When either runs out, the server plays **the rest of that turn** for the player (rolls and moves), at bot speed. The player can tap to take over again at any point.
 - A missed turn shows as "missed n/5" on the player's chip. After **5 missed turns in a row**, or after `disconnectGraceSec` offline, a bot takes over the seat. The player gets the seat back by reconnecting, by making a move, or by tapping *take back*.
 - When the only possible move is obvious, the server plays it after a short pause.
 - Bots wait until every phone has finished animating the previous roll or move, then pause a little longer to "think". This makes bot turns easy to follow.
@@ -432,7 +436,7 @@ The home screen has two tabs, **🏠 Lobbies** and **👥 Users** (with the numb
 
 ## Server authority and anti‑cheat
 
-- **What phones send:** only the intents `game:roll {gameId, version, actionId}` and `game:move {…, dieIndex, tokenId}` (plus `lap` or, with Power ups, `raid` where the move offers that choice). The server checks them against a strict schema and rejects any unknown field, such as `value`, `to` or `userId`.
+- **What phones send:** only the intents `game:roll {gameId, version, actionId}` and `game:move {…, dieIndex, tokenId}` (plus `lap` or, with Power ups, `raid` or `back` where the move offers that choice). The server checks them against a strict schema and rejects any unknown field, such as `value`, `to` or `userId`.
 - **Checks:** for each intent, the server checks:
   1. that it is this player's seat, taken from the session and never from the payload
   2. that the game is in the right phase
@@ -466,7 +470,7 @@ Plain HTTP on `httpRedirectPort` redirects to HTTPS.
 | `adminPassword` | — | Admin login |
 | `dbPath` | `./data/ludo.db` | SQLite file |
 | `turnTimeoutSec` | 30 | Time per action before the server plays it (rolling) |
-| `moveTimeoutSec` | 5 | Time to choose a token after the roll, when there is a real choice (never more than `turnTimeoutSec`) |
+| `moveTimeoutSec` | 5 | Time to choose a token after the roll, when there is a real choice: the lobby slider's starting value (kept to 5–10 s; the host can change it per lobby) |
 | `disconnectGraceSec` | 60 | Offline time before a bot takes the seat |
 | `maxLobbies` | 50 | Most lobbies allowed at once |
 | `lobbyIdleCloseSec` | 600 | A lobby closes when all its humans have been offline this long |

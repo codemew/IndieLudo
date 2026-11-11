@@ -16,6 +16,9 @@ export const FIRST_BLOOD_MS = 1800;
 export const POWER_PICKUP_MS = 900;
 export const SHIELD_BREAK_MS = 700;
 export const ORB_SPAWN_MS = 500;
+/** Power ups: an astronaut floats backwards this long per square (and a moment to push off). */
+export const FLOAT_STEP_MS = 340;
+export const FLOAT_PUSH_MS = 300;
 /** An opponent's cloaked token moving, unseen: the ghostly whoosh. */
 export const GHOST_MS = 700;
 /** How long the phones show a surrender (tokens sliding home, the white flag going up). */
@@ -40,6 +43,10 @@ export const MAX_SEATS = 6;
 /** Everyone a lobby's voice chat must carry at once: every seat and every spectator. */
 export const MAX_VOICE_PEERS = MAX_SEATS + MAX_SPECTATORS;
 
+/** The time a player has to pick a token after rolling, as the host may set it in the lobby (seconds). */
+export const MOVE_SECONDS_MIN = 5;
+export const MOVE_SECONDS_MAX = 10;
+
 export type Controller = 'human' | 'bot' | 'takeover';
 
 /**
@@ -49,10 +56,11 @@ export type Controller = 'human' | 'bot' | 'takeover';
  * - shield: the first capture of it fails; the shield breaks instead.
  * - cloak: only its owner (and teammate) can see it; it can still be captured by landing on it.
  * - vampire: may turn into another player's home column, capturing their tokens there; reaching
- *   their home exactly brings it out at their start square.
+ *   their home exactly brings it out at their start square. It captures shielded tokens too.
+ * - astronaut: may move backwards once, by the roll, capturing where it lands; that move spends it.
  */
-export type Power = 'double' | 'shield' | 'cloak' | 'vampire';
-export const POWERS: readonly Power[] = ['double', 'shield', 'cloak', 'vampire'];
+export type Power = 'double' | 'shield' | 'cloak' | 'vampire' | 'astronaut';
+export const POWERS: readonly Power[] = ['double', 'shield', 'cloak', 'vampire', 'astronaut'];
 
 export interface Seat {
   color: Color;
@@ -134,6 +142,8 @@ export interface GameState {
   powers?: Partial<Record<Color, (Power | null)[]>>;
   /** Golden token (an optional rule): each player's golden token id. It leaves base on any roll, and a capture sends it to its start square instead of base. */
   golden?: Partial<Record<Color, number>>;
+  /** Seconds to pick a token after rolling, set by the host (absent: the server's own setting). */
+  moveSeconds?: number;
 }
 
 /** How fast a game's animations and pauses run: 1 normally, faster in a bot battle. */
@@ -183,6 +193,8 @@ export interface LegalMove {
   lap?: true;
   /** Power ups: a vampire turns into (or is in) this colour's home column. */
   raid?: Color;
+  /** Power ups: an astronaut floats this many squares backwards (its one backward move; the power is spent). */
+  back?: true;
   /** Squares it moves when that isn't the die (a doubled move). */
   steps?: number;
   /** Shielded tokens it lands on: their shield breaks, they stay. */
@@ -199,7 +211,19 @@ export type GameEvent =
    * moved when not the die (doubled). `via`: the home column a vampire went up. `cloaked`: the token
    * moved unseen (only its owner and teammate get this event).
    */
-  | { type: 'move'; color: Color; tokenId: number; from: number; to: number; die: number; kills?: number; steps?: number; via?: Color; cloaked?: true }
+  | {
+      type: 'move';
+      color: Color;
+      tokenId: number;
+      from: number;
+      to: number;
+      die: number;
+      kills?: number;
+      steps?: number;
+      via?: Color;
+      cloaked?: true;
+      back?: true;
+    }
   /** `friendly`: the victim is the capturer's teammate (Team-up): the capturer's moustache shrinks a level instead of growing. `to`: where the victim went when not base (a golden token: its start square). */
   | { type: 'capture'; color: Color; victim: Color; tokenId: number; from: number; firstBlood?: true; friendly?: true; to?: number }
   /** Power ups: a token picked up the orb on `square`. */
@@ -312,6 +336,8 @@ export interface PublicLobby {
   powerUps?: boolean;
   /** Golden token in the next game. */
   golden?: boolean;
+  /** Seconds to pick a token after rolling in the next game (MOVE_SECONDS_MIN to MOVE_SECONDS_MAX; the server always sends it). */
+  moveSeconds?: number;
 }
 
 export interface LobbySummary {
@@ -360,6 +386,21 @@ export interface OnlineUser {
   /** Their phones; absent when they chose to hide them (`hidden`). */
   devices?: OnlineDevice[];
   hidden?: boolean;
+}
+
+/** A vote to abandon a game: who started it, everyone asked and their answer so far (null: not yet). */
+export interface AbandonVote {
+  gameId: string;
+  startedBy: number;
+  startedByName: string;
+  endsAt: number;
+  voters: { userId: number; username: string; vote: boolean | null }[];
+}
+
+/** How a vote to abandon ended. `by`: who said no. */
+export interface AbandonVoteEnd {
+  how: 'passed' | 'refused' | 'expired' | 'cancelled';
+  by?: string;
 }
 
 /** One player of a finished match, as the match history lists it. */

@@ -70,6 +70,43 @@ export async function hop(el: HTMLElement, from: Cell, cells: Cell[], opts: HopO
   }
 }
 
+/**
+ * Power ups: an astronaut floating backwards, weightless: it pushes off, drifts smoothly through
+ * the squares with a slow tumble and a gentle bob, a little larger as if nearer, and settles.
+ */
+export async function float(el: HTMLElement, from: Cell, cells: Cell[], opts: { stepMs: number; pushMs: number; onStep?: (i: number, cell: Cell) => void }): Promise<void> {
+  if (cells.length === 0) return;
+  const to = cells[cells.length - 1];
+  el.style.zIndex = '30';
+  el.classList.add('floating');
+  const points = [from, ...cells];
+  try {
+    if (reducedMotion()) {
+      await el.animate([{ transform: tf(from[0], from[1], 1) }, { transform: tf(to[0], to[1], 1) }], { duration: 200, fill: 'forwards' }).finished;
+      return;
+    }
+    const duration = atTempo(opts.pushMs + opts.stepMs * cells.length);
+    const push = opts.pushMs / (opts.pushMs + opts.stepMs * cells.length);
+    // Each square reached at an even share of the drift after the push-off; tumbling one way and back.
+    const frames: Keyframe[] = points.map((c, i) => {
+      const t = i === 0 ? 0 : push + ((1 - push) * i) / cells.length;
+      const tilt = i === 0 || i === cells.length ? 0 : (i % 2 ? -1 : 1) * 14;
+      const lift = i === 0 || i === cells.length ? 0 : -0.18;
+      return { offset: t, transform: `${tf(c[0], c[1] + lift, i === 0 || i === cells.length ? 1 : 1.12)} rotate(${tilt}deg)` };
+    });
+    frames.splice(1, 0, { offset: push, transform: `${tf(from[0], from[1] - 0.22, 1.15)} rotate(-8deg)` });
+    cells.forEach((c, i) => setTimeout(() => opts.onStep?.(i, c), push * duration + ((1 - push) * duration * (i + 1)) / cells.length - 40));
+    await el.animate(frames, { duration, easing: 'cubic-bezier(0.37, 0, 0.63, 1)', fill: 'forwards' }).finished;
+  } catch {
+    /* cancelled by a resync */
+  } finally {
+    el.style.transform = tf(to[0], to[1], 1);
+    el.getAnimations().forEach((a) => a.cancel());
+    el.style.zIndex = '';
+    el.classList.remove('floating');
+  }
+}
+
 function hopOnce(el: HTMLElement, squash: HTMLElement | null, shadow: HTMLElement | null, a: Cell, b: Cell, ms: number, k: number, n: number, start: string): Promise<unknown> {
   const opts: KeyframeAnimationOptions = { duration: ms, fill: 'forwards' };
   const mid: Cell = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];

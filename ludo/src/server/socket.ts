@@ -122,6 +122,9 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     // An admin who comes back (a reload, a lost connection) with a roll still set is told so, so the menu isn't wrong.
     const waiting = game && ctx.sessions.get(sessionId)?.is_admin === 1 ? ctx.games.forcedFor(game.id, userId) : null;
     if (game && waiting) socket.emit('game:forced', { gameId: game.id, value: waiting });
+    // A vote to abandon still running: so the question is there after a reload.
+    const vote = game && ctx.votes.get(game.id);
+    if (vote) socket.emit('game:abandonVote', vote);
 
     /**
      * Wraps a handler with the rate limit, strict schema check and error mapping.
@@ -304,6 +307,19 @@ export function attachSocketHandlers(io: LudoServerIO, ctx: Ctx, log: (msg: stri
     on('game:takeback', SCHEMAS.gameRef, (p) => ctx.games.takeback(userId, p.gameId));
     on('game:surrender', null, (p) => ctx.games.surrender(userId, p));
     on('game:respawn', null, (p) => ctx.games.respawn(userId, p));
+
+    // ---- Votes to abandon a game: the host asks, everyone playing answers ----
+    on('game:abandonVote', SCHEMAS.abandonVote, (p) => {
+      const lobby = ctx.lobbies.forUser(userId);
+      const game = ctx.games.get(p.gameId);
+      if (!lobby || lobby.gameId !== p.gameId || !game || game.finished) throw new AppError('NO_GAME', 404);
+      if (lobby.hostId !== userId) throw new AppError('NOT_HOST', 403);
+      const host = ctx.users.get(userId)!;
+      // Everyone in the game who is a person (a seat a bot took over for a leaver doesn't vote).
+      const voters = game.seats.flatMap((s) => (s.userId !== null ? [{ userId: s.userId, username: s.username }] : []));
+      ctx.votes.start(p.gameId, { userId, username: host.username }, voters);
+    });
+    on('game:abandonAnswer', SCHEMAS.abandonAnswer, (p) => void ctx.votes.answer(p.gameId, userId, p.yes));
 
     // ---- Lobby voice chat: membership and relaying only; audio goes peer to peer. ----
 

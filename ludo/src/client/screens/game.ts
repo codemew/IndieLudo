@@ -1,4 +1,4 @@
-import { BASE, HIDDEN, absoluteSquare, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
+import { BASE, HIDDEN, absoluteSquare, backPathCells, baseCentre, boardFor, isSafeSquare, pathCells, tokenCell, type Board } from '../../shared/board.js';
 import type { GameUpdate, RollUpdate } from '../../shared/protocol.js';
 import { applyRollUpdate } from '../../shared/rollUpdate.js';
 import { distinctChoices, movableColors, respawnable, winnersOf } from '../../shared/rules.js';
@@ -7,6 +7,8 @@ import {
   FIRST_BLOOD_MS,
   MAX_MISSED_TURNS,
   GHOST_MS,
+  FLOAT_PUSH_MS,
+  FLOAT_STEP_MS,
   ORB_SPAWN_MS,
   POWER_PICKUP_MS,
   SHIELD_BREAK_MS,
@@ -25,7 +27,7 @@ import {
 } from '../../shared/types.js';
 import { resyncGame, setGameHandler, setRollHandler, showError } from '../app.js';
 import { serverTime } from '../clock.js';
-import { atTempo, fly, hop, reducedMotion, setTempo, sleep, slide, squashOnce } from '../board/animate.js';
+import { atTempo, float, fly, hop, reducedMotion, setTempo, sleep, slide, squashOnce } from '../board/animate.js';
 import { avatarFace } from '../../shared/avatars.js';
 import { moustacheLevel } from '../../shared/heft.js';
 import { installMoustacheDefs, moustacheSvg } from '../moustache.js';
@@ -91,6 +93,7 @@ export function gameScreen(root: HTMLElement): () => void {
       <button class="icon-btn" id="fullscreen" aria-label="Fullscreen" hidden></button>
       <button class="icon-btn" id="sound" aria-label="Sound"></button>
     </header>
+    <div class="vote-bar" id="vote-bar" role="alertdialog" aria-live="assertive" hidden></div>
     <div class="players players-${topRow.length}">${topRow.map((c) => `<div class="pchip" data-color="${c}"></div>`).join('')}</div>
     <div class="board-wrap" id="board-wrap">
       <div class="board board-${geo.n}" id="board" style="--bw:${geo.w};--bh:${geo.h};--yard:${yardSize(geo)}">
@@ -196,12 +199,13 @@ export function gameScreen(root: HTMLElement): () => void {
   /** The colours I may move on my turn (mine, and my partner's with turn sharing). */
   const myMovable = (): Color[] => (mySeat() && gs ? movableColors(gs, mySeat()!.color) : []);
   /** The `game:move` payload for a move, naming the token's colour when it is my partner's. */
-  const moveIntent = (m: Pick<LegalMove, 'dieIndex' | 'tokenId' | 'color' | 'lap' | 'raid'>) => ({
+  const moveIntent = (m: Pick<LegalMove, 'dieIndex' | 'tokenId' | 'color' | 'lap' | 'raid' | 'back'>) => ({
     dieIndex: m.dieIndex,
     tokenId: m.tokenId,
     ...(m.color && { color: m.color }),
     ...(m.lap && { lap: true }),
     ...(m.raid && { raid: m.raid }),
+    ...(m.back && { back: true }),
   });
   const isMyTurn = () => Boolean(gs && !gs.finished && current().userId === myId && current().controller !== 'bot');
   const canRoll = () => isMyTurn() && gs!.turn.phase === 'rolling' && !awaitingAck && !animating;
@@ -253,7 +257,7 @@ export function gameScreen(root: HTMLElement): () => void {
         gs!.legalMoves.filter((m) => {
           const owner = ownerOf(m);
           const at = gs!.tokens[owner][m.tokenId];
-          if (m.dieIndex !== pick.dieIndex || m.lap || m.raid || at === BASE) return false;
+          if (m.dieIndex !== pick.dieIndex || m.lap || m.raid || m.back || at === BASE) return false;
           const cell = tokenCell(owner, at, m.tokenId, geo);
           return cell[0] === here[0] && cell[1] === here[1];
         }),
@@ -268,7 +272,7 @@ export function gameScreen(root: HTMLElement): () => void {
   async function moveToken(color: Color, tokenId: number, dieIndex: number): Promise<void> {
     const options = gs!.legalMoves.filter((m) => m.tokenId === tokenId && m.dieIndex === dieIndex && ownerOf(m) === color);
     // At its home turn on the first lap the token may go round again, and a vampire may raid a home column: ask which way.
-    const plain = options.find((m) => !m.lap && !m.raid);
+    const plain = options.find((m) => !m.lap && !m.raid && !m.back);
     if (options.length > 1) return chooseWay(options);
     const only = plain ?? options[0];
     if (!only) return;
@@ -376,6 +380,16 @@ export function gameScreen(root: HTMLElement): () => void {
     const wayOf = (m: LegalMove): BubbleOption => {
       const victims = victimsOf(m);
       const caps = victims ? `, captures ${esc(victims)}` : '';
+      if (m.back) {
+        const n = m.from - m.to;
+        return {
+          cls: 'lap-opt back',
+          attrs: 'data-go="back"',
+          html: `<span class="bubble-ico">${POWER_INFO.astronaut.icon}</span>`,
+          label: `Float back ${n} square${n === 1 ? '' : 's'}${caps}, uses the astronaut power`,
+          pick: () => void answer(m),
+        };
+      }
       if (m.raid) {
         return { cls: `lap-opt raid r-${m.raid}`, attrs: `data-go="raid" data-raid="${m.raid}"`, html: '<span class="bubble-ico">🧛</span>', label: `Raid ${esc(seatName(m.raid))}'s home column${caps}`, pick: () => void answer(m) };
       }
@@ -384,11 +398,13 @@ export function gameScreen(root: HTMLElement): () => void {
       }
       const toGo = geo.home - m.to;
       const homeward = m.to > geo.last && m.to <= geo.home;
-      const label = homeward ? `Head home, ${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'finishes now'}` : `Stay on the track${caps}`;
+      // Against floating back, the plain way is going forward.
+      const ahead = options.some((o) => o.back) ? `Move forward${caps}` : `Stay on the track${caps}`;
+      const label = homeward ? `Head home, ${toGo ? `${toGo} square${toGo === 1 ? '' : 's'} to finish` : 'finishes now'}` : ahead;
       return { cls: `lap-opt ${homeward ? 'home' : 'track'}`, attrs: `data-go="${homeward ? 'home' : 'track'}"`, html: `<span class="bubble-ico">${homeward ? '🏠' : '➜'}</span>`, label, pick: () => void answer(m) };
     };
-    // The plain way first, then round again, then raids.
-    const order = (m: LegalMove) => (m.raid ? 2 : m.lap ? 1 : 0);
+    // The plain way first, then round again, then raids, then floating back.
+    const order = (m: LegalMove) => (m.back ? 3 : m.raid ? 2 : m.lap ? 1 : 0);
     openBubble(tokenCell(color, first.from, first.tokenId, geo), { color, id: first.tokenId }, [...options].sort((a, b) => order(a) - order(b)).map(wayOf));
   }
 
@@ -397,13 +413,22 @@ export function gameScreen(root: HTMLElement): () => void {
     const t = (e.target as HTMLElement).closest<HTMLElement>('.target[data-token]');
     if (!t || !canMove()) return;
     chooser?.close();
-    const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1', raid: (t.dataset.raid || undefined) as Color | undefined };
+    const move = { dieIndex: Number(t.dataset.die), tokenId: Number(t.dataset.token), lap: t.dataset.lap === '1', raid: (t.dataset.raid || undefined) as Color | undefined, back: t.dataset.back === '1' };
     const m = gs!.legalMoves.find(
-      (x) => x.dieIndex === move.dieIndex && x.tokenId === move.tokenId && Boolean(x.lap) === move.lap && x.raid === move.raid && ownerOf(x) === (t.dataset.color ?? mySeat()?.color),
+      (x) =>
+        x.dieIndex === move.dieIndex &&
+        x.tokenId === move.tokenId &&
+        Boolean(x.lap) === move.lap &&
+        x.raid === move.raid &&
+        Boolean(x.back) === move.back &&
+        ownerOf(x) === (t.dataset.color ?? mySeat()?.color),
     );
     play('tap');
     pressToken((t.dataset.color as Color | undefined) ?? mySeat()!.color, move.tokenId);
-    void send('game:move', m ? { ...moveIntent(m), lap: move.lap } : { dieIndex: move.dieIndex, tokenId: move.tokenId, lap: move.lap, ...(move.raid && { raid: move.raid }) });
+    void send(
+      'game:move',
+      m ? { ...moveIntent(m), lap: move.lap } : { dieIndex: move.dieIndex, tokenId: move.tokenId, lap: move.lap, ...(move.raid && { raid: move.raid }), ...(move.back && { back: true }) },
+    );
   });
 
   // ---------- wildcard entry: hold your home tokens to send some back to base ----------
@@ -616,8 +641,8 @@ export function gameScreen(root: HTMLElement): () => void {
           lastMover = el;
           lastMove = { color: e.color, tokenId: e.tokenId };
           const start = tokenCell(e.color, e.from, e.tokenId, geo);
-          // A vampire's raid goes up another colour's home column (power ups).
-          const path = pathCells(e.color, e.from, e.to, e.tokenId, geo, e.via);
+          // A vampire's raid goes up another colour's home column, an astronaut floats backwards (power ups).
+          const path = e.back ? backPathCells(e.color, e.from, e.to, e.tokenId, geo) : pathCells(e.color, e.from, e.to, e.tokenId, geo, e.via);
           const idx = work.turn.queue.indexOf(e.die);
           if (idx >= 0) work.turn.queue.splice(idx, 1);
           renderQueue(work, false);
@@ -626,7 +651,12 @@ export function gameScreen(root: HTMLElement): () => void {
           // A cloaked token (power ups) moves without a sound per square, which would tell the
           // room how far it went: one ghostly whoosh instead, on its owner's phone too.
           if (e.cloaked) play('ghost');
-          await hop(el, start, path, {
+          if (e.back) {
+            play('astronaut');
+            callout(`${POWER_INFO.astronaut.icon} Astronaut`, e.color === mySeat()?.color ? 'Your token floats back' : `${seatName(e.color)}'s token floats back`, { ms: 2400 });
+            await float(el, start, path, { stepMs: FLOAT_STEP_MS, pushMs: FLOAT_PUSH_MS });
+            if (work.powers?.[e.color]) work.powers[e.color]![e.tokenId] = null;
+          } else await hop(el, start, path, {
             kills,
             fromBase: e.from === BASE,
             // One of several on its square stands smaller and off-centre: it sets off from there.
@@ -1245,9 +1275,9 @@ export function gameScreen(root: HTMLElement): () => void {
       const color = ownerOf(m);
       // More than one way with this die: home or round again, or (power ups) a vampire's raid or the track.
       const branches = moves.filter((o) => o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && ownerOf(o) === color).length > 1;
-      const way = m.raid ? 'raid' : m.lap ? 'round' : m.to > geo.last && m.to <= geo.home ? 'home' : 'track';
+      const way = m.back ? 'back' : m.raid ? 'raid' : m.lap ? 'round' : m.to > geo.last && m.to <= geo.home ? 'home' : 'track';
       if (branches) {
-        const trail = pathCells(color, m.from, m.to, m.tokenId, geo, m.raid).slice(0, -1);
+        const trail = (m.back ? backPathCells(color, m.from, m.to, m.tokenId, geo) : pathCells(color, m.from, m.to, m.tokenId, geo, m.raid)).slice(0, -1);
         html += trail.map((c) => `<div class="trail ${way}" style="${at(c)}"></div>`).join('');
       }
       const [x, y] = tokenCell(color, m.to, m.tokenId, geo);
@@ -1255,9 +1285,21 @@ export function gameScreen(root: HTMLElement): () => void {
       const key = m.to === geo.home ? `home:${color}` : `${x},${y}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const label = m.raid ? `Raid ${seatName(m.raid)}'s home column` : m.lap ? 'Go round again' : m.to > geo.last && m.to <= geo.home ? 'Head home' : 'Stay on the track';
-      const pick = branches ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}"${m.raid ? ` data-raid="${m.raid}"` : ''} role="button" aria-label="${esc(label)}"` : '';
-      const mark = branches && m.raid ? '<span>🧛</span>' : branches && m.lap ? '<span>↻</span>' : '';
+      const label = m.back
+        ? `Float back ${m.from - m.to} squares`
+        : m.raid
+          ? `Raid ${seatName(m.raid)}'s home column`
+          : m.lap
+            ? 'Go round again'
+            : m.to > geo.last && m.to <= geo.home
+              ? 'Head home'
+              : moves.some((o) => o.back && o.tokenId === m.tokenId && o.dieIndex === m.dieIndex && ownerOf(o) === color)
+                ? 'Move forward'
+                : 'Stay on the track';
+      const pick = branches
+        ? ` data-die="${m.dieIndex}" data-token="${m.tokenId}" data-color="${color}" data-lap="${m.lap ? 1 : 0}"${m.raid ? ` data-raid="${m.raid}"` : ''}${m.back ? ' data-back="1"' : ''} role="button" aria-label="${esc(label)}"`
+        : '';
+      const mark = branches && m.back ? `<span>${POWER_INFO.astronaut.icon}</span>` : branches && m.raid ? '<span>🧛</span>' : branches && m.lap ? '<span>↻</span>' : '';
       html += `<div class="target t-${color}${color !== mySeat()!.color ? ' mate' : ''}${branches ? ` ${way}` : ''}" style="${at([x, y])}"${pick}>${mark}</div>`;
     }
     // Unchanged markers keep pulsing instead of restarting on every redraw.
@@ -1335,6 +1377,16 @@ export function gameScreen(root: HTMLElement): () => void {
     if (state.lobby) voiceMenu(body, m.close);
     if (canFullscreen() && !isFullscreen()) item('⛶ Fullscreen', () => void enterFullscreen());
     item('🏠 Back to home (game keeps running)', () => go('home'));
+    // The host can ask everyone playing to abandon the game.
+    if (state.lobby?.hostId === state.user?.id && !gs!.finished && !state.abandonVote) {
+      item('🗳️ Vote to abandon the game', async () => {
+        const players = gs!.seats.filter((s) => s.userId !== null).length;
+        const ask = players > 1 ? `Everyone playing is asked. If all ${players} say yes, the game` : 'You are the only person playing, so the game';
+        if (!(await confirmDialog('Abandon the game?', `${ask} stops with no winner, nobody's stats change, and it isn't kept in the match history.`, '🗳️ Start the vote'))) return;
+        const r = await emit('game:abandonVote', { gameId: gs!.id });
+        if (!r.ok) showError(r.error);
+      });
+    }
     if (!mySeat()) {
       item('🚪 Stop watching (leave the lobby)', async () => {
         markLeaving();
@@ -1397,7 +1449,52 @@ export function gameScreen(root: HTMLElement): () => void {
     if (gs && !destroyed) renderChips();
   };
   const offVoice = voice.onChange(repaintVoice);
+  /**
+   * A vote to abandon the game: a bar under the top for everyone in the game, with who asked, who
+   * said yes so far and the time left; Yes and No for a player who hasn't answered.
+   */
+  const voteBar = $(root, '#vote-bar');
+  let voteTick: ReturnType<typeof setInterval> | null = null;
+  const paintVote = () => {
+    const v = state.abandonVote;
+    if (!v || v.gameId !== gs?.id) {
+      voteBar.hidden = true;
+      if (voteTick) clearInterval(voteTick);
+      voteTick = null;
+      return;
+    }
+    const me = state.user?.id;
+    const mine = v.voters.find((x) => x.userId === me);
+    const yes = v.voters.filter((x) => x.vote === true).length;
+    const left = Math.max(0, Math.ceil((v.endsAt - serverTime()) / 1000));
+    const who = v.startedBy === me ? 'You want' : `${esc(v.startedByName)} wants`;
+    const html = `
+      <div class="vote-text"><b>🗳️ ${who} to abandon the game</b><small>No winner, not in the match history · ${yes}/${v.voters.length} yes · ${left}s</small></div>
+      <div class="vote-who">${v.voters.map((x) => `<span class="vote-chip ${x.vote === true ? 'yes' : x.vote === false ? 'no' : 'wait'}" title="${esc(x.username)}">${x.vote === true ? '✓' : x.vote === false ? '✗' : '…'} ${esc(x.username)}</span>`).join('')}</div>
+      ${mine && mine.vote === null ? '<div class="vote-actions"><button class="btn btn-danger" id="vote-yes">Yes, abandon</button><button class="btn btn-ghost" id="vote-no">No, play on</button></div>' : ''}`;
+    if (voteBar.dataset.html !== html) {
+      voteBar.dataset.html = html;
+      voteBar.innerHTML = html;
+      const answer = (yes: boolean) => async () => {
+        const r = await emit('game:abandonAnswer', { gameId: v.gameId, yes });
+        if (!r.ok) showError(r.error);
+      };
+      voteBar.querySelector<HTMLButtonElement>('#vote-yes')?.addEventListener('click', answer(true));
+      voteBar.querySelector<HTMLButtonElement>('#vote-no')?.addEventListener('click', answer(false));
+    }
+    if (voteBar.hidden) {
+      voteBar.hidden = false;
+      if (mine && mine.vote === null) {
+        play('tap');
+        vibrate([30, 60, 30]);
+      }
+    }
+    voteTick ??= setInterval(paintVote, 1000);
+  };
+  paintVote();
+
   const offStore = subscribe((changed) => {
+    if (changed.includes('abandonVote')) paintVote();
     if (changed.includes('voice') || changed.includes('net')) repaintVoice();
     if (changed.includes('forcedRoll') || changed.includes('isAdmin')) paintArmed();
   });
@@ -1425,6 +1522,7 @@ export function gameScreen(root: HTMLElement): () => void {
     ro.disconnect();
     offVoice();
     offStore();
+    if (voteTick) clearInterval(voteTick);
     offFs();
     offMute();
   };

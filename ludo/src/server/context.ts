@@ -4,6 +4,7 @@ import type { GameManager } from './gameManager.js';
 import type { Gate } from './gate.js';
 import type { CreateAccess } from './hosts.js';
 import type { MatchHistory } from './history.js';
+import type { AbandonVotes } from './abandonVote.js';
 import type { LobbyManager } from './lobbies.js';
 import type { NetStatsTracker } from './netStats.js';
 import type { Presence } from './presence.js';
@@ -24,6 +25,7 @@ export interface Ctx {
   /** The creation password and the accounts remembered as hosts. */
   hosts: CreateAccess;
   history: MatchHistory;
+  votes: AbandonVotes;
   gate: Gate;
   lobbies: LobbyManager;
   games: GameManager;

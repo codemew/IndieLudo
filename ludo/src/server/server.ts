@@ -21,6 +21,7 @@ import { GameManager } from './gameManager.js';
 import { Gate } from './gate.js';
 import { CreateAccess } from './hosts.js';
 import { MatchHistory } from './history.js';
+import { AbandonVotes } from './abandonVote.js';
 import { IspLookup } from './isp.js';
 import { Presence } from './presence.js';
 import { LobbyManager, humanIds } from './lobbies.js';
@@ -142,6 +143,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     // An admin's forced roll is private: only that admin's own session hears it was used.
     onForcedChange: (sessionId, gameId, value) => io?.to(rooms.session(sessionId)).emit('game:forced', { gameId, value }),
     onGameOver: (state) => {
+      votes.cancel(state.id);
       for (const seat of state.seats) {
         if (seat.userId !== null && users.get(seat.userId)) users.recordGame(seat.userId, winnersOf(state).includes(seat.color));
       }
@@ -154,12 +156,17 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     lobbyCreatePassword: config.lobbyCreatePassword,
     createGate: hosts,
     maxLobbies: config.maxLobbies,
+    moveSeconds: config.moveTimeoutSec,
     lobbyIdleCloseSec: config.lobbyIdleCloseSec,
     onChange: (lobbyId) => {
       broadcastLobby(lobbyId);
       refreshPresence();
     },
-    onLeaveGame: (lobby, userId) => lobby.gameId && games.leave(lobby.gameId, userId),
+    onLeaveGame: (lobby, userId) => {
+      if (!lobby.gameId) return;
+      votes.dropVoter(lobby.gameId, userId);
+      games.leave(lobby.gameId, userId);
+    },
     winsOf: (userId) => users.get(userId)?.wins ?? 0,
     randomInt: opts.randomInt,
     onSwapEnded: (req, how) => io?.to([rooms.user(req.from), rooms.user(req.to)]).emit('lobby:swapEnded', { from: req.from, to: req.to, how }),
@@ -170,7 +177,23 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       if (byAdmin || byHost) io?.to(rooms.lobby(lobby.id)).emit('lobby:closed', { byAdmin, byHost: Boolean(byHost) });
       voice.close(lobby.id);
       sfu.close(lobby.id);
-      if (lobby.gameId) games.abort(lobby.gameId);
+      if (lobby.gameId) {
+        votes.cancel(lobby.gameId);
+        games.abort(lobby.gameId);
+      }
+    },
+  });
+
+  // Votes to abandon a game: everyone playing says yes and it stops, no winner, no match history.
+  const votes: AbandonVotes = new AbandonVotes({
+    onChange: (vote) => io?.to(rooms.game(vote.gameId)).emit('game:abandonVote', vote),
+    onEnd: (gameId, end) => io?.to(rooms.game(gameId)).emit('game:abandonVoteEnd', { gameId, ...end }),
+    onPass: (gameId) => {
+      const state = games.abandon(gameId);
+      if (!state) return;
+      // The lobby is waiting again first, so the phones go back to it as it is now.
+      lobbies.finishGame(state.lobbyId, state.botBattle === true);
+      io?.to(rooms.game(gameId)).emit('game:abandoned', { gameId });
     },
   });
 
@@ -251,6 +274,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
     sessions,
     hosts,
     history: new MatchHistory(db),
+    votes,
     gate,
     lobbies,
     games,
@@ -410,6 +434,7 @@ export async function startServer(config: Config, opts: StartOptions = {}): Prom
       if (presenceTimer) clearTimeout(presenceTimer);
       isp?.stop?.();
       games.shutdown();
+      votes.shutdown();
       sfu.shutdown();
       await new Promise<void>((r) => io!.close(() => r()));
       if (redirect) await new Promise<void>((r) => redirect!.close(() => r()));
